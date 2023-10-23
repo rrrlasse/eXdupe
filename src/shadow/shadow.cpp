@@ -1,23 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// 
+// eXdupe deduplication library and file archiver.
+//
+// Copyrights:
+// 2010 - 2023: Lasse Mikkel Reinhold
+
 #include "../unicode.h"
 
-// Copyright 2010 Google Inc.
-//
-// Licensed under the Apache License, Version 2.0 (the UNITXT("License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an UNITXT("AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// A command line utility that'll create snapshot of a given volume, and map it
-// to a drive letter, then run a command while the snapshot is mounted. This
-// is handy to simulate cold-start conditions, as a newly created and mounted
-// snapshot will be as cold as cold gets.
 #include <iostream>
 #include <vss.h>
 #include <vswriter.h>

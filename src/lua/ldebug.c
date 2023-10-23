@@ -106,7 +106,7 @@ static const char *upvalname (Proto *p, int uv) {
 
 static const char *findvararg (CallInfo *ci, int n, StkId *pos) {
   int nparams = clLvalue(ci->func)->p->numparams;
-  if (n >= ci->u.l.base - ci->func - nparams)
+  if (n >= ci->u.l.base_dir - ci->func - nparams)
     return NULL;  /* no such vararg */
   else {
     *pos = ci->func + nparams + n;
@@ -118,25 +118,25 @@ static const char *findvararg (CallInfo *ci, int n, StkId *pos) {
 static const char *findlocal (lua_State *L, CallInfo *ci, int n,
                               StkId *pos) {
   const char *name = NULL;
-  StkId base;
+  StkId base_dir;
   if (isLua(ci)) {
     if (n < 0)  /* access to vararg values? */
       return findvararg(ci, -n, pos);
     else {
-      base = ci->u.l.base;
+      base_dir = ci->u.l.base_dir;
       name = luaF_getlocalname(ci_func(ci)->p, n, currentpc(ci));
     }
   }
   else
-    base = ci->func + 1;
+    base_dir = ci->func + 1;
   if (name == NULL) {  /* no 'standard' name? */
     StkId limit = (ci == L->ci) ? L->top : ci->next->func;
-    if (limit - base >= n && n > 0)  /* is 'n' inside 'ci' stack? */
+    if (limit - base_dir >= n && n > 0)  /* is 'n' inside 'ci' stack? */
       name = "(*temporary)";  /* generic name for any valid slot */
     else
       return NULL;  /* no name */
   }
-  *pos = base + (n - 1);
+  *pos = base_dir + (n - 1);
   return name;
 }
 
@@ -477,7 +477,7 @@ static const char *getfuncname (lua_State *L, CallInfo *ci, const char **name) {
 */
 static int isinstack (CallInfo *ci, const TValue *o) {
   StkId p;
-  for (p = ci->u.l.base; p < ci->top; p++)
+  for (p = ci->u.l.base_dir; p < ci->top; p++)
     if (o == p) return 1;
   return 0;
 }
@@ -506,7 +506,7 @@ l_noret luaG_typeerror (lua_State *L, const TValue *o, const char *op) {
     kind = getupvalname(ci, o, &name);  /* check whether 'o' is an upvalue */
     if (!kind && isinstack(ci, o))  /* no? try a register */
       kind = getobjname(ci_func(ci)->p, currentpc(ci),
-                        cast_int(o - ci->u.l.base), &name);
+                        cast_int(o - ci->u.l.base_dir), &name);
   }
   if (kind)
     luaG_runerror(L, "attempt to %s %s " LUA_QS " (a %s value)",

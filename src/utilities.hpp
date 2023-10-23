@@ -1,24 +1,27 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
-// 
-// eXdupe deduplication library and file archiver.
+// eXdupe deduplication file archiver and library
 //
-// Copyrights:
+// Contributers:
+//
 // 2010 - 2023: Lasse Mikkel Reinhold
+//
+// eXdupe is now Public Domain (PD): The world's fastest deduplication with the
+// worlds least restrictive terms.
 
 #ifndef UTILITIES_HEADER
 #define UTILITIES_HEADER
 
 #include "unicode.h"
 
-// Do not increase too much because this amount is saved on stack in several places
+// Do not increase too much because this amount is saved on stack in several
+// places
 #define MAX_PATH_LEN 2048
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
-	#define WINDOWS
+#define WINDOWS
 #endif
 
 #if (defined(__X86__) || defined(__i386__) || defined(i386) || defined(_M_IX86) || defined(__386__) || defined(__x86_64__) || defined(_M_X64))
-	#define X86X64
+#define X86X64
 #endif
 
 #include <string.h>
@@ -28,41 +31,41 @@
 #include <thread.h>
 #endif
 
-#if defined(hpux) || defined(__hpux) 
-	#include <unistd.h>
+#if defined(hpux) || defined(__hpux)
+#include <unistd.h>
 #endif
 
-
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <string.h>
-#include <stdio.h>
-#include <stdarg.h>
-#include <stdlib.h>
 #include <algorithm>
+#include <stdarg.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <vector>
 
 #ifdef WINDOWS
-  #include <windows.h>
+#include <windows.h>
 #else
-  #include <utime.h>
-  #include <dirent.h>
-  #include <sys/stat.h>
-  #include <sys/time.h>
-  #include <sys/types.h>
-  #include <unistd.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <utime.h>
 #endif
 
 using namespace std;
-enum {FILE_TYPE, DIR_TYPE, SYMLINK_TYPE, ERROR_TYPE};
+enum { FILE_TYPE, DIR_TYPE, SYMLINK_TYPE, ERROR_TYPE };
+
+uint64_t rnd64();
 
 STRING string2wstring(string str);
 string wstring2string(STRING wstr);
 
-void myReplaceSTR(std::string& str, const std::string& oldStr, const std::string& newStr);
-void myReplace(std::STRING& str, const std::STRING& oldStr, const std::STRING& newStr);
+void myReplaceSTR(std::string &str, const std::string &oldStr, const std::string &newStr);
+void myReplace(std::STRING &str, const std::STRING &oldStr, const std::STRING &newStr);
 STRING replace2(STRING orig, STRING src, STRING dst);
 void cur_date(tm *tm_date);
 bool is_symlink(STRING file);
@@ -72,9 +75,8 @@ void set_date(STRING file, tm *tm_date);
 void get_date(STRING file, tm *tm_date);
 STRING slashify(STRING path);
 STRING slashify(STRING path);
-vector <STRING> split_string(STRING str, STRING delim);
+vector<STRING> split_string(STRING str, STRING delim);
 int delete_directory(STRING base_dir);
-#define _CRT_SECURE_NO_WARNINGS
 STRING ucase(STRING str);
 STRING lcase(STRING str);
 STRING remove_leading_curdir(STRING path);
@@ -94,17 +96,16 @@ bool create_directory(STRING path);
 bool create_directories(STRING path);
 size_t longest_common_prefix(vector<STRING> strings, bool case_sensitive);
 
-template <class T, class U> const uint64_t minimum (const T a, const U b) {
-  return (static_cast<uint64_t>(a) > static_cast<uint64_t>(b)) ? static_cast<uint64_t>(b) : static_cast<uint64_t>(a);  
+template <class T, class U> const uint64_t minimum(const T a, const U b) {
+    return (static_cast<uint64_t>(a) > static_cast<uint64_t>(b)) ? static_cast<uint64_t>(b) : static_cast<uint64_t>(a);
 }
 
-typedef struct 
-{
-	uint64_t remainder;
-	uint64_t remainder_len;
-	uint64_t b_val;
-	uint64_t a_val;
-	uint64_t result;
+typedef struct {
+    uint64_t remainder;
+    uint64_t remainder_len;
+    uint64_t b_val;
+    uint64_t a_val;
+    uint64_t result;
 } checksum_t;
 
 void checksum(unsigned char *data, size_t len, checksum_t *t);
@@ -125,21 +126,18 @@ void *tmalloc(size_t size);
 void set_bold(bool bold);
 
 typedef struct {
-        short int tm_year;    /* years since 1970 */
-        unsigned char tm_sec;     /* seconds after the minute - [0,59] */
-        unsigned char tm_min;     /* minutes after the hour - [0,59] */
-        unsigned char tm_hour;    /* hours since midnight - [0,23] */
-        unsigned char tm_mday;    /* day of the month - [1,31] */
-        unsigned char tm_mon;     /* months since January - [0,11] */
-        unsigned char tm_wday;    /* days since Sunday - [0,6] */
-        unsigned char tm_yday;    /* days since January 1 - [0,365] */
-        unsigned char tm_isdst;   /* daylight savings time flag */
-        } short_tm;
+    short int tm_year;      /* years since 1970 */
+    unsigned char tm_sec;   /* seconds after the minute - [0,59] */
+    unsigned char tm_min;   /* minutes after the hour - [0,59] */
+    unsigned char tm_hour;  /* hours since midnight - [0,23] */
+    unsigned char tm_mday;  /* day of the month - [1,31] */
+    unsigned char tm_mon;   /* months since January - [0,11] */
+    unsigned char tm_wday;  /* days since Sunday - [0,6] */
+    unsigned char tm_yday;  /* days since January 1 - [0,365] */
+    unsigned char tm_isdst; /* daylight savings time flag */
+} short_tm;
 
-
-void tm_to_short(short_tm* s, tm* l);
-void tm_to_long(short_tm* s, tm* l);
-
+void tm_to_short(short_tm *s, tm *l);
+void tm_to_long(short_tm *s, tm *l);
 
 #endif
-

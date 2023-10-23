@@ -149,7 +149,7 @@ static void correctstack (lua_State *L, TValue *oldstack) {
     ci->top = (ci->top - oldstack) + L->stack;
     ci->func = (ci->func - oldstack) + L->stack;
     if (isLua(ci))
-      ci->u.l.base = (ci->u.l.base - oldstack) + L->stack;
+      ci->u.l.base_dir = (ci->u.l.base_dir - oldstack) + L->stack;
   }
 }
 
@@ -257,16 +257,16 @@ static void callhook (lua_State *L, CallInfo *ci) {
 static StkId adjust_varargs (lua_State *L, Proto *p, int actual) {
   int i;
   int nfixargs = p->numparams;
-  StkId base, fixed;
+  StkId base_dir, fixed;
   lua_assert(actual >= nfixargs);
   /* move fixed parameters to final position */
   fixed = L->top - actual;  /* first fixed argument */
-  base = L->top;  /* final position of first argument */
+  base_dir = L->top;  /* final position of first argument */
   for (i=0; i<nfixargs; i++) {
     setobjs2s(L, L->top++, fixed + i);
     setnilvalue(fixed + i);
   }
-  return base;
+  return base_dir;
 }
 
 
@@ -322,19 +322,19 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
       return 1;
     }
     case LUA_TLCL: {  /* Lua function: prepare its call */
-      StkId base;
+      StkId base_dir;
       Proto *p = clLvalue(func)->p;
       luaD_checkstack(L, p->maxstacksize);
       func = restorestack(L, funcr);
       n = cast_int(L->top - func) - 1;  /* number of real arguments */
       for (; n < p->numparams; n++)
         setnilvalue(L->top++);  /* complete missing arguments */
-      base = (!p->is_vararg) ? func + 1 : adjust_varargs(L, p, n);
+      base_dir = (!p->is_vararg) ? func + 1 : adjust_varargs(L, p, n);
       ci = next_ci(L);  /* now 'enter' new function */
       ci->nresults = nresults;
       ci->func = func;
-      ci->u.l.base = base;
-      ci->top = base + p->maxstacksize;
+      ci->u.l.base_dir = base_dir;
+      ci->top = base_dir + p->maxstacksize;
       lua_assert(ci->top <= L->stack_last);
       ci->u.l.savedpc = p->code;  /* starting point */
       ci->callstatus = CIST_LUA;

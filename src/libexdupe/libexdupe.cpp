@@ -5,824 +5,829 @@
 // Copyrights:
 // 2010 - 2023: Lasse Mikkel Reinhold
 
-#define compile_assert(x) int __dummy[(int)x]; static_cast<void>(__dummy);
-
-#include "libeXdupe.h"
-#include "bzip2/bzlib.h"
-#include "zlib/zlib.h"
-
-#ifndef INLINE
-	#define INLINE
+#if defined _MSC_VER
+#include <intrin.h>
 #endif
 
-#define DUP_MAX_INPUT (32*1024*1024)
+#if defined(_WIN32)
+#define INLINE __forceinline
+#else
+#define INLINE __attribute__((always_inline)) inline
+#endif
+
+#define DUP_MAX_INPUT (32 * 1024 * 1024)
 #define DUP_MATCH "DM"
 #define DUP_LITERAL "DL"
- 
+
 #if defined(__SVR4) && defined(__sun)
-	#include <thread.h>
+#include <thread.h>
 #endif
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
-	#define WINDOWS
+#define WINDOWS
 #endif
 
 #if (defined(__X86__) || defined(__i386__) || defined(i386) || defined(_M_IX86) || defined(__386__) || defined(__x86_64__) || defined(_M_X64))
-	#define X86X64
+#define X86X64
 #endif
 
-#include <stdio.h>
 #include <assert.h>
-#include "quicklz/quicklz.h"
-#include "skein/skein.h"
+#include <immintrin.h>
+#include <smmintrin.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 
 #ifdef WINDOWS
-	#include <Windows.h>
-	#include "pthread/pthread.h"
-#define SLEEP1SEC Sleep(1000);
+#include "pthread/pthread.h"
+#include <Windows.h>
 #else
-	#define SLEEP1SEC sleep(1);
-	#include <unistd.h>
-	#include <pthread.h>
+#include <pthread.h>
+#include <unistd.h>
 #endif
 
-//#define THREADTEST
+#include <condition_variable>
+#include <iostream>
+#include <vector>
 
-#ifdef THREADTEST
+#include "blake3/c/blake3.h"
+#include "xxHash/xxh3.h"
+#include "xxHash/xxhash.h"
 
-uint64_t lr(void)
-{
-	return ((uint64_t)rand()) | (((uint64_t)rand()) << 12) | (((uint64_t)rand()) << 24);
+#define ZSTD_STATIC_LINKING_ONLY
+#include "zstd/lib/zstd.h"
+
+#include "libexdupe.h"
+
+using namespace std;
+
+// #define EXDUPE_THREADTEST
+
+#ifdef EXDUPE_THREADTEST
+void threadtest_delay(void) {
+    const uint64_t delay_frequency = 100;
+    static std::atomic<uint64_t> r = 0;
+    const uint64_t multiplier = 0xc7d7ecef3d0a1f23;
+    const uint64_t increment = 0xb4e3a3eb07c057d1;
+
+    r = (multiplier * r + increment);
+
+    if (r < 0xffffffffffffffff / delay_frequency) {
+        if (r % 10000 == 0) {
+            Sleep(r % 1000);
+        } else if (r % 1000 == 0) {
+            Sleep(r % 100);
+        } else {
+            Sleep(r % 10);
+        }
+    }
 }
-
-void RANDSLEEP(void)
-{
-	if((rand() % 10000) == 1)
-	{
-		Sleep(rand() % 1000);
-	}
-	else if((rand() % 1000) == 1)
-	{
-		Sleep((rand() % 100) == 1);
-	}
-	else if((rand() % 100) == 1)
-	{
-		Sleep(rand() % 10);
-	}
-}
-
-int pthread_mutex_trylock2(pthread_mutex_t * mutex)
-{
-	RANDSLEEP();
-	int i = pthread_mutex_trylock(mutex);
-	RANDSLEEP();
-	return i;
-}
-
-#define SURROUND(arg) \
-	RANDSLEEP(); \
-	arg; \
-	RANDSLEEP();
-
-#define pthread_mutex_lock(mutex) SURROUND(pthread_mutex_lock(mutex))
-#define pthread_mutex_unlock(mutex) SURROUND(pthread_mutex_unlock(mutex))
-#define pthread_cond_wait(mutex, cond) SURROUND(pthread_cond_wait(mutex, cond))
-#define pthread_cond_broadcast(cond) SURROUND(pthread_cond_broadcast(cond))
-#define pthread_cond_signal(cond) SURROUND(pthread_cond_signal(cond))
-
-#define pthread_mutex_trylock pthread_mutex_trylock2
+#else
+    void threadtest_delay(void) {}
 #endif
 
+int pthread_mutex_lock_wrapper(pthread_mutex_t *m) {
+    threadtest_delay();
+    int r = pthread_mutex_lock(m);
+    threadtest_delay();
+    return r;
+}
 
+int pthread_mutex_unlock_wrapper(pthread_mutex_t *m) {
+    threadtest_delay();
+    int r = pthread_mutex_unlock(m);
+    threadtest_delay();
+    return r;
+}
+
+int pthread_cond_wait_wrapper(pthread_cond_t *c, pthread_mutex_t *m) {
+    threadtest_delay();
+    int r = pthread_cond_wait(c, m);
+    threadtest_delay();
+    return r;
+}
+
+int pthread_cond_broadcast_wrapper(pthread_cond_t *c) {
+    threadtest_delay();
+    int r = pthread_cond_broadcast(c);
+    threadtest_delay();
+    return r;
+}
+
+int pthread_cond_signal_wrapper(pthread_cond_t *c) {
+    threadtest_delay();
+    int r = pthread_cond_signal(c);
+    threadtest_delay();
+    return r;
+}
+int pthread_mutex_trylock_wrapper(pthread_mutex_t *mutex) {
+    threadtest_delay();
+    int r = pthread_mutex_trylock(mutex);
+    threadtest_delay();
+    return r;
+}
+
+// Todo, get rid of some of all these global variables
 size_t SMALL_BLOCK;
 size_t LARGE_BLOCK;
+uint64_t HASH_ENTRIES;
+int THREADS;
+int LEVEL;
 
-uint64_t SMALL_PRIME = 0x123456783aad8471ULL;
-#define SHA_SIZE 22 // 256 bits
+bool g_crypto_hash = false;
+uint64_t g_hash_salt = 0;
 
-#define MEGA (1024*1024)
-#define KILO 1024
-
-int THREADS = 4;
-int LEVEL = 1;	// 1 or 2
-
+// Unused. Todo, figure out if useful at all
 bool exit_threads;
 
 pthread_mutex_t table_mutex;
-pthread_mutex_t jobdone_mutex;
 pthread_cond_t jobdone_cond;
+pthread_mutex_t jobdone_mutex;
+mutex job_info;
 
-uint64_t HASH_ENTRIES;
+std::atomic<uint64_t> largehits = 0;
+std::atomic<uint64_t> smallhits = 0;
 
+// Set to false in order to not update the hashtable. Used during diff backup.
 bool add_data = true;
 
-size_t tbl_size;
+#define SHA_SIZE 16
 
-typedef struct
-{
-	uint64_t offset;  
-	uint32_t hash;		
-	unsigned char copy[5];     
-	unsigned char sha[SHA_SIZE];
-	unsigned char used;		
-} hash_t;
+#pragma pack(push, 1)
+struct hash_t {
+    uint64_t offset;
+    uint16_t hash;
+    uint16_t slide;
+    unsigned char sha[SHA_SIZE];
+};
+#pragma pack(pop)
 
 hash_t (*table)[2];
 
-qlz_state_decompress state_decompress;
-bz_stream bzip2d;
-z_stream zlibd;
+bool used(hash_t h) { return h.offset != 0 && h.hash != 0; }
 
-uint64_t largehits = 0;
-uint64_t smallhits = 0;
+uint64_t large_hits() { return largehits; }
 
-template <class T, class U> const uint64_t minimum (const T a, const U b) {
-  return (static_cast<uint64_t>(a) > static_cast<uint64_t>(b)) ? static_cast<uint64_t>(b) : static_cast<uint64_t>(a);  
+uint64_t small_hits() { return smallhits; }
+
+template <class T, class U> const uint64_t minimum(const T a, const U b) {
+    return (static_cast<uint64_t>(a) > static_cast<uint64_t>(b)) ? static_cast<uint64_t>(b) : static_cast<uint64_t>(a);
 }
 
-INLINE static void utils_yield(void)
-{
-// don't use sleep(0) because it yields multiple time slices
-#ifdef WINDOWS
-    sched_yield();
-#elif defined(__SVR4) && defined(__sun)
-    thr_yield(); // Solaris
-#else
-    sched_yield();  // other *nix
-#endif
+INLINE static bool dd_equal(const void *src1, const void *src2, size_t len) {
+    char *s1 = (char *)src1;
+    char *s2 = (char *)src2;
+    for (size_t i = 0; i < len; i++) {
+        if (s1[i] != s2[i]) {
+            return false;
+        }
+    }
+    return true;
 }
 
-
-INLINE static bool dd_equal(const void *src1, const void *src2, size_t len)
-{
-	size_t i;
-	char *s1 = (char *)src1;
-	char *s2 = (char *)src2;
-	for(i = 0; i < len; i++)
-		if(s1[i] != s2[i])
-			return false;
-	return true;
+INLINE static void ll2str(uint64_t l, char *dst, int bytes) {
+    while (bytes > 0) {
+        *dst = (l & 0xff);
+        dst++;
+        l = l >> 8;
+        bytes--;
+    }
 }
 
-
-INLINE static void ll2str(uint64_t l, char *dst, int bytes)
-{
-	while(bytes > 0)
-	{
-		*dst = (l & 0xff);
-		dst++;
-		l = l >> 8;
-		bytes--;
-	}
+INLINE static uint64_t str2ll(const void *src, int bytes) {
+    unsigned char *src2 = (unsigned char *)src;
+    uint64_t l = 0;
+    while (bytes > 0) {
+        bytes--;
+        l = l << 8;
+        l = (l | *(src2 + bytes));
+    }
+    return l;
 }
 
-INLINE static uint64_t str2ll(const void *src, int bytes)
-{
-	unsigned char *src2 = (unsigned char *)src;
-	uint64_t l = 0;
-	while(bytes > 0)
-	{
-		bytes--;
-		l = l << 8;
-		l = (l | *(src2 + bytes));
-	}
-	return l;
-}
-
-
-typedef struct
-{
-	pthread_cond_t cond;
-	pthread_t thread;
-	int status;
-	unsigned char source[DUP_MAX_INPUT];
-	unsigned char destination[DUP_MAX_INPUT + 1024*1024];
-	uint64_t payload;
-	size_t size_source;
-	size_t size_destination;
-	pthread_mutex_t mutex;
-	int id;
-	qlz_state_compress qlz;
-	bz_stream bzip2c;
-	z_stream zlibc;
-	bool add;
-	bool busy;
+typedef struct {
+    pthread_t thread;
+    int status;
+    unsigned char source[DUP_MAX_INPUT];
+    unsigned char destination[DUP_MAX_INPUT + 1024 * 1024];
+    uint64_t payload;
+    size_t size_source;
+    size_t size_destination;
+    pthread_mutex_t jobmutex;
+    pthread_cond_t cond;
+    int id;
+    char *zstd;
+    bool add;
+    bool busy;
 } job_t;
 
 job_t *jobs;
 
+char *zstd_decompress_state;
 
+typedef struct {
+    ZSTD_CCtx *cctx;
+    ZSTD_DCtx *dctx;
+    ZSTD_CDict *cdict;
+    ZSTD_parameters zparams;
+    ZSTD_customMem cmem;
+} zstd_params_s;
 
-INLINE static void sha(const unsigned char *src, size_t len, unsigned char *dst)
-{
-	unsigned char d[100];
-	Skein_256_Ctxt_t ctx; 
-	Skein_256_Init(&ctx, 256);
-	Skein_256_Update(&ctx, src, len);
-	Skein_256_Final(&ctx, d);
-	memcpy(dst, d, SHA_SIZE);
+char *zstd_init() {
+    // Todo, leaks if we should one day decide to use thread cancelation
+    // (bool exit_threads).
+    zstd_params_s *zstd_params = (zstd_params_s *)malloc(sizeof(zstd_params_s));
+    if (!zstd_params) {
+        return NULL;
+    }
+    zstd_params->cctx = ZSTD_createCCtx();
+    zstd_params->dctx = ZSTD_createDCtx();
+    zstd_params->cdict = NULL;
+    return (char *)zstd_params;
 }
 
-INLINE static uint64_t shall(const void *src, size_t len) 
-{
-	char *src2 = (char *)src;
-	uint64_t l = 0;
-	uint64_t a_val = 0xd20f9a8b761b7e4cULL;
-	uint64_t b_val = 0x994e80091d2f0bc3ULL;
+int64_t zstd_compress(char *inbuf, size_t insize, char *outbuf, size_t outsize, int level, char *workmem) {
+    size_t res;
+    zstd_params_s *zstd_params = (zstd_params_s *)workmem;
+    res = ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf, insize, level);
+    assert(!ZSTD_isError(res));
+    return res;
+}
 
-	while(len >= 8)
-	{
+int64_t zstd_decompress(char *inbuf, size_t insize, char *outbuf, size_t outsize, size_t, size_t, char *workmem) {
+    zstd_params_s *zstd_params = (zstd_params_s *)workmem;
+    return ZSTD_decompressDCtx(zstd_params->dctx, outbuf, outsize, inbuf, insize);
+}
+
+INLINE static void sha(const unsigned char *src, size_t len, unsigned char *dst) {
+    if (g_crypto_hash) {
+        char salt[sizeof(g_hash_salt)];
+        ll2str(g_hash_salt, salt, sizeof(g_hash_salt));
+        blake3_hasher hasher;
+        blake3_hasher_init(&hasher);
+        blake3_hasher_update(&hasher, salt, sizeof(salt));
+        blake3_hasher_update(&hasher, src, len);
+        uint8_t output[BLAKE3_OUT_LEN];
+        blake3_hasher_finalize(&hasher, output, BLAKE3_OUT_LEN);
+        memcpy(dst, output, SHA_SIZE);
+    } else {
+        XXH64_hash_t s{g_hash_salt};
+        XXH128_hash_t hash = XXH128(src, len, s);
+        memcpy(dst, &hash, SHA_SIZE);
+    }
+}
+
+INLINE static uint64_t shall(const void *src, size_t len) {
+    char *src2 = (char *)src;
+    uint64_t l = 0;
+    uint64_t a_val = 0xd20f9a8b761b7e4cULL;
+    uint64_t b_val = 0x994e80091d2f0bc3ULL;
+
+    while (len >= 8) {
 #ifdef X86X64
-		a_val += (*(uint64_t *)src2) * b_val;
-#else		
-		for(uint32_t i = 0; i < 8; i++)
-		{
-			l = l >> 8;
-			l = l | (uint64_t)*(src2 + i) << (7*8);
-		}
-		a_val += l * b_val;
-#endif
-		b_val += a_val;
-		len -= 8;
-		src2 += 8;
-	}
-
-	while(len > 0)
-	{
-		l = l >> 8;
-		l = l | (uint64_t)*src2 << (7*8);
-		src2++;
-		len--;
-	}
-	a_val += l * b_val;
-	b_val += a_val;
-	return a_val + b_val;
-}
-
-size_t dup_table_condense(void)
-{
-	uint64_t hash;
-	char *dst = (char *)table;
-	size_t i, j;
-	size_t null_entries = 0;
-	size_t siz;
-
-	hash = shall(table, 2*sizeof(hash_t)*HASH_ENTRIES);
-
-	for(i = 0; i < HASH_ENTRIES; i++)
-	{
-		for(j = 0; j < 2; j++)
-		{
-			if (table[i][j].used != 0 || (j == 1 && i == HASH_ENTRIES - 1))
-			{
-				if(j == 1 && i == HASH_ENTRIES - 1 && table[i][j].used == 0)
-					null_entries++;
-
-				if(null_entries > 0)
-				{
-					ll2str(null_entries, dst, 8);
-					dst += 8;
-					*dst++ = 0x11;
-				}
-				
-				if(table[i][j].used != 0)
-				{
-					hash_t h;
-					memcpy(&h, &table[i][j], sizeof(hash_t));
-
-					ll2str(h.offset, dst, 8);
-					ll2str(h.hash, dst + 8, 4);
-					memcpy(dst + 8 + 4, h.copy, 5);
-					memcpy(dst + 8 + 4 + 5, h.sha, SHA_SIZE);
-
-					dst += 8 + 4 + 5 + SHA_SIZE;
-					*dst++ = 0x22;
-				}
-				null_entries = 0;
-			}			
-			else
-			{
-				null_entries++;
-			}
-		}
-	}
-
-	siz = dst - (char *)table;
-	ll2str(hash, (char *)table + siz, 8);
-	siz += 8;
-
-	return siz;	
-}
-
-int dup_table_expand(size_t len)
-{
-	unsigned char *src = (unsigned char *)table + len - 1;
-	size_t null_entries = 0;
-	int64_t i, j;
-	uint64_t hash = str2ll(src - 7, 8);
-	src -= 8;
-
-	for(i = HASH_ENTRIES - 1; i >= 0; i--)
-	{
-		for(j = 1; j >= 0; j--)
-		{
-			if(null_entries == 0)
-			{
-				if (*src == 0x11)
-				{
-					src -= 8;
-					null_entries = str2ll(src, 8);
-					src--;
-
-					null_entries--;
-					memset(&table[i][j], 0, sizeof(hash_t));
-				}
-				else if (*src == 0x22)
-				{
-					unsigned char temp[1000];
-					src -= (8 + 4 + 5 + SHA_SIZE);
-
-					memcpy(temp, src, 8 + 4 + 5 + SHA_SIZE);
-					memset(&table[i][j], 0, sizeof(hash_t));
-
-					table[i][j].offset = str2ll(temp, 8);
-					table[i][j].hash = static_cast<uint32_t>(str2ll(temp + 8, 4));
-					memcpy(table[i][j].copy, temp + 8 + 4, 5);
-					memcpy(table[i][j].sha, temp + 8 + 4 + 5, SHA_SIZE);
-					
-					table[i][j].used = 1;
-					src--;
-				}
-				else
-				{
-					fprintf(stderr, "\neXdupe: Internal error or archive corrupted, at table_expand()\n");
-					exit(-1);
-				}
-			}
-			else
-			{
-				null_entries--;
-				memset(&table[i][j], 0, sizeof(hash_t));
-			}
-		}
-	}
-
-	if (hash != shall(table, 2*sizeof(hash_t)*HASH_ENTRIES))
-	{
-		fprintf(stderr, "\neXdupe: Internal error or archive corrupted, at table_expand(), at hashtable\n");
-		return -1;
-	}
-	return 0;
-}
-
-
-
-INLINE static uint64_t entry(uint64_t window)
-{
-	return window % HASH_ENTRIES;
-}
-
-
-INLINE static uint32_t quick(const unsigned char *src, size_t len) // maybe not needed
-{
-	uint64_t res = 0;
-	size_t i;
-	for(i = 0; i < len - len/10 - 10; i += len/10)
-	{
-		uint64_t l;
-#ifdef X86X64
-		l = *reinterpret_cast<const uint64_t *>(src + i);
+        a_val += (*(uint64_t *)src2) * b_val;
 #else
-		l = str2ll(src + i, 8);
+        for (uint32_t i = 0; i < 8; i++) {
+            l = l >> 8;
+            l = l | (uint64_t) * (src2 + i) << (7 * 8);
+        }
+        a_val += l * b_val;
 #endif
-		res = res ^ ((l + 1)*i*SMALL_PRIME);
-	}
-	return static_cast<uint32_t>(res ^ (res >> 32));
+        b_val++;
+        len -= 8;
+        src2 += 8;
+    }
+
+    while (len > 0) {
+        l = l >> 8;
+        l = l | (uint64_t)*src2 << (7 * 8);
+        src2++;
+        len--;
+    }
+    a_val += l * b_val;
+    b_val++;
+    return a_val + b_val;
 }
 
+void print_table() {
+    cerr << "\n";
+    for (uint64_t i = 0; i < HASH_ENTRIES; i++) {
+        for (int j = 0; j < 2; j++) {
+            cerr << table[i][j].slide << " ";
+        }
+        cerr << "\n";
+    }
+}
 
-INLINE static uint32_t window(const unsigned char *src, size_t len, const unsigned char **pos)
-{
-	uint64_t i;
-	size_t slide = len / 8;
-	size_t percent = (len - slide) / 100;
-		
-	size_t a = len >= 8 * 1024 ? 1 : (6 * 1024) / len;
+size_t dup_table_condense(void) {
+    uint64_t hash;
+    char *dst = (char *)table;
+    uint64_t i = 0;
+    size_t siz;
 
-	// 256k must give 1
-	// 1k must give 8 (4 hits per 1 kb on AVERAGE)
-	// 2 =          4
-	// 4 =			2
-	// 8 =          1
+    bool used2 = used(table[0][0]) || used(table[0][1]);
 
-	for(i = 0; i < slide; i += 1)
-  	{
-		unsigned char h = static_cast<unsigned char>(SMALL_PRIME * (653 + src[i] + src[i + 33*percent] + src[i + 66*percent] + src[i + len - slide - 4]));
-		if(h < a)
+    do {
+        uint64_t count = 1;
+        while (i + count < HASH_ENTRIES) {
+            bool used3 = used(table[i + count][0]) || used(table[i + count][1]);
+            if (used2 != used3) {
+                break;
+            }
+            count++;
+        }
+
+        if (used2) {
+            for (uint64_t k = 0; k < count; k++) {
+                hash_t h;
+                for (int j = 0; j < 2; j++) {
+                    memcpy(&h, &table[i][j], sizeof(hash_t));
+                    ll2str(h.offset, dst, 8);
+                    ll2str(h.hash, dst + 8, 2);
+                    ll2str(h.slide, dst + 8 + 2, 2);
+                    memcpy(dst + 8 + 2 + 2, h.sha, SHA_SIZE);
+                    dst += 8 + 2 + 2 + SHA_SIZE;
+                }
+                i++;
+            }
+        } else {
+            i += count;
+        }
+
+        *dst = used2 ? 'Y' : 'N';
+        dst++;
+        ll2str(count, dst, 8);
+        dst += 8;
+
+        used2 = !used2;
+
+    } while (i < HASH_ENTRIES);
+
+    siz = dst - (char *)table;
+
+    hash = shall(table, siz);
+    ll2str(hash, (char *)table + siz, 8);
+
+    siz += 8;
+    // print_table();
+    return siz;
+}
+
+int dup_table_expand(size_t len) {
+    // print_table();
+    unsigned char *src = (unsigned char *)table + len - 1;
+    size_t i = HASH_ENTRIES - 1;
+
+    uint64_t hash = str2ll(src - 7, 8);
+    auto g = shall(table, src - (unsigned char *)table + 1 - 8);
+    if (hash != g) {
+        // todo move error handing outside the lib
+        fprintf(stderr, "\neXdupe: Internal error or archive corrupted, at table_expand(), at hashtable\n");
+        return -1;
+    }
+
+    src -= 8;
+    src -= 8;
+
+    bool used = *src == 'Y' ? true : false;
+    size_t count = str2ll(src + 1, 8);
+
+    while (i > 0) {
+        auto count2 = count;
+        auto used2 = used;
+
+        if (i > count) {
+            unsigned char *next = src;
+            if (used) {
+                next -= (2 * count) * sizeof(hash_t);
+            }
+            next -= 9;
+            used = *(next) == 'Y' ? true : false;
+            count = str2ll((next + 1), 8);
+        }
+
+        for (uint64_t k = 0; k < count2; k++) {
+            for (int j = 0; j < 2; j++) {
+                if (used2) {
+                    unsigned char temp[100];
+                    src -= (8 + 2 + 2 + SHA_SIZE);
+                    memcpy(temp, src, 8 + 2 + 2 + SHA_SIZE);
+                    table[i][1 - j].offset = str2ll(temp, 8);
+                    table[i][1 - j].hash = static_cast<uint16_t>(str2ll(temp + 8, 2));
+                    table[i][1 - j].slide = static_cast<uint16_t>(str2ll(temp + 8 + 2, 2));
+                    memcpy(table[i][1 - j].sha, temp + 8 + 2 + 2, SHA_SIZE);
+                } else {
+                    memset(&table[i][1 - j], 0, sizeof(hash_t));
+                }
+            }
+
+            if (i == 0) {
+                assert(k == count2 - 1);
+                break;
+            }
+
+            i--;
+        }
+        src -= 8; // cnt
+        src -= 1; // used
+    }
+
+    return 0;
+}
+
+INLINE static uint64_t entry(uint64_t window) { return window % HASH_ENTRIES; }
+
+INLINE static uint32_t quick(const unsigned char *src, size_t len) {
+    uint32_t r1 = *reinterpret_cast<const uint8_t *>(src);
+    r1 ^= *reinterpret_cast<const uint8_t *>(src + len - 4);
+    r1 ^= *reinterpret_cast<const uint8_t *>(src + len / 8 * 1);
+
+    uint32_t r2 = *reinterpret_cast<const uint8_t *>(src + len / 8 * 2);
+    r2 ^= *reinterpret_cast<const uint8_t *>(src + len / 8 * 3);
+    r2 ^= *reinterpret_cast<const uint8_t *>(src + len / 8 * 4);
+
+    uint32_t r3 = *reinterpret_cast<const uint8_t *>(src + len / 8 * 5);
+    r3 ^= *reinterpret_cast<const uint8_t *>(src + len / 8 * 6);
+    r3 ^= *reinterpret_cast<const uint8_t *>(src + len / 8 * 7);
+
+    return r1 ^ (r2 << 8) ^ (r3 << 16);
+}
+
+INLINE static uint32_t window(const unsigned char *src, size_t len, const unsigned char **pos) {
+    size_t i = 0;
+    size_t slide = len / 8; // slide must be able to fit in hash_t.O. Todo, static assert
+    size_t percent = (len - slide) / 100;
+    int8_t b = static_cast<int8_t>(len > 8 * 1024 ? 1 : (8 * 1024) / len);
+    // len  1k  2k  4k   8k  128k  256k
+    //   b   8   4   2    1     1     1
+
+    uint64_t position = static_cast<size_t>(-1);
+    b = -128 + b;
+#if 0
+	for (i = 0; i + 32 < slide; i += 32) {
+		__m256i src1 = _mm256_loadu_si256((__m128i*)(&src[i]));
+		__m256i src2 = _mm256_loadu_si256((__m128i*)(&src[i + 20 * percent]));
+		__m256i src3 = _mm256_loadu_si256((__m128i*)(&src[i + 80 * percent]));
+		__m256i src4 = _mm256_loadu_si256((__m128i*)(&src[i + len - slide - 4]));
+		__m256i sum = _mm256_add_epi8(_mm256_add_epi8(src1, src2), _mm256_add_epi8(src3, src4));
+		__m256i comparison = _mm256_cmpgt_epi8(sum, _mm256_set1_epi8(b - 1));
+		auto larger = _mm256_movemask_epi8(comparison);
+		if (larger != 0xffffffff) {
+#if defined _MSC_VER
+			auto off = _tzcnt_u32(static_cast<unsigned>(~larger));
+#else
+			auto off = __builtin_ctz(static_cast<unsigned>(~larger));
+#endif
+			position = i + off;
 			break;
+		}
 	}
-	
-	if(pos != 0)
-		*pos = src + i;
 
-	return quick(src + i, len - slide - 8);
+#else
+
+    for (i = 0; i + 16 < slide; i += 16) {
+        __m128i src1 = _mm_loadu_si128((__m128i *)(&src[i]));
+        __m128i src2 = _mm_loadu_si128((__m128i *)(&src[i + 20 * percent]));
+        __m128i src3 = _mm_loadu_si128((__m128i *)(&src[i + 80 * percent]));
+        __m128i src4 = _mm_loadu_si128((__m128i *)(&src[i + len - slide - 4]));
+        __m128i sum = _mm_add_epi8(_mm_add_epi8(src1, src2), _mm_add_epi8(src3, src4));
+        __m128i comparison = _mm_cmpgt_epi8(sum, _mm_set1_epi8(b - 1));
+        auto larger = _mm_movemask_epi8(comparison);
+        if (larger != 0xffff) {
+#if defined _MSC_VER
+            auto off = _tzcnt_u32(static_cast<unsigned>(~larger));
+#else
+            auto off = __builtin_ctz(static_cast<unsigned>(~larger));
+#endif
+            position = i + off;
+            break;
+        }
+    }
+
+#endif
+
+    if (position == static_cast<uint64_t>(-1)) {
+        for (; i < slide; i += 1) {
+            signed char h = static_cast<unsigned char>(src[i] + src[i + 20 * percent] + src[i + 80 * percent] + src[i + len - slide - 4]);
+            if (h < b) {
+                position = i;
+                break;
+            }
+        }
+    }
+
+    if (position == static_cast<uint64_t>(-1)) {
+        position = slide;
+    }
+
+    if (pos != 0) {
+        *pos = (unsigned char *)src + position;
+    }
+
+    return quick((unsigned char *)src + position, len - slide - 8);
 }
 
 // there must be LARGE_BLOCK more valid data after src + len
-INLINE const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t len, size_t block, int no, uint64_t *payload_ref)
-{	
-	const unsigned char *w_pos;
-	const unsigned char *orig_src = src;
-	const unsigned char *last_src = src + len - 1;
-	uint64_t w;
-	w = window(src, block, &w_pos);
-	size_t collision_skip = 32;
+INLINE const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t len, size_t block, int no, uint64_t *payload_ref) {
+    const unsigned char *w_pos;
+    const unsigned char *orig_src = src;
+    const unsigned char *last_src = src + len - 1;
+    uint64_t w = window(src, block, &w_pos);
+    size_t collision_skip = 32;
 
-	while(src <= last_src)
-	{
-		uint64_t j = entry(w);
+    while (src <= last_src) {
+        uint64_t j = entry(w);
 
-		if (table[j][no].hash == w)
-		{
-			#define CONDITION table[j][no].hash == w && src[0] == table[j][no].copy[0] && src[block - 1] == table[j][no].copy[4] && src[block / 4 * 1] == table[j][no].copy[1] && src[block / 4 * 2] == table[j][no].copy[2] && src[block / 4 * 3] == table[j][no].copy[3] && table[j][no].used == 1 && (   (!add_data) || (table[j][no].offset + block < pay + (src - orig_src)))
+        // CAUTION: Outside mutex, assume reading garbage and that data changes
+        // between reads
+        if (table[j][no].hash == uint16_t(w) && used(table[j][no])) {
+            pthread_mutex_lock_wrapper(&table_mutex);
+            if (used(table[j][no]) && w_pos - table[j][no].slide > src && w_pos - table[j][no].slide <= last_src) {
+                src = w_pos - table[j][no].slide;
+            }
+            pthread_mutex_unlock_wrapper(&table_mutex);
 
-			if(CONDITION) // we need check here and one in a mutex later
-			{
-				unsigned char s[SHA_SIZE];
+            if (!add_data || (table[j][no].offset + block < pay + (src - orig_src))) {
+                unsigned char s[SHA_SIZE];
 
-				if(block == LARGE_BLOCK)
-				{
-					uint32_t k;
-					unsigned char tmp[8*KILO]; // fixme
-					for(k = 0; k < LARGE_BLOCK / SMALL_BLOCK; k++)
-						sha(src + k * SMALL_BLOCK, SMALL_BLOCK, tmp + k * SHA_SIZE);
-					sha(tmp, LARGE_BLOCK / SMALL_BLOCK * SHA_SIZE, s);
-				}
-				else
-				{
-					sha(src, block, s);
-				}
+                if (block == LARGE_BLOCK) {
+                    unsigned char tmp[8 * 1024];
+                    assert(sizeof(tmp) >= LARGE_BLOCK / SMALL_BLOCK * SHA_SIZE);
+                    uint32_t k;
+                    for (k = 0; k < LARGE_BLOCK / SMALL_BLOCK; k++) {
+                        sha(src + k * SMALL_BLOCK, SMALL_BLOCK, tmp + k * SHA_SIZE);
+                    }
+                    sha(tmp, LARGE_BLOCK / SMALL_BLOCK * SHA_SIZE, s);
+                } else {
+                    sha(src, block, s);
+                }
 
-				pthread_mutex_lock(&table_mutex);
+                pthread_mutex_lock_wrapper(&table_mutex);
 
-				if(dd_equal(s, table[j][no].sha, SHA_SIZE) && CONDITION)
-				{
-					collision_skip = 32;
-					*payload_ref = table[j][no].offset;
-					pthread_mutex_unlock(&table_mutex);
+                if (dd_equal(s, table[j][no].sha, SHA_SIZE) && table[j][no].hash == uint16_t(w) && used(table[j][no]) &&
+                    (!add_data || (table[j][no].offset + block < pay + (src - orig_src)))) {
+                    collision_skip = 32;
+                    *payload_ref = table[j][no].offset;
+                    pthread_mutex_unlock_wrapper(&table_mutex);
 
-					if(block == LARGE_BLOCK)
-						largehits++;
-					else
-						smallhits++;
+                    if (block == LARGE_BLOCK) {
+                        largehits += block;
+                    } else {
+                        smallhits += block;
+                    }
 
-					return src;
-				}
-				else
-				{
-					char c;
-					src += collision_skip;
-					collision_skip = collision_skip * 2 > LARGE_BLOCK ? LARGE_BLOCK : collision_skip * 2;
-					c = *src;
-					while(src <= last_src && *src == c)
-						src++;
-				}
+                    return src;
+                } else {
+                    char c;
+                    src += collision_skip;
+                    collision_skip = collision_skip * 2 > LARGE_BLOCK ? LARGE_BLOCK : collision_skip * 2;
+                    c = *src;
+                    while (src <= last_src && *src == c) {
+                        src++;
+                    }
+                }
 
-				pthread_mutex_unlock(&table_mutex);
-			}
-		}
-		else
-			src = w_pos;
+                pthread_mutex_unlock_wrapper(&table_mutex);
+            } else {
+                src = w_pos;
+            }
+        } else {
+            src = w_pos;
+        }
 
-		src++;
+        src++;
 
-		if (w_pos < src)
-		{
-			w = window(src, block, &w_pos);
-		}
-	}
+        if (w_pos < src) {
+            w = window(src, block, &w_pos);
+        }
+    }
 
-	return 0;			
+    return 0;
 }
 
+INLINE static void hashat(const unsigned char *src, uint64_t pay, size_t len, int no, unsigned char *hash, int overwrite) {
+    const unsigned char *o;
+    uint64_t w = window(src, len, &o);
+    uint64_t j = entry(w);
 
-INLINE static void hashat(const unsigned char *src, uint64_t pay, size_t len, int no, unsigned char *hash, int overwrite)
-{
-	uint64_t w = window(src, len, 0);
-	uint64_t j = entry(w);
-	
-	pthread_mutex_lock(&table_mutex);
+    pthread_mutex_lock_wrapper(&table_mutex);
 
-	if((overwrite == 0 && table[j][no].used == 0) ||
-	   (overwrite == 1 && (table[j][no].used == 0 || table[j][no].hash != w)) ||
-	   (overwrite == 2))
-	{
-		table[j][no].used = 1;
-		table[j][no].hash = static_cast<uint32_t>(w);
-		table[j][no].offset = pay;
+    if ((overwrite == 0 && !used(table[j][no])) || (overwrite == 1 && (!used(table[j][no]) || table[j][no].hash != uint16_t(w))) || (overwrite == 2)) {
+        if (!dd_equal(hash, table[j][no].sha, SHA_SIZE)) {
+            table[j][no].hash = static_cast<uint16_t>(w);
+            table[j][no].offset = pay;
 
-		memcpy((unsigned char *)table[j][no].sha, hash, SHA_SIZE);
+            memcpy((unsigned char *)table[j][no].sha, hash, SHA_SIZE);
 
-		table[j][no].copy[0] = src[0];
-		table[j][no].copy[1] = src[len / 4 * 1];
-		table[j][no].copy[2] = src[len / 4 * 2];
-		table[j][no].copy[3] = src[len / 4 * 3];
-		table[j][no].copy[4] = src[len - 1];
-	}
+            assert(o - src <= 0xffffull);
+            table[j][no].slide = static_cast<uint16_t>(o - src);
 
-	pthread_mutex_unlock(&table_mutex);
+            static_assert(is_same<decltype(table[j][no].slide), uint16_t>::value);
+        }
+    }
 
+    pthread_mutex_unlock_wrapper(&table_mutex);
 }
 
-INLINE static size_t write_match(size_t length, uint64_t payload, unsigned char *dst)
-{
-	if(length > 0)
-	{
-		memcpy(dst, DUP_MATCH, 2);
-		dst += 8 - 6;
-		ll2str(32 - (6 + 8), (char *)dst, 4);
-		dst += 4;
-		ll2str(length, (char *)dst, 4);
-		dst += 4;
-		ll2str(payload, (char *)dst, 8);
-		dst += 8;
-		return 32 - (6+8);
-	}
-	return 0;
+INLINE static size_t write_match(size_t length, uint64_t payload, unsigned char *dst) {
+    if (length > 0) {
+        memcpy(dst, DUP_MATCH, 2);
+        dst += 8 - 6;
+        ll2str(32 - (6 + 8), (char *)dst, 4);
+        dst += 4;
+        ll2str(length, (char *)dst, 4);
+        dst += 4;
+        ll2str(payload, (char *)dst, 8);
+        dst += 8;
+        return 32 - (6 + 8);
+    }
+    return 0;
 }
 
-INLINE static size_t write_literals(const unsigned char *src, size_t length, unsigned char *dst, int thread_id)
-{
-	if(length > 0)
-	{
-		size_t r;
-		if(LEVEL == 0) 
-		{
-			dst[32 - (6+8)] = '0';
-			memcpy(dst + 33 - (6+8), src, length);
-			r = length + 1;
-		}	
-		else if(LEVEL == 1) 
-		{
-			dst[32 - (6+8)] = '1';
-			r = qlz_compress(src, (char *)dst + 33 - (6+8), length, &jobs[thread_id].qlz);
-			r++;
-		}
-		else if(LEVEL == 2)
-		{
-			dst[32 - (6+8)] = '2';
-			jobs[thread_id].zlibc.zalloc = 0;
-			jobs[thread_id].zlibc.zfree = 0;
-			int rv  = deflateInit(&jobs[thread_id].zlibc, 1);
-			if(rv != Z_OK) {
-				fprintf(stderr, "\neXdupe: Error at deflateInit(). System out of memory.\n");
-				exit(-1);
-			}
+INLINE static size_t write_literals(const unsigned char *src, size_t length, unsigned char *dst, int thread_id) {
+    if (length > 0) {
+        size_t r;
+        if (LEVEL == 0) {
+            dst[32 - (6 + 8)] = '0';
+            memcpy(dst + 33 - (6 + 8), src, length);
+            r = length + 1;
+        } else if (LEVEL >= 1 && LEVEL <= 3) {
+            int zstd_level = LEVEL == 1 ? 1 : LEVEL == 2 ? 10 : 19;
+            dst[32 - (6 + 8)] = char(LEVEL + '0');
+            r = zstd_compress((char *)src, length, (char *)dst + 33 - (6 + 8) + 4 + 4, 2 * length + 1000000, zstd_level, jobs[thread_id].zstd);
+            *((int32_t *)(dst + 33 - (6 + 8))) = (int32_t)r;
+            r += 4; // LEN C
+            *((int32_t *)(dst + 33 - (6 + 8) + 4)) = (int32_t)length;
+            r += 4; // LEN D
+            r++;    // The '1'
+        } else {
+            // todo, handle outside lib
+            fprintf(stderr, "\neXdupe: Internal error, bad compression level\n");
+            exit(-1);
+        }
 
-			jobs[thread_id].zlibc.avail_in = static_cast<uInt>(length);
-			jobs[thread_id].zlibc.avail_out = DUP_MAX_INPUT + 1024*1024;
-			jobs[thread_id].zlibc.next_in = (Bytef *)src;
-			jobs[thread_id].zlibc.next_out = (Bytef *)dst + 33 - (6+8);
-
-			rv = deflate(&jobs[thread_id].zlibc, Z_FINISH);
-			if(rv != Z_STREAM_END) {
-				fprintf(stderr, "\neXdupe: Internal error at deflate()\n");
-				exit(-1);
-			}
-
-
-			deflateEnd(&jobs[thread_id].zlibc);
-			r = (char *)jobs[thread_id].zlibc.next_out - (char *)dst + 33 - (6+8);
-			r += 1; // the '2'
-		}
-		else if(LEVEL == 3) 
-		{
-			dst[32 - (6+8)] = '3';
-			jobs[thread_id].bzip2c.bzalloc = 0;
-			jobs[thread_id].bzip2c.bzfree = 0;
-			jobs[thread_id].bzip2c.opaque = reinterpret_cast<void*>(thread_id);
-
-			int rv = BZ2_bzCompressInit(&jobs[thread_id].bzip2c, 3, 0, 0);
-			if(rv != BZ_OK) {
-				fprintf(stderr, "\neXdupe: Error at BZ2_bzCompressInit(). System out of memory.\n");
-				exit(-1);
-			}
-			jobs[thread_id].bzip2c.avail_in = static_cast<uInt>(length);
-			jobs[thread_id].bzip2c.avail_out = DUP_MAX_INPUT + 1024*1024;
-			jobs[thread_id].bzip2c.next_in = (char *)src;
-			jobs[thread_id].bzip2c.next_out = (char *)dst + 33 - (6+8);
-
-			int res = BZ2_bzCompress(&jobs[thread_id].bzip2c, BZ_FINISH);
-			if(res != BZ_STREAM_END) {
-				fprintf(stderr, "\neXdupe: Internal error at BZ2_bzCompress()\n");
-				exit(-1);
-			}
-
-			BZ2_bzCompressEnd(&jobs[thread_id].bzip2c);
-
-			r = jobs[thread_id].bzip2c.next_out - (char *)dst + 33 - (6+8);
-			r += 1; // the '2'
-		}
-		else
-		{
-			fprintf(stderr, "\neXdupe: Internal error, bad compression level\n");
-			exit(-1);
-		}
-
-		memcpy(dst, DUP_LITERAL, 8 - 6);
-		dst += 8 - 6;
-		ll2str(r + 32 - (6+8), (char *)dst, 4);
-		dst += 4;
-		ll2str(length, (char *)dst, 4);
-		dst += 4;
-		ll2str(0, (char *)dst, 8);
-		dst += 8;
-		return r + 32 - (6 + 8);
-	}
-	return 0;
+        memcpy(dst, DUP_LITERAL, 8 - 6);
+        dst += 8 - 6;
+        ll2str(r + 32 - (6 + 8), (char *)dst, 4);
+        dst += 4;
+        ll2str(length, (char *)dst, 4);
+        dst += 4;
+        ll2str(0, (char *)dst, 8);
+        dst += 8;
+        return r + 32 - (6 + 8);
+    }
+    return 0;
 }
 
+// #define NAIVE
 
-//#define NAIVE
-
-static size_t cons_flush(unsigned char *dst, uint64_t *q_pay, uint64_t *q_len, uint64_t *q_com)
-{
+INLINE static size_t cons_flush(unsigned char *dst, uint64_t *q_pay, uint64_t *q_len, uint64_t *q_com) {
 #ifdef NAIVE
-	return 0;
+    return 0;
 #endif
 
-	unsigned char *orig_dst = dst;
-	if(*q_len > 0)
-	{
-		dst += write_match(*q_len, *q_pay, dst);
-		*q_com += *q_len;
-		*q_len = 0;
-	}
-	return dst - orig_dst;
+    unsigned char *orig_dst = dst;
+    if (*q_len > 0) {
+        dst += write_match(*q_len, *q_pay, dst);
+        *q_com += *q_len;
+        *q_len = 0;
+    }
+    return dst - orig_dst;
 }
 
-static size_t cons_match(size_t length, uint64_t payload, unsigned char *dst, uint64_t *q_pay, uint64_t *q_len, uint64_t *q_com)
-{
+INLINE static size_t cons_match(size_t length, uint64_t payload, unsigned char *dst, uint64_t *q_pay, uint64_t *q_len, uint64_t *q_com) {
 #ifdef NAIVE
-	return write_match(length, payload, dst);
+    return write_match(length, payload, dst);
 #endif
 
-
-	if(*q_len > 0 && payload == *q_pay + *q_len && (payload + length < *q_com || !add_data) && *q_len + length <= 256*1024)
-	{
-		*q_len += length;
-		return 0;
-	}
-	else
-	{
-		size_t r = cons_flush(dst, q_pay, q_len, q_com);
-		*q_len = length;
-		*q_pay = payload;
-		return r;
-	}
+    if (*q_len > 0 && payload == *q_pay + *q_len && (payload + length < *q_com || !add_data) && *q_len + length <= 256 * 1024) {
+        *q_len += length;
+        return 0;
+    } else {
+        size_t r = cons_flush(dst, q_pay, q_len, q_com);
+        *q_len = length;
+        *q_pay = payload;
+        return r;
+    }
 }
 
-static size_t cons_literals(const unsigned char *src, size_t length, unsigned char *dst, int thread_id, uint64_t *q_pay, uint64_t *q_len, uint64_t *q_com)
-{
+INLINE static size_t cons_literals(const unsigned char *src, size_t length, unsigned char *dst, int thread_id, uint64_t *q_pay, uint64_t *q_len,
+                                   uint64_t *q_com) {
 
 #ifdef NAIVE
-	return write_literals(src, length, dst, thread_id);
+    return write_literals(src, length, dst, thread_id);
 #endif
-	unsigned char *orig_dst = dst;
-	size_t original_length = length;
-	dst += cons_flush(dst, q_pay, q_len, q_com);
+    unsigned char *orig_dst = dst;
+    size_t original_length = length;
+    dst += cons_flush(dst, q_pay, q_len, q_com);
 
-	while(length > 0)
-	{
-		size_t process = minimum(256*1024, length);
-		dst += write_literals(src, process, dst, thread_id);
-		length -= process;
-		src += process;
-	}
-	*q_com += original_length;
-	return dst - orig_dst;
-} 
-
-
-
-INLINE static void hash_chunk(const unsigned char *src, uint64_t pay, size_t length)
-{
-	char tmp[8*KILO];
-	size_t small_blocks = length / SMALL_BLOCK;
-	uint32_t smalls = 0;
-	uint32_t j = 0;
-
-	int o = 2;
-
-	for(j = 0; j < small_blocks; j++)
-	{
-		sha(src + j * SMALL_BLOCK, SMALL_BLOCK, (unsigned char *)tmp + smalls * SHA_SIZE);
-		hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, 0, (unsigned char *)tmp + smalls * SHA_SIZE, o);
-
-		smalls++;
-		if(smalls == LARGE_BLOCK / SMALL_BLOCK)
-		{
-			o = 0;
-			unsigned char tmp2[SHA_SIZE];
-			sha((unsigned char *)tmp, smalls * SHA_SIZE, tmp2);
-			hashat(src + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, pay + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, LARGE_BLOCK, 1, (unsigned char *)tmp2, 1);
-
-			smalls = 0;
-		}
-	}
-
-	if(length < SMALL_BLOCK && length >= 128)
-	{
-		sha(src, length, (unsigned char *)tmp);
-		hashat(src, pay, length, 0, (unsigned char *)tmp, 2);
-	}
-
-	if(length > SMALL_BLOCK && length < LARGE_BLOCK)
-	{
-		sha(src, length, (unsigned char *)tmp);
-		hashat(src, pay, length, 1, (unsigned char *)tmp, 2);
-	}
-
+    while (length > 0) {
+        size_t process = minimum(256 * 1024, length);
+        dst += write_literals(src, process, dst, thread_id);
+        length -= process;
+        src += process;
+    }
+    *q_com += original_length;
+    return dst - orig_dst;
 }
 
-INLINE static size_t process_chunk(const unsigned char *src, uint64_t pay, size_t length, unsigned char *dst, int thread_id)
-{
-	size_t buffer = length;
-	const unsigned char *last_valid = src + buffer - 1;
-	const unsigned char *upto;
-	const unsigned char *src_orig = src;
-	unsigned char *dst_orig = dst;
-	const unsigned char *last = src + length - 1;
+INLINE static void hash_chunk(const unsigned char *src, uint64_t pay, size_t length, int policy) {
+    char tmp[512 * SHA_SIZE];
+    assert(sizeof(tmp) >= SHA_SIZE * LARGE_BLOCK / SMALL_BLOCK);
 
-	uint64_t q_pay = 0;
-	uint64_t q_len = 0;
-	uint64_t q_com = pay;
+    size_t small_blocks = length / SMALL_BLOCK;
+    uint32_t smalls = 0;
+    uint32_t j = 0;
 
-	while(src <= last)
-	{
-		uint64_t ref = 0;
-		const unsigned char *match = 0;
-		
-		if(src + LARGE_BLOCK - 1 <= last_valid)
-			match = dub(src, pay + (src - src_orig), last - src, LARGE_BLOCK, 1, &ref);
-		upto = (match == 0 ? last : match - 1);
-		
-		while(src <= upto)
-		{
-			uint64_t ref_s = 0;
-			const unsigned char *match_s = 0;
+    for (j = 0; j < small_blocks; j++) {
+        sha(src + j * SMALL_BLOCK, SMALL_BLOCK, (unsigned char *)tmp + smalls * SHA_SIZE);
+        hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, 0, (unsigned char *)tmp + smalls * SHA_SIZE, policy);
 
-			if(src + SMALL_BLOCK - 1 <= last_valid) {
-				match_s = dub(src, pay + (src - src_orig), (upto - src), SMALL_BLOCK, 0, &ref_s);
-			}
-			else if (src + 256 - 1 <= last_valid) {
-				match_s = dub(src, pay + (src - src_orig), (upto - src), last_valid - src + 1, 0, &ref_s);				
-			}
+        smalls++;
+        if (smalls == LARGE_BLOCK / SMALL_BLOCK) {
+            unsigned char tmp2[SHA_SIZE];
+            sha((unsigned char *)tmp, smalls * SHA_SIZE, tmp2);
+            hashat(src + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, pay + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, LARGE_BLOCK, 1, (unsigned char *)tmp2, policy);
 
+            smalls = 0;
+        }
+    }
 
-			if(match_s == 0)
-			{
-				dst += cons_literals(src, upto - src + 1, dst, thread_id, &q_pay, &q_len, &q_com);
-				break;
-			}
-			else
-			{
-				if(match_s - src > 0)
-				{
-					dst += cons_literals(src, match_s - src, dst, thread_id, &q_pay, &q_len, &q_com);
-				}
-				dst += cons_match(minimum(SMALL_BLOCK, upto - match_s + 1), ref_s, dst, &q_pay, &q_len, &q_com);
-				src = match_s + SMALL_BLOCK;
-			}
-		}
+    size_t rem_size = length - SMALL_BLOCK * small_blocks;
+    size_t rem_offset = SMALL_BLOCK * small_blocks;
 
-		if(match == 0)
-		{
-			dst += cons_flush(dst, &q_pay, &q_len, &q_com);
-			return dst - dst_orig;
-		}
-		else
-		{ 
-			dst += cons_match(minimum(LARGE_BLOCK, last - match + 1), ref, dst, &q_pay, &q_len, &q_com);
-			src = match + LARGE_BLOCK;
-		}
-	}
+    if (rem_size >= 128) {
+        sha(src + rem_offset, rem_size, (unsigned char *)tmp);
+        hashat(src + rem_offset, pay + rem_offset, rem_size, 0, (unsigned char *)tmp, policy);
+    }
 
-	dst += cons_flush(dst, &q_pay, &q_len, &q_com);
-	return dst - dst_orig;
+    return;
 }
 
+INLINE static size_t process_chunk(const unsigned char *src, uint64_t pay, size_t length, unsigned char *dst, int thread_id) {
+    size_t buffer = length;
+    const unsigned char *last_valid = src + buffer - 1;
+    const unsigned char *upto;
+    const unsigned char *src_orig = src;
+    unsigned char *dst_orig = dst;
+    const unsigned char *last = src + length - 1;
 
+    uint64_t q_pay = 0;
+    uint64_t q_len = 0;
+    uint64_t q_com = pay;
 
+    while (src <= last) {
+        uint64_t ref = 0;
+        const unsigned char *match = 0;
 
+        if (src + LARGE_BLOCK - 1 <= last_valid) {
+            match = dub(src, pay + (src - src_orig), last - src, LARGE_BLOCK, 1, &ref);
+        }
+        upto = (match == 0 ? last : match - 1);
+
+        while (src <= upto) {
+            uint64_t ref_s = 0;
+            const unsigned char *match_s = 0;
+
+            if (src + SMALL_BLOCK - 1 <= last_valid) {
+                match_s = dub(src, pay + (src - src_orig), (upto - src), SMALL_BLOCK, 0, &ref_s);
+            } else if (src + 256 - 1 <= last_valid) {
+                match_s = dub(src, pay + (src - src_orig), (upto - src), last_valid - src + 1, 0, &ref_s);
+            }
+
+            if (match_s == 0) {
+                dst += cons_literals(src, upto - src + 1, dst, thread_id, &q_pay, &q_len, &q_com);
+                break;
+            } else {
+                if (match_s - src > 0) {
+                    dst += cons_literals(src, match_s - src, dst, thread_id, &q_pay, &q_len, &q_com);
+                }
+                dst += cons_match(minimum(SMALL_BLOCK, upto - match_s + 1), ref_s, dst, &q_pay, &q_len, &q_com);
+                src = match_s + SMALL_BLOCK;
+            }
+        }
+
+        if (match == 0) {
+            dst += cons_flush(dst, &q_pay, &q_len, &q_com);
+            return dst - dst_orig;
+        } else {
+            dst += cons_match(minimum(LARGE_BLOCK, last - match + 1), ref, dst, &q_pay, &q_len, &q_com);
+            src = match + LARGE_BLOCK;
+        }
+    }
+
+    dst += cons_flush(dst, &q_pay, &q_len, &q_com);
+    return dst - dst_orig;
+}
+
+vector<uint64_t> ins;
+vector<uint64_t> outs;
+
+// Public interface
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 
 char inlined[DUP_MAX_INPUT];
 uint64_t flushed;
@@ -830,364 +835,285 @@ uint64_t global_payload;
 uint64_t count_payload;
 uint64_t count_compressed;
 
-
-INLINE static int get_free(void)
-{
-	int i;
-	for(i = 0; i < THREADS; i++)
-	{
-		int r = pthread_mutex_trylock(&jobs[i].mutex);
-		if(r == 0 && jobs[i].size_source + jobs[i].size_destination == 0)
-			return i;
-		if(r == 0)
-			pthread_mutex_unlock(&jobs[i].mutex);
-	}
-	return -1;
+INLINE static int get_free(void) {
+    int i;
+    for (i = 0; i < THREADS; i++) {
+        pthread_mutex_lock_wrapper(&jobs[i].jobmutex);
+        if (!jobs[i].busy && jobs[i].size_source == 0 && jobs[i].size_destination == 0) {
+            return i;
+        }
+        pthread_mutex_unlock_wrapper(&jobs[i].jobmutex);
+    }
+    return -1;
 }
 
-pthread_t wakeup_thread;
+INLINE static void *compress_thread(void *arg) {
+    job_t *me = (job_t *)arg;
 
-static void *wakeup(void *)
-{
-	while(!exit_threads)
-	{
-		pthread_mutex_lock(&jobdone_mutex);
-		pthread_cond_signal(&jobdone_cond);
-		pthread_mutex_unlock(&jobdone_mutex);
-		SLEEP1SEC
-	}
-	return 0;
+    while (!exit_threads) {
+        pthread_mutex_lock_wrapper(&me->jobmutex);
+        // Nothing to do, or waiting for consumer to fetch result
+        while (me->size_source == 0 || me->size_destination > 0) {
+            pthread_cond_wait_wrapper(&me->cond, &me->jobmutex);
+            if (exit_threads) {
+                return 0;
+            }
+        }
+
+        me->busy = true;
+        pthread_mutex_unlock_wrapper(&me->jobmutex);
+
+        int policy = 1;
+        int order = 0;
+
+        if (order == 1) {
+            me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
+            if (me->add) {
+                hash_chunk(me->source, me->payload, me->size_source, policy);
+            }
+        } else {
+            if (me->add) {
+                hash_chunk(me->source, me->payload, me->size_source, policy);
+            }
+            me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
+        }
+
+        pthread_mutex_lock_wrapper(&me->jobmutex);
+        me->busy = false;
+        pthread_mutex_unlock_wrapper(&me->jobmutex);
+
+        pthread_mutex_lock_wrapper(&jobdone_mutex);
+        pthread_cond_signal_wrapper(&jobdone_cond);
+        pthread_mutex_unlock_wrapper(&jobdone_mutex);
+    }
+
+    return 0;
 }
 
-
-INLINE static void *compress_thread(void *arg)
-{
-	job_t *me = (job_t *)arg;
-	while(!exit_threads)
-	{
-		pthread_mutex_lock(&me->mutex);
-
-		while(me->size_source == 0 || me->size_destination > 0)
-		{
-			me->busy = false;
-			pthread_cond_wait(&me->cond, &me->mutex);
-			if(exit_threads)
-				return 0;
-		}
-
-		me->busy = true;
-
-		if(me->add)
-		{
-			hash_chunk(me->source, me->payload, me->size_source);
-		}
-
-		me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);		
-		
-		me->busy = false;
-
-		pthread_mutex_unlock(&me->mutex);
-
-		pthread_mutex_lock(&jobdone_mutex);
-		pthread_cond_signal(&jobdone_cond);
-		pthread_mutex_unlock(&jobdone_mutex);
-	}
-
-	return 0;
+uint64_t dup_memory(uint64_t bits) {
+    uint64_t t = sizeof(hash_t);
+    return 2 * t * ((uint64_t)1 << bits);
 }
 
+int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_count, void *space, int compression_level, bool crypto_hash, uint64_t hash_seed) {
+    // FIXME: The dup() function contains a stack allocated array ("tmp") of 8
+    // KB that must be able to fit LARGE_BLOCK / SMALL_BLOCK * SHA_SIZE bytes.
+    // Find a better solution. alloca() causes sporadic crash in VC for inlined
+    // functions.
+    assert(large_block <= 512 * 1024);
 
+    g_crypto_hash = crypto_hash;
+    g_hash_salt = hash_seed;
 
-uint64_t dup_memory(uint64_t bits)
-{
-	uint64_t t = sizeof(hash_t);
-	return 2 * t * ((uint64_t)1 << bits);
-}
+    LEVEL = compression_level;
 
+    exit_threads = false;
+    THREADS = thread_count;
 
-int dup_init (size_t large_block, size_t small_block, uint64_t mem, int thread_count, void *space, int compression_level)
-{
-	compile_assert(sizeof(hash_t) == 40);
+    jobs = (job_t *)malloc(sizeof(job_t) * THREADS);
+    if (!jobs) {
+        return 1;
+    }
 
-	LEVEL = compression_level;
-	bzip2d.bzalloc = 0;
-	bzip2d.bzfree = 0;
-	BZ2_bzDecompressInit(&bzip2d, 9, 0);
+    memset(jobs, 0, sizeof(job_t) * THREADS);
 
-	int i;
-	exit_threads = false;
-	THREADS = thread_count;
-	jobs = (job_t *)malloc(sizeof(job_t) * THREADS);
-	if(!jobs)
-		return 1;
+    for (int i = 0; i < THREADS; i++) {
+        (void)*(new (&jobs[i])(job_t)());
+    }
 
 #ifdef WINDOWS
-	    pthread_win32_process_attach_np ();
+    pthread_win32_process_attach_np();
 #endif
 
-	pthread_mutex_init(&table_mutex, NULL);
-	pthread_mutex_init(&jobdone_mutex, NULL);
-	pthread_cond_init(&jobdone_cond, NULL);
+    pthread_mutex_init(&table_mutex, NULL);
 
-	SMALL_BLOCK = small_block;
-	LARGE_BLOCK = large_block;
+    pthread_mutex_init(&jobdone_mutex, NULL);
+    pthread_cond_init(&jobdone_cond, NULL);
 
-	HASH_ENTRIES = mem / (2*sizeof(hash_t));
+    SMALL_BLOCK = small_block;
+    LARGE_BLOCK = large_block;
 
-	table = (hash_t (*)[2]) space;
+    HASH_ENTRIES = (mem - 200) / (2 * sizeof(hash_t));
 
-	memset(table, 0, mem);
+    table = (hash_t(*)[2])space;
 
-	global_payload = 0;
-	flushed = 0;
-	count_payload = 0;
-	count_compressed = 0;
+    memset(space, 0, mem);
 
-	for(i = 0; i < THREADS; i++)
-	{
-		pthread_mutex_init(&jobs[i].mutex, NULL);
-		pthread_cond_init(&jobs[i].cond, NULL);
-		jobs[i].id = i;
-		jobs[i].size_destination = 0;
-		jobs[i].size_source = 0;
-		jobs[i].busy = false;
-	}
+    global_payload = 0;
+    flushed = 0;
+    count_payload = 0;
+    count_compressed = 0;
 
-	for(i = 0; i < THREADS; i++)
-	{
-		int t = pthread_create(&jobs[i].thread, NULL, compress_thread, &jobs[i]);
-		if (t)
-		{
-			return 2;
-		}
-	}
+    for (int i = 0; i < THREADS; i++) {
+        pthread_mutex_init(&jobs[i].jobmutex, NULL);
+        pthread_cond_init(&jobs[i].cond, NULL);
+        jobs[i].id = i;
+        jobs[i].size_destination = 0;
+        jobs[i].size_source = 0;
+        jobs[i].zstd = zstd_init();
 
-	int t = pthread_create(&wakeup_thread, NULL, wakeup, 0);
-	if(t)
-		return 2;
+        jobs[i].busy = false;
+    }
 
+    for (int i = 0; i < THREADS; i++) {
+        int t = pthread_create(&jobs[i].thread, NULL, compress_thread, &jobs[i]);
+        if (t) {
+            return 2;
+        }
+    }
 
+#if 0
+	cerr << "\nHASH ENTRIES = " << HASH_ENTRIES << "\n";
+	cerr << "\nHASH SIZE = " << sizeof(hash_t) << "\n";
+#endif
 
-	return 0;
+    return 0;
 }
 
+void dup_deinit(void) {
+    int i;
+    exit_threads = true;
 
-void dup_deinit(void)
-{
-	int i;
-	exit_threads = true;	
+    for (i = 0; i < THREADS; i++) {
+        pthread_mutex_lock_wrapper(&jobs[i].jobmutex);
+        pthread_cond_signal_wrapper(&jobs[i].cond);
+        pthread_mutex_unlock_wrapper(&jobs[i].jobmutex);
+        pthread_join(jobs[i].thread, 0);
+    }
 
-	for(i = 0; i < THREADS; i++)
-	{
-		pthread_mutex_lock(&jobs[i].mutex);
-		pthread_cond_signal(&jobs[i].cond);
-		pthread_mutex_unlock(&jobs[i].mutex);
-		pthread_join(jobs[i].thread, 0);
-	}
-
-	if(jobs != 0)
-		free(jobs);
+    if (jobs != 0) {
+        free(jobs);
+    }
 }
 
-
-size_t dup_size_compressed(const unsigned char *src)
-{
-	size_t t = str2ll(src + 8 - 6, 4);
-	return t;
+size_t dup_size_compressed(const unsigned char *src) {
+    size_t t = str2ll(src + 8 - 6, 4);
+    return t;
 }
 
-
-size_t dup_size_decompressed(const unsigned char *src)
-{
-	size_t t = str2ll(src + 16    -4      - 6, 4);
-	return t;
+size_t dup_size_decompressed(const unsigned char *src) {
+    size_t t = str2ll(src + 16 - 4 - 6, 4);
+    return t;
 }
 
+uint64_t dup_counter_payload(void) { return count_payload; }
 
-uint64_t dup_counter_payload(void)
-{
-	return count_payload;
+uint64_t dup_counter_compressed(void) { return count_compressed; }
+
+void dup_counters_reset(void) {
+    count_payload = 0;
+    count_compressed = 0;
 }
 
-uint64_t dup_counter_compressed(void)
-{
-	return count_compressed;
+INLINE static uint64_t packet_payload(const unsigned char *src) {
+    uint64_t t = str2ll(src + 24 - (6 + 8), 8);
+    return t;
 }
 
-void dup_counters_reset(void)
-{
-	count_payload = 0;
-	count_compressed = 0;
-}
-	
-INLINE static uint64_t packet_payload(const unsigned char *src)
-{
-	uint64_t t = str2ll(src + 24 - (6+8), 8);
-	return t;
-}
+int dup_decompress(const unsigned char *src, unsigned char *dst, size_t *length, uint64_t *payload) {
+    if (zstd_decompress_state == 0) {
+        zstd_decompress_state = zstd_init();
+    }
 
-int dup_decompress(const unsigned char *src, unsigned char *dst, size_t *length, uint64_t *payload)
-{
-	if(dd_equal(src, DUP_LITERAL, 8 - 6))
-	{
-		size_t t;
-		src += 32 - (6 + 8);
+    if (dd_equal(src, DUP_LITERAL, 8 - 6)) {
+        size_t t;
+        src += 32 - (6 + 8);
 
-		if(*src == '0')
-		{
-			t = dup_size_decompressed(src - 32 + (6 + 8));
-			memcpy(dst, src + 1, t);
-		}
-		else if(*src == '2')
-		{
-			zlibd.zalloc = 0;
-			zlibd.zfree = 0;
-			inflateInit(&zlibd);
-			zlibd.avail_in = DUP_MAX_INPUT + 1024*1024;
-			zlibd.avail_out = DUP_MAX_INPUT;
-			zlibd.next_in = (Bytef *)src + 1;
-			zlibd.next_out = (Bytef*)dst;
-			int retv = inflate(&zlibd, Z_FINISH);
-			if(retv != Z_STREAM_END) 
-			{
-				fprintf(stderr, "\neXdupe: Internal error or archive corrupted, at inflate()\n");
-				exit(-1);
-			}
-			inflateEnd(&zlibd);
-			t = zlibd.next_out - dst;
-		}
-		else if(*src == '3')
-		{
-			bzip2d.bzalloc = 0;
-			bzip2d.bzfree = 0;
-			BZ2_bzDecompressInit(&bzip2d, 0, 0);
-			bzip2d.avail_in = DUP_MAX_INPUT + 1024*1024;
-			bzip2d.avail_out = DUP_MAX_INPUT;
-			bzip2d.next_in = (char *)src + 1;
-			bzip2d.next_out = reinterpret_cast<char*>(dst);
-			int retv = BZ2_bzDecompress(&bzip2d);
-			if(retv != BZ_STREAM_END) 
-			{
-				fprintf(stderr, "\neXdupe: Internal error or archive corrupted, at BZ2_bzDecompress()\n");
-				exit(-1);
-			}
-			BZ2_bzDecompressEnd(&bzip2d);
-			t = bzip2d.next_out - reinterpret_cast<char*>(dst);
-		}
-		else if(*src == '1')
-		{
-			t = qlz_decompress(reinterpret_cast<const char*>(src) + 1, dst, &state_decompress);
-		}
-		else 
-		{
-			fprintf(stderr, "\neXdupe: Internal error or archive corrupted, missing compression level block header");
-			exit(-1);
-		}
+        if (*src == '0') {
+            t = dup_size_decompressed(src - 32 + (6 + 8));
+            memcpy(dst, src + 1, t);
+        } else if (*src == '1' || *src == '2' || *src == '3') {
+            int32_t len = *(int32_t *)((src) + 1);
+            int32_t len_de = *(int32_t *)((src) + 1 + 4);
+            t = zstd_decompress((char *)(src) + 1 + 4 + 4, len, (char *)dst, len_de, 0, 0, zstd_decompress_state);
+            t = len_de;
+        } else {
+            // todo, handle outside lib
+            fprintf(stderr, "\neXdupe: Internal error or archive corrupted, "
+                            "missing compression level block header");
+            exit(-1);
+        }
 
-		*length = t;
-		count_payload += *length;
-		if(t == 0)
-			return -1;
-
-		count_compressed += dup_size_compressed(src - 32 + (6+8));
-		return 0;
-	}
-	if(dd_equal(src, DUP_MATCH, 8 - 6))
-	{		
-		uint64_t pay = packet_payload(src);
-		size_t len = dup_size_decompressed(src);
-		*payload = pay;
-		*length = len;
-		count_payload += *length;
-		count_compressed += dup_size_compressed(src - 32 + (6+8));
-		return 1;
-	}
-	else
-	{
-		return -2;
-	}
+        *length = t;
+        count_payload += *length;
+        count_compressed += dup_size_compressed(src - 32 + (6 + 8));
+        return 0;
+    }
+    if (dd_equal(src, DUP_MATCH, 8 - 6)) {
+        uint64_t pay = packet_payload(src);
+        size_t len = dup_size_decompressed(src);
+        *payload = pay;
+        *length = len;
+        count_payload += *length;
+        count_compressed += dup_size_compressed(src - 32 + (6 + 8));
+        return 1;
+    } else {
+        return -2;
+    }
 }
 
+// todo rename
+int dup_decompress_simulate(const unsigned char *src, size_t *length, uint64_t *payload) {
+    if (dd_equal(src, DUP_LITERAL, 8 - 6)) {
+        size_t t;
 
+        src += 8 - 6;
+        src += 8 - 4;
+        t = str2ll(src, 4);
 
-int dup_decompress_simulate(const unsigned char *src, size_t *length, uint64_t *payload)
-{
-	if(dd_equal(src, DUP_LITERAL, 8 - 6))
-	{
-		size_t t;
+        *length = t;
+        if (t == 0) {
+            return -1;
+        }
 
-		src += 8 - 6;
-		src += 8 - 4;
-		t = str2ll(src, 4);
-	
-
-		*length = t;
-		if(t == 0)
-			return -1;
-
-		return 0;
-	}
-	if(dd_equal(src, DUP_MATCH, 8 - 6))
-	{		
-		uint64_t pay = packet_payload(src);
-		size_t len = dup_size_decompressed(src);
-		*payload = pay;
-		*length = len;
-		return 1;
-	}
-	else
-	{
-		return -2;
-	}
+        return 0;
+    }
+    if (dd_equal(src, DUP_MATCH, 8 - 6)) {
+        uint64_t pay = packet_payload(src);
+        size_t len = dup_size_decompressed(src);
+        *payload = pay;
+        *length = len;
+        return 1;
+    } else {
+        return -2;
+    }
 }
 
+size_t flush_pend(char *dst, uint64_t *payloadret) {
+    char *orig_dst = dst;
 
-INLINE static size_t flush_pend(char *dst)
-{
-	char *orig_dst = dst;
-	bool again;
-
-	do
-	{
-		int i;
-		again = false;
-		for(i = 0; i < THREADS; i++)
-		{
-			int r = pthread_mutex_trylock(&jobs[i].mutex);
-
-			if(r == 0 && jobs[i].size_destination > 0 && jobs[i].payload == flushed)
-			{
-				memcpy(dst, jobs[i].destination, jobs[i].size_destination);
-				dst += jobs[i].size_destination;
-				flushed += jobs[i].size_source;
-				jobs[i].size_destination = 0;
-				jobs[i].size_source = 0;
-				again = true;
-				pthread_mutex_unlock(&jobs[i].mutex);
-			}
-			else if(r == 0)
-				pthread_mutex_unlock(&jobs[i].mutex);
-		}
-	} while (again);
-
-	return dst - orig_dst;
+    int i;
+    for (i = 0; i < THREADS; i++) {
+        pthread_mutex_lock_wrapper(&jobs[i].jobmutex);
+        if (!jobs[i].busy && jobs[i].size_destination > 0 && jobs[i].payload == flushed) {
+            memcpy(dst, jobs[i].destination, jobs[i].size_destination);
+            dst += jobs[i].size_destination;
+            flushed += jobs[i].size_source;
+            jobs[i].size_destination = 0;
+            *payloadret = jobs[i].size_source;
+            jobs[i].size_source = 0;
+            pthread_mutex_unlock_wrapper(&jobs[i].jobmutex);
+            break;
+        }
+        pthread_mutex_unlock_wrapper(&jobs[i].jobmutex);
+    }
+    return dst - orig_dst;
 }
 
-void dup_add(bool add)
-{
-	add_data = add;
-}
+void dup_add(bool add) { add_data = add; }
 
+uint64_t dup_get_flushed() { return flushed; }
 
-INLINE size_t dup_compress2(const void *src, char *dst, size_t size, bool flush)
-{	
-	char *dst_orig = dst;
+INLINE size_t dup_compress2(const void *src, char *dst, size_t size, uint64_t *payloadreturned) {
+    char *dst_orig = dst;
 
 #if 0 // single threaded naive for debugging
-	if(size > 0)
+	if (size > 0)
 	{
-		hash_chunk((unsigned char *)src, global_payload, size);
-		size_t t = process_chunk((unsigned char *)src, global_payload, size, (unsigned char*)dst, 1);
+		size_t t = process_chunk((unsigned char*)src, global_payload, size, (unsigned char*)dst, 1);
+		if (add_data) {
+			hash_chunk((unsigned char*)src, global_payload, size);
+		}
 		global_payload += size;
 		return t;
 	}
@@ -1195,72 +1121,45 @@ INLINE size_t dup_compress2(const void *src, char *dst, size_t size, bool flush)
 		return 0;
 #endif
 
-	dst += flush_pend(dst);
+    if (size > 0) {
+        int f = -1;
+        pthread_mutex_lock_wrapper(&jobdone_mutex);
+        do {
+            dst += flush_pend(dst, payloadreturned);
+            f = get_free();
 
-	if(size > 0)
-	{
-		int f;
+            assert(!(dst != dst_orig && f == -1));
 
-		pthread_mutex_lock(&jobdone_mutex);
-		while ((f = get_free()) == -1)   // locks its mutex on success
-		{	
-			dst += flush_pend(dst);
-			pthread_cond_wait(&jobdone_cond, &jobdone_mutex);
-			dst += flush_pend(dst);
-		}
-		memcpy(jobs[f].source, src, size);
-		jobs[f].payload = global_payload;
-		global_payload += size;
-		count_payload += size;
-		jobs[f].size_source = size;
-		jobs[f].add = add_data;
-		pthread_mutex_unlock(&jobdone_mutex);
+            if (f == -1) {
+                pthread_cond_wait_wrapper(&jobdone_cond, &jobdone_mutex);
+            }
+        } while (f == -1);
 
-		pthread_cond_signal(&jobs[f].cond);
-		pthread_mutex_unlock(&jobs[f].mutex);
+        memcpy(jobs[f].source, src, size);
+        jobs[f].payload = global_payload;
+        global_payload += size;
+        count_payload += size;
+        jobs[f].size_source = size;
+        jobs[f].add = add_data;
 
-	}
+        pthread_cond_signal_wrapper(&jobs[f].cond);
+        pthread_mutex_unlock_wrapper(&jobs[f].jobmutex);
+        pthread_mutex_unlock_wrapper(&jobdone_mutex);
+    }
 
-	if(flush)
-	{
-		while(flushed < global_payload)
-		{
-			dst += flush_pend(dst);
-			utils_yield();
-		}
-	}
-
-	return dst - dst_orig;
+    return dst - dst_orig;
 }
 
-bool dup_busy(void) 
-{
-	int i;
-	for(i = 0; i < THREADS; i++)
-	{
-		if(jobs[i].busy) {
-			return true;
-		}
-	}
-	return false;
+size_t dup_compress(const void *src, unsigned char *dst, size_t size, uint64_t *payloadreturned) {
+    ins.push_back(size);
+    size_t len, s = 0, d = 0;
+    do {
+        len = (size > DUP_MAX_INPUT ? DUP_MAX_INPUT : size);
+        d += dup_compress2(static_cast<const char *>(src) + s, reinterpret_cast<char *>(dst) + d, len, payloadreturned);
+        s += len;
+    } while (s < size);
+
+    outs.push_back(*payloadreturned);
+
+    return d;
 }
-
-size_t dup_compress(const void *src, unsigned char *dst, size_t size, bool flush)
-{
-
-	size_t len, s = 0, d = 0;
-	do
-	{
-		len = (size > DUP_MAX_INPUT ? DUP_MAX_INPUT : size);
-
-		bool flush2 = s + len < size ? false : flush;
-
-		d += dup_compress2(static_cast<const char*>(src) + s, reinterpret_cast<char*>(dst) + d, len, flush2);
-		s += len;
-	} while(s < size);
-
-	return d;
-}
-
-
-

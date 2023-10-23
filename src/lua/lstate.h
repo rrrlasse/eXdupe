@@ -75,7 +75,7 @@ typedef struct CallInfo {
   ptrdiff_t extra;
   union {
     struct {  /* only for Lua functions */
-      StkId base;  /* base for this function */
+      StkId base_dir;  /* base for this function */
       const Instruction *savedpc;
     } l;
     struct {  /* only for C functions */

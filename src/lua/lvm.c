@@ -376,14 +376,14 @@ void luaV_arith (lua_State *L, StkId ra, const TValue *rb,
 ** whether there is a cached closure with the same upvalues needed by
 ** new closure to be created.
 */
-static Closure *getcached (Proto *p, UpVal **encup, StkId base) {
+static Closure *getcached (Proto *p, UpVal **encup, StkId base_dir) {
   Closure *c = p->cache;
   if (c != NULL) {  /* is there a cached closure? */
     int nup = p->sizeupvalues;
     Upvaldesc *uv = p->upvalues;
     int i;
     for (i = 0; i < nup; i++) {  /* check whether it has right upvalues */
-      TValue *v = uv[i].instack ? base + uv[i].idx : encup[uv[i].idx]->v;
+      TValue *v = uv[i].instack ? base_dir + uv[i].idx : encup[uv[i].idx]->v;
       if (c->l.upvals[i]->v != v)
         return NULL;  /* wrong upvalue; cannot reuse closure */
     }
@@ -398,7 +398,7 @@ static Closure *getcached (Proto *p, UpVal **encup, StkId base) {
 ** before the assignment to 'p->cache', as the function needs the
 ** original value of that field.
 */
-static void pushclosure (lua_State *L, Proto *p, UpVal **encup, StkId base,
+static void pushclosure (lua_State *L, Proto *p, UpVal **encup, StkId base_dir,
                          StkId ra) {
   int nup = p->sizeupvalues;
   Upvaldesc *uv = p->upvalues;
@@ -408,7 +408,7 @@ static void pushclosure (lua_State *L, Proto *p, UpVal **encup, StkId base,
   setclLvalue(L, ra, ncl);  /* anchor new closure in stack */
   for (i = 0; i < nup; i++) {  /* fill in its upvalues */
     if (uv[i].instack)  /* upvalue refers to local variable? */
-      ncl->l.upvals[i] = luaF_findupval(L, base + uv[i].idx);
+      ncl->l.upvals[i] = luaF_findupval(L, base_dir + uv[i].idx);
     else  /* get upvalue from enclosing function */
       ncl->l.upvals[i] = encup[uv[i].idx];
   }
@@ -422,14 +422,14 @@ static void pushclosure (lua_State *L, Proto *p, UpVal **encup, StkId base,
 */
 void luaV_finishOp (lua_State *L) {
   CallInfo *ci = L->ci;
-  StkId base = ci->u.l.base;
+  StkId base_dir = ci->u.l.base_dir;
   Instruction inst = *(ci->u.l.savedpc - 1);  /* interrupted instruction */
   OpCode op = GET_OPCODE(inst);
   switch (op) {  /* finish its execution */
     case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV:
     case OP_MOD: case OP_POW: case OP_UNM: case OP_LEN:
     case OP_GETTABUP: case OP_GETTABLE: case OP_SELF: {
-      setobjs2s(L, base + GETARG_A(inst), --L->top);
+      setobjs2s(L, base_dir + GETARG_A(inst), --L->top);
       break;
     }
     case OP_LE: case OP_LT: case OP_EQ: {
@@ -438,7 +438,7 @@ void luaV_finishOp (lua_State *L) {
       /* metamethod should not be called when operand is K */
       lua_assert(!ISK(GETARG_B(inst)));
       if (op == OP_LE &&  /* "<=" using "<" instead? */
-          ttisnil(luaT_gettmbyobj(L, base + GETARG_B(inst), TM_LE)))
+          ttisnil(luaT_gettmbyobj(L, base_dir + GETARG_B(inst), TM_LE)))
         res = !res;  /* invert result */
       lua_assert(GET_OPCODE(*ci->u.l.savedpc) == OP_JMP);
       if (res != GETARG_A(inst))  /* condition failed? */
@@ -448,14 +448,14 @@ void luaV_finishOp (lua_State *L) {
     case OP_CONCAT: {
       StkId top = L->top - 1;  /* top when 'call_binTM' was called */
       int b = GETARG_B(inst);      /* first element to concatenate */
-      int total = cast_int(top - 1 - (base + b));  /* yet to concatenate */
+      int total = cast_int(top - 1 - (base_dir + b));  /* yet to concatenate */
       setobj2s(L, top - 2, top);  /* put TM result in proper position */
       if (total > 1) {  /* are there elements to concat? */
         L->top = top - 1;  /* top is one after last element (at top-2) */
         luaV_concat(L, total);  /* concat them (may yield again) */
       }
       /* move final result to final position */
-      setobj2s(L, ci->u.l.base + GETARG_A(inst), L->top - 1);
+      setobj2s(L, ci->u.l.base_dir + GETARG_A(inst), L->top - 1);
       L->top = ci->top;  /* restore top */
       break;
     }
@@ -486,14 +486,14 @@ void luaV_finishOp (lua_State *L) {
 #endif
 
 
-#define RA(i)	(base+GETARG_A(i))
+#define RA(i)	(base_dir+GETARG_A(i))
 /* to be used after possible stack reallocation */
-#define RB(i)	check_exp(getBMode(GET_OPCODE(i)) == OpArgR, base+GETARG_B(i))
-#define RC(i)	check_exp(getCMode(GET_OPCODE(i)) == OpArgR, base+GETARG_C(i))
+#define RB(i)	check_exp(getBMode(GET_OPCODE(i)) == OpArgR, base_dir+GETARG_B(i))
+#define RC(i)	check_exp(getCMode(GET_OPCODE(i)) == OpArgR, base_dir+GETARG_C(i))
 #define RKB(i)	check_exp(getBMode(GET_OPCODE(i)) == OpArgK, \
-	ISK(GETARG_B(i)) ? k+INDEXK(GETARG_B(i)) : base+GETARG_B(i))
+	ISK(GETARG_B(i)) ? k+INDEXK(GETARG_B(i)) : base_dir+GETARG_B(i))
 #define RKC(i)	check_exp(getCMode(GET_OPCODE(i)) == OpArgK, \
-	ISK(GETARG_C(i)) ? k+INDEXK(GETARG_C(i)) : base+GETARG_C(i))
+	ISK(GETARG_C(i)) ? k+INDEXK(GETARG_C(i)) : base_dir+GETARG_C(i))
 #define KBx(i)  \
   (k + (GETARG_Bx(i) != 0 ? GETARG_Bx(i) - 1 : GETARG_Ax(*ci->u.l.savedpc++)))
 
@@ -501,14 +501,14 @@ void luaV_finishOp (lua_State *L) {
 /* execute a jump instruction */
 #define dojump(ci,i,e) \
   { int a = GETARG_A(i); \
-    if (a > 0) luaF_close(L, ci->u.l.base + a - 1); \
+    if (a > 0) luaF_close(L, ci->u.l.base_dir + a - 1); \
     ci->u.l.savedpc += GETARG_sBx(i) + e; }
 
 /* for test instructions, execute the jump instruction that follows it */
 #define donextjump(ci)	{ i = *ci->u.l.savedpc; dojump(ci, i, 1); }
 
 
-#define Protect(x)	{ {x;}; base = ci->u.l.base; }
+#define Protect(x)	{ {x;}; base_dir = ci->u.l.base_dir; }
 
 #define checkGC(L,c)  \
   Protect( luaC_condGC(L,{L->top = (c);  /* limit of live values */ \
@@ -535,12 +535,12 @@ void luaV_execute (lua_State *L) {
   CallInfo *ci = L->ci;
   LClosure *cl;
   TValue *k;
-  StkId base;
+  StkId base_dir;
  newframe:  /* reentry point when frame changes (call/return) */
   lua_assert(ci == L->ci);
   cl = clLvalue(ci->func);
   k = cl->p->k;
-  base = ci->u.l.base;
+  base_dir = ci->u.l.base_dir;
   /* main loop of interpreter */
   for (;;) {
     Instruction i = *(ci->u.l.savedpc++);
@@ -551,8 +551,8 @@ void luaV_execute (lua_State *L) {
     }
     /* WARNING: several calls may realloc the stack and invalidate `ra' */
     ra = RA(i);
-    lua_assert(base == ci->u.l.base);
-    lua_assert(base <= L->top && L->top < L->stack + L->stacksize);
+    lua_assert(base_dir == ci->u.l.base_dir);
+    lua_assert(base_dir <= L->top && L->top < L->stack + L->stacksize);
     vmdispatch (GET_OPCODE(i)) {
       vmcase(OP_MOVE,
         setobjs2s(L, ra, RB(i));
@@ -654,10 +654,10 @@ void luaV_execute (lua_State *L) {
         int b = GETARG_B(i);
         int c = GETARG_C(i);
         StkId rb;
-        L->top = base + c + 1;  /* mark the end of concat operands */
+        L->top = base_dir + c + 1;  /* mark the end of concat operands */
         Protect(luaV_concat(L, c - b + 1));
         ra = RA(i);  /* 'luav_concat' may invoke TMs and move the stack */
-        rb = b + base;
+        rb = b + base_dir;
         setobjs2s(L, ra, rb);
         checkGC(L, (ra >= rb ? ra + 1 : rb));
         L->top = ci->top;  /* restore top */
@@ -712,7 +712,7 @@ void luaV_execute (lua_State *L) {
         if (b != 0) L->top = ra+b;  /* else previous instruction set top */
         if (luaD_precall(L, ra, nresults)) {  /* C function? */
           if (nresults >= 0) L->top = ci->top;  /* adjust results */
-          base = ci->u.l.base;
+          base_dir = ci->u.l.base_dir;
         }
         else {  /* Lua function */
           ci = L->ci;
@@ -725,7 +725,7 @@ void luaV_execute (lua_State *L) {
         if (b != 0) L->top = ra+b;  /* else previous instruction set top */
         lua_assert(GETARG_C(i) - 1 == LUA_MULTRET);
         if (luaD_precall(L, ra, LUA_MULTRET))  /* C function? */
-          base = ci->u.l.base;
+          base_dir = ci->u.l.base_dir;
         else {
           /* tail call: put called frame (n) in place of caller one (o) */
           CallInfo *nci = L->ci;  /* called frame */
@@ -733,26 +733,26 @@ void luaV_execute (lua_State *L) {
           StkId nfunc = nci->func;  /* called function */
           StkId ofunc = oci->func;  /* caller function */
           /* last stack slot filled by 'precall' */
-          StkId lim = nci->u.l.base + getproto(nfunc)->numparams;
+          StkId lim = nci->u.l.base_dir + getproto(nfunc)->numparams;
           int aux;
           /* close all upvalues from previous call */
-          if (cl->p->sizep > 0) luaF_close(L, oci->u.l.base);
+          if (cl->p->sizep > 0) luaF_close(L, oci->u.l.base_dir);
           /* move new frame into old one */
           for (aux = 0; nfunc + aux < lim; aux++)
             setobjs2s(L, ofunc + aux, nfunc + aux);
-          oci->u.l.base = ofunc + (nci->u.l.base - nfunc);  /* correct base */
+          oci->u.l.base_dir = ofunc + (nci->u.l.base_dir - nfunc);  /* correct base */
           oci->top = L->top = ofunc + (L->top - nfunc);  /* correct top */
           oci->u.l.savedpc = nci->u.l.savedpc;
           oci->callstatus |= CIST_TAIL;  /* function was tail called */
           ci = L->ci = oci;  /* remove new frame */
-          lua_assert(L->top == oci->u.l.base + getproto(ofunc)->maxstacksize);
+          lua_assert(L->top == oci->u.l.base_dir + getproto(ofunc)->maxstacksize);
           goto newframe;  /* restart luaV_execute over new Lua function */
         }
       )
       vmcasenb(OP_RETURN,
         int b = GETARG_B(i);
         if (b != 0) L->top = ra+b-1;
-        if (cl->p->sizep > 0) luaF_close(L, base);
+        if (cl->p->sizep > 0) luaF_close(L, base_dir);
         b = luaD_poscall(L, ra);
         if (!(ci->callstatus & CIST_REENTRY))  /* 'ci' still the called one */
           return;  /* external invocation: return */
@@ -832,9 +832,9 @@ void luaV_execute (lua_State *L) {
       )
       vmcase(OP_CLOSURE,
         Proto *p = cl->p->p[GETARG_Bx(i)];
-        Closure *ncl = getcached(p, cl->upvals, base);  /* cached closure */
+        Closure *ncl = getcached(p, cl->upvals, base_dir);  /* cached closure */
         if (ncl == NULL)  /* no match? */
-          pushclosure(L, p, cl->upvals, base, ra);  /* create a new one */
+          pushclosure(L, p, cl->upvals, base_dir, ra);  /* create a new one */
         else
           setclLvalue(L, ra, ncl);  /* push cashed closure */
         checkGC(L, ra + 1);
@@ -842,7 +842,7 @@ void luaV_execute (lua_State *L) {
       vmcase(OP_VARARG,
         int b = GETARG_B(i) - 1;
         int j;
-        int n = cast_int(base - ci->func) - cl->p->numparams - 1;
+        int n = cast_int(base_dir - ci->func) - cl->p->numparams - 1;
         if (b < 0) {  /* B == 0? */
           b = n;  /* get all var. arguments */
           Protect(luaD_checkstack(L, n));
@@ -851,7 +851,7 @@ void luaV_execute (lua_State *L) {
         }
         for (j = 0; j < b; j++) {
           if (j < n) {
-            setobjs2s(L, ra + j, base - n + j);
+            setobjs2s(L, ra + j, base_dir - n + j);
           }
           else {
             setnilvalue(ra + j);

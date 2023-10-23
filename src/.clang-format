@@ -1,0 +1,5 @@
+# Format Style Options - Created with Clang Power Tools
+---
+ColumnLimit: 160
+IndentWidth: 4
+...

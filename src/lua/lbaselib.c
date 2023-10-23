@@ -59,9 +59,9 @@ static int luaB_tonumber (lua_State *L) {
     size_t l;
     const char *s = luaL_checklstring(L, 1, &l);
     const char *e = s + l;  /* end point for 's' */
-    int base = luaL_checkint(L, 2);
+    int base_dir = luaL_checkint(L, 2);
     int neg = 0;
-    luaL_argcheck(L, 2 <= base && base <= 36, 2, "base out of range");
+    luaL_argcheck(L, 2 <= base_dir && base_dir <= 36, 2, "base out of range");
     s += strspn(s, SPACECHARS);  /* skip initial spaces */
     if (*s == '-') { s++; neg = 1; }  /* handle signal */
     else if (*s == '+') s++;
@@ -70,8 +70,8 @@ static int luaB_tonumber (lua_State *L) {
       do {
         int digit = (isdigit((unsigned char)*s)) ? *s - '0'
                        : toupper((unsigned char)*s) - 'A' + 10;
-        if (digit >= base) break;  /* invalid numeral; force a fail */
-        n = n * (lua_Number)base + (lua_Number)digit;
+        if (digit >= base_dir) break;  /* invalid numeral; force a fail */
+        n = n * (lua_Number)base_dir + (lua_Number)digit;
         s++;
       } while (isalnum((unsigned char)*s));
       s += strspn(s, SPACECHARS);  /* skip trailing spaces */

@@ -268,14 +268,14 @@ static void markupval (FuncState *fs, int level) {
   Find variable with given name 'n'. If it is an upvalue, add this
   upvalue into all intermediate functions.
 */
-static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base) {
+static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base_dir) {
   if (fs == NULL)  /* no more levels? */
     return VVOID;  /* default is global */
   else {
     int v = searchvar(fs, n);  /* look up locals at current level */
     if (v >= 0) {  /* found? */
       init_exp(var, VLOCAL, v);  /* variable is local */
-      if (!base)
+      if (!base_dir)
         markupval(fs, v);  /* local will be used as an upval */
       return VLOCAL;
     }
@@ -823,7 +823,7 @@ static int explist (LexState *ls, expdesc *v) {
 static void funcargs (LexState *ls, expdesc *f, int line) {
   FuncState *fs = ls->fs;
   expdesc args;
-  int base, nparams;
+  int base_dir, nparams;
   switch (ls->t.token) {
     case '(': {  /* funcargs -> `(' [ explist ] `)' */
       luaX_next(ls);
@@ -850,17 +850,17 @@ static void funcargs (LexState *ls, expdesc *f, int line) {
     }
   }
   lua_assert(f->k == VNONRELOC);
-  base = f->u.info;  /* base register for call */
+  base_dir = f->u.info;  /* base register for call */
   if (hasmultret(args.k))
     nparams = LUA_MULTRET;  /* open call */
   else {
     if (args.k != VVOID)
       luaK_exp2nextreg(fs, &args);  /* close last argument */
-    nparams = fs->freereg - (base+1);
+    nparams = fs->freereg - (base_dir+1);
   }
-  init_exp(f, VCALL, luaK_codeABC(fs, OP_CALL, base, nparams+1, 2));
+  init_exp(f, VCALL, luaK_codeABC(fs, OP_CALL, base_dir, nparams+1, 2));
   luaK_fixline(fs, line);
-  fs->freereg = base+1;  /* call remove function and arguments and leaves
+  fs->freereg = base_dir+1;  /* call remove function and arguments and leaves
                             (unless changed) one result */
 }
 
@@ -1280,14 +1280,14 @@ static int exp1 (LexState *ls) {
 }
 
 
-static void forbody (LexState *ls, int base, int line, int nvars, int isnum) {
+static void forbody (LexState *ls, int base_dir, int line, int nvars, int isnum) {
   /* forbody -> DO block */
   BlockCnt bl;
   FuncState *fs = ls->fs;
   int prep, endfor;
   adjustlocalvars(ls, 3);  /* control variables */
   checknext(ls, TK_DO);
-  prep = isnum ? luaK_codeAsBx(fs, OP_FORPREP, base, NO_JUMP) : luaK_jump(fs);
+  prep = isnum ? luaK_codeAsBx(fs, OP_FORPREP, base_dir, NO_JUMP) : luaK_jump(fs);
   enterblock(fs, &bl, 0);  /* scope for declared variables */
   adjustlocalvars(ls, nvars);
   luaK_reserveregs(fs, nvars);
@@ -1295,11 +1295,11 @@ static void forbody (LexState *ls, int base, int line, int nvars, int isnum) {
   leaveblock(fs);  /* end of scope for declared variables */
   luaK_patchtohere(fs, prep);
   if (isnum)  /* numeric for? */
-    endfor = luaK_codeAsBx(fs, OP_FORLOOP, base, NO_JUMP);
+    endfor = luaK_codeAsBx(fs, OP_FORLOOP, base_dir, NO_JUMP);
   else {  /* generic for */
-    luaK_codeABC(fs, OP_TFORCALL, base, 0, nvars);
+    luaK_codeABC(fs, OP_TFORCALL, base_dir, 0, nvars);
     luaK_fixline(fs, line);
-    endfor = luaK_codeAsBx(fs, OP_TFORLOOP, base + 2, NO_JUMP);
+    endfor = luaK_codeAsBx(fs, OP_TFORLOOP, base_dir + 2, NO_JUMP);
   }
   luaK_patchlist(fs, endfor, prep + 1);
   luaK_fixline(fs, line);
@@ -1309,7 +1309,7 @@ static void forbody (LexState *ls, int base, int line, int nvars, int isnum) {
 static void fornum (LexState *ls, TString *varname, int line) {
   /* fornum -> NAME = exp1,exp1[,exp1] forbody */
   FuncState *fs = ls->fs;
-  int base = fs->freereg;
+  int base_dir = fs->freereg;
   new_localvarliteral(ls, "(for index)");
   new_localvarliteral(ls, "(for limit)");
   new_localvarliteral(ls, "(for step)");
@@ -1324,7 +1324,7 @@ static void fornum (LexState *ls, TString *varname, int line) {
     luaK_codek(fs, fs->freereg, luaK_numberK(fs, 1));
     luaK_reserveregs(fs, 1);
   }
-  forbody(ls, base, line, 1, 1);
+  forbody(ls, base_dir, line, 1, 1);
 }
 
 
@@ -1334,7 +1334,7 @@ static void forlist (LexState *ls, TString *indexname) {
   expdesc e;
   int nvars = 4;  /* gen, state, control, plus at least one declared var */
   int line;
-  int base = fs->freereg;
+  int base_dir = fs->freereg;
   /* create control variables */
   new_localvarliteral(ls, "(for generator)");
   new_localvarliteral(ls, "(for state)");
@@ -1349,7 +1349,7 @@ static void forlist (LexState *ls, TString *indexname) {
   line = ls->linenumber;
   adjust_assign(ls, 3, explist(ls, &e), &e);
   luaK_checkstack(fs, 3);  /* extra space to call generator */
-  forbody(ls, base, line, nvars - 3, 0);
+  forbody(ls, base_dir, line, nvars - 3, 0);
 }
 
 
