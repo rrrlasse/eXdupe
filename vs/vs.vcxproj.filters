@@ -1,0 +1,499 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="..\src\bytebuffer.cpp" />
+    <ClCompile Include="..\src\exdupe.cpp" />
+    <ClCompile Include="..\src\io.cpp" />
+    <ClCompile Include="..\src\luawrapper.cpp" />
+    <ClCompile Include="..\src\utilities.cpp" />
+    <ClCompile Include="..\src\libexdupe\bzip2\blocksort.c">
+      <Filter>libexdupe\bzip2</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\bzip2\bzlib.c">
+      <Filter>libexdupe\bzip2</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\bzip2\compress.c">
+      <Filter>libexdupe\bzip2</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\bzip2\crctable.c">
+      <Filter>libexdupe\bzip2</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\bzip2\decompress.c">
+      <Filter>libexdupe\bzip2</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\bzip2\huffman.c">
+      <Filter>libexdupe\bzip2</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\bzip2\randtable.c">
+      <Filter>libexdupe\bzip2</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\pthread\pthread.c">
+      <Filter>libexdupe\pthread</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\quicklz\quicklz.c">
+      <Filter>libexdupe\quicklz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\skein\skein.cpp">
+      <Filter>libexdupe\skein</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\skein\skein_block.cpp">
+      <Filter>libexdupe\skein</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\skein\skein_debug.cpp">
+      <Filter>libexdupe\skein</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\zlib\adler32.c">
+      <Filter>libexdupe\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\zlib\compress.c">
+      <Filter>libexdupe\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\zlib\crc32.c">
+      <Filter>libexdupe\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\zlib\deflate.c">
+      <Filter>libexdupe\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\zlib\infback.c">
+      <Filter>libexdupe\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\zlib\inffast.c">
+      <Filter>libexdupe\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\zlib\inflate.c">
+      <Filter>libexdupe\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\zlib\inftrees.c">
+      <Filter>libexdupe\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\zlib\trees.c">
+      <Filter>libexdupe\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\zlib\uncompr.c">
+      <Filter>libexdupe\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\zlib\zutil.c">
+      <Filter>libexdupe\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lapi.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lauxlib.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lbaselib.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lbitlib.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lcode.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lcorolib.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lctype.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\ldblib.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\ldebug.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\ldo.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\ldump.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lfunc.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lgc.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\linit.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\liolib.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\llex.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lmathlib.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lmem.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\loadlib.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lobject.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lopcodes.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\loslib.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lparser.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lstate.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lstring.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lstrlib.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\ltable.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\ltablib.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\ltm.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lundump.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lvm.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\lua\lzio.c">
+      <Filter>lua</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\shadow\shadow.cpp">
+      <Filter>shadow</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\trex\trex.cpp">
+      <Filter>trex</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libexdupe\libexdupe.cpp">
+      <Filter>libexdupe</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\src\bytebuffer.h" />
+    <ClInclude Include="..\src\io.hpp" />
+    <ClInclude Include="..\src\luawrapper.h" />
+    <ClInclude Include="..\src\unicode.h" />
+    <ClInclude Include="..\src\utilities.hpp" />
+    <ClInclude Include="..\src\libexdupe\bzip2\bzlib.h">
+      <Filter>libexdupe\bzip2</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\bzip2\bzlib_private.h">
+      <Filter>libexdupe\bzip2</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\pthread\pthread.h">
+      <Filter>libexdupe\pthread</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\quicklz\quicklz.h">
+      <Filter>libexdupe\quicklz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\skein\brg_endian.h">
+      <Filter>libexdupe\skein</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\skein\brg_types.h">
+      <Filter>libexdupe\skein</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\skein\skein.h">
+      <Filter>libexdupe\skein</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\skein\skein_debug.h">
+      <Filter>libexdupe\skein</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\skein\skein_iv.h">
+      <Filter>libexdupe\skein</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\skein\skein_port.h">
+      <Filter>libexdupe\skein</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\zlib\crc32.h">
+      <Filter>libexdupe\zlib</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\zlib\deflate.h">
+      <Filter>libexdupe\zlib</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\zlib\gzguts.h">
+      <Filter>libexdupe\zlib</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\zlib\inffast.h">
+      <Filter>libexdupe\zlib</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\zlib\inffixed.h">
+      <Filter>libexdupe\zlib</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\zlib\inflate.h">
+      <Filter>libexdupe\zlib</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\zlib\inftrees.h">
+      <Filter>libexdupe\zlib</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\zlib\trees.h">
+      <Filter>libexdupe\zlib</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\zlib\zconf.h">
+      <Filter>libexdupe\zlib</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\zlib\zlib.h">
+      <Filter>libexdupe\zlib</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\zlib\zutil.h">
+      <Filter>libexdupe\zlib</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lapi.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lauxlib.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lcode.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lctype.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\ldebug.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\ldo.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lfunc.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lgc.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\llex.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\llimits.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lmem.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lobject.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lopcodes.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lparser.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lstate.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lstring.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\ltable.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\ltm.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lua.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lua.hpp">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\luaconf.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lualib.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lundump.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lvm.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lua\lzio.h">
+      <Filter>lua</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\shadow\shadow.h">
+      <Filter>shadow</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\trex\trex.h">
+      <Filter>trex</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\trex\TRexpp.h">
+      <Filter>trex</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libexdupe\libexdupe.h">
+      <Filter>libexdupe</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\src\libexdupe\bzip2\bzdiff">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\bzdiff.1">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\bzgrep">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\bzgrep.1">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\bzip.css">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\bzip2.1">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\bzip2.1.preformatted">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\bzmore">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\bzmore.1">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\CHANGES">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\dlltest.dsp">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\format.pl">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\libbz2.def">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\libbz2.dsp">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\LICENSE">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\Makefile">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\makefile.msc">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\Makefile-libbz2_so">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\manual.html">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\manual.pdf">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\manual.ps">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\README">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\README.COMPILATION.PROBLEMS">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\README.XML.STUFF">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\sample1.bz2">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\sample1.ref">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\sample2.bz2">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\sample2.ref">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\sample3.bz2">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\sample3.ref">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\words0">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\words1">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\words2">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\words3">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+    <None Include="..\src\libexdupe\bzip2\xmlproc.sh">
+      <Filter>libexdupe\bzip2</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="libexdupe">
+      <UniqueIdentifier>{782ffee0-783c-42ca-ab5e-0f0944f6b498}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="libexdupe\bzip2">
+      <UniqueIdentifier>{2d0305c0-b021-4a12-aba5-62e9082921ab}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="libexdupe\pthread">
+      <UniqueIdentifier>{b5dd0071-e57a-4ac8-accb-95deb8c5fe64}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="libexdupe\quicklz">
+      <UniqueIdentifier>{3518bc84-f8d2-4618-9fe9-ce9be3b89b15}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="libexdupe\skein">
+      <UniqueIdentifier>{4ff002c1-5880-4671-8ee8-0f001be88df1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="libexdupe\zlib">
+      <UniqueIdentifier>{7d59baa5-f38c-4807-b71a-d29946edcb43}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="lua">
+      <UniqueIdentifier>{2ef1b946-f0a6-40b2-adc0-d68616974b67}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="shadow">
+      <UniqueIdentifier>{2a0fca13-3868-4b06-81d2-9e790608403c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="trex">
+      <UniqueIdentifier>{15d3037b-b52c-4b27-a7ac-a4c52302ac15}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <Xml Include="..\src\libexdupe\bzip2\bz-common.xsl">
+      <Filter>libexdupe\bzip2</Filter>
+    </Xml>
+    <Xml Include="..\src\libexdupe\bzip2\bz-fo.xsl">
+      <Filter>libexdupe\bzip2</Filter>
+    </Xml>
+    <Xml Include="..\src\libexdupe\bzip2\bz-html.xsl">
+      <Filter>libexdupe\bzip2</Filter>
+    </Xml>
+    <Xml Include="..\src\libexdupe\bzip2\entities.xml">
+      <Filter>libexdupe\bzip2</Filter>
+    </Xml>
+    <Xml Include="..\src\libexdupe\bzip2\manual.xml">
+      <Filter>libexdupe\bzip2</Filter>
+    </Xml>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="..\src\libexdupe\bzip2\bzip2.txt">
+      <Filter>libexdupe\bzip2</Filter>
+    </Text>
+  </ItemGroup>
+</Project>
