@@ -40,5 +40,6 @@ add_executable(exdupe ${SOURCES})
 set(BUILD_SHARED_LIBS OFF)
 
 add_subdirectory(libexdupe)
+add_subdirectory(test)
 
 target_link_libraries(exdupe PRIVATE libexdupe)

@@ -262,6 +262,10 @@ void checksum_init(checksum_t *t) {
 }
 
 void checksum(unsigned char *data, size_t len, checksum_t *t) {
+    if(len == 0) {
+        return;
+    }
+
     while (t->remainder_len < 8 && len > 0) {
         t->remainder = t->remainder >> 8;
         t->remainder = t->remainder | (uint64_t)*data << (7 * 8);
