@@ -2160,7 +2160,7 @@ int main(int argc2, char *argv2[])
 #endif
 
     if (restore_flag || compress_flag || list_flag) {
-        in = static_cast<unsigned char *>(tmalloc(DISK_READ_CHUNK));
+        in = static_cast<unsigned char *>(tmalloc(DISK_READ_CHUNK + M));
         out = static_cast<unsigned char *>(tmalloc((threads + 1) * DISK_READ_CHUNK + M)); // todo, compute exact to save memory
     }
 
