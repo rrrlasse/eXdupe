@@ -8,7 +8,7 @@
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 1
 #define VERSION_REVISION 0
-#define VERSION_BETA 17
+#define VERSION_BETA 18
 
 #define NOMINMAX
 #include <string>
@@ -1516,8 +1516,6 @@ void decompress_files(vector<contents_t>& c, bool add_files) {
     STRING last_file = UNITXT("");
     uint64_t payload_orig = payload_written;
 
-    files++;
-
     statusbar(payload_written, max64, name);
     for(;;) {
         size_t len;
@@ -1580,7 +1578,8 @@ void decompress_files(vector<contents_t>& c, bool add_files) {
 
         while(c.size() > 0 && src_consumed < len) {
             if(ofile == 0) {
-                ofile = try_open(c[0].extra, 'w', true);
+                ofile = open_destination(c[0].extra);
+                files++;
                 checksum_init(&decompress_checksum);
 
                 if (add_files) {
@@ -1747,7 +1746,8 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
             checksum(in, r, &file_meta.ct);
             payload_queue += string((char*)in, r);
 
-            if(file_read == file_size) {
+            if(file_read == file_size && file_size > 0) {
+                // No CRC block for 0-sized files
                 io.try_write("C", 1, ofile);
                 file_meta.checksum = file_meta.ct.result;
                 io.write64(file_meta.ct.result, ofile);
@@ -1763,7 +1763,8 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
         payload_read += r;
         checksum(in, r, &file_meta.ct);
         assert(file_read == file_size);
-        if(file_read == file_size) {
+        if(file_read == file_size && file_size > 0) {
+            // No CRC block for 0-sized files
             io.try_write("C", 1, ofile);
             file_meta.checksum = file_meta.ct.result;
             io.write64(file_meta.ct.result, ofile);
@@ -2074,19 +2075,27 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
             contents_t c;
             read_content_item(ifile, &c);
             STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
+            if(c.size == 0) {
+                // May not have a corrosponding data block ('A' block) to trigger decompress_files()
+                ofile = open_destination(buf2);
+                files++;
+                io.close(ofile);
+                ofile = 0;
+            }
+            else {
             c.extra = buf2;
-            c.checksum = 0;
-            file_queue.push_back(c);
-            statusbar(dup_counter_payload(), max64, c.name);
-            name = c.name;
+                c.checksum = 0;
+                file_queue.push_back(c);
+                statusbar(dup_counter_payload(), max64, c.name);
+                name = c.name;
+            }
         } 
         else if (w == 'A') {
             decompress_files(file_queue, add_files);
         }
         else if (w == 'C') { // crc
-            contents_t c;
             auto crc = io.read64(ifile); 
-            file_queue[file_queue.size() - 1].checksum = crc;
+            file_queue[file_queue.size() - 1].checksum = crc;        
         }
         else if (w == 'L') { // symlink
             contents_t c;

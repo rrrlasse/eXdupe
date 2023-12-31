@@ -19,7 +19,7 @@ It finds identical data blocks of 4 KB at byte grannularity positions across ter
 | restic          | 33,518 MB  |   72 s |  default|
 | tar+zstd        | 35,982 MB  |   35 s |  -1 -T0|
 
-Try the latest development version (*backwards compatibility broken often!*) that doubles the speed and improves compression ratio: [Windows](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe_1.1.0.dev17.exe) and [Linux amd64](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe_1.1.0.dev17_linux_amd64.tar.gz).
+Try the latest development version (*backwards compatibility broken often!*) that doubles the speed and improves compression ratio: [Windows](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe_1.1.0.dev18.exe) and [Linux amd64](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe_1.1.0.dev18_linux_amd64.tar.gz).
 
 Or get the [latest stable version](https://github.com/rrrlasse/eXdupe/releases/tag/v1.0.0).
 <img src="https://github.com/rrrlasse/exdupe/blob/stuff/cmd.webp" width="80%">
