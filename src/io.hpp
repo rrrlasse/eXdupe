@@ -45,6 +45,7 @@ class Cio {
     size_t write(const void *_Str, size_t _Count, FILE *_File);
     size_t try_write(const void *Str, size_t Count, FILE *_File);
     size_t try_read(void *DstBuf, size_t Count, FILE *_File);
+    size_t read_valid_length(void *DstBuf, size_t Count, FILE *_File, STRING name);
     size_t write64(uint64_t i, FILE *_File);
     size_t write32(unsigned int i, FILE *_File);
     size_t write8(char i, FILE *_File);

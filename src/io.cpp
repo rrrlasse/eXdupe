@@ -96,6 +96,17 @@ size_t Cio::try_read(void *DstBuf, size_t Count, FILE *_File) {
     return Count;
 }
 
+// Call if you have prior tested that the file is long enough that the read will not exceed it
+size_t Cio::read_valid_length(void *DstBuf, size_t Count, FILE *_File, STRING name) {
+    size_t w = Cio::read((char *)DstBuf, Count, _File);
+    // Can be caused by region-locked files if on Windows, where it can occur anywhere inside
+    // the file. We do not want to attempt to discard compressed data that has already been written
+    // to the destination file (this is even impossible if compressing to stdout). So just abort. 
+    abort(_File > (FILE*)2 && w != Count, (UNITXT("Error reading file that has been opened successfully for reading - cannot recover: ") + name).c_str());
+    return w;
+}
+
+
 size_t Cio::write64(uint64_t i, FILE *_File) {
     uint64_t j = i;
     char c[8];

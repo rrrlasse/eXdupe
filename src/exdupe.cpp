@@ -8,7 +8,7 @@
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 1
 #define VERSION_REVISION 0
-#define VERSION_BETA 18
+#define VERSION_BETA 19
 
 #define NOMINMAX
 #include <string>
@@ -1737,10 +1737,10 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
 
         while(file_read < file_size) {
             statusbar(dup_counter_payload(), io.write_count, input_file);
-            size_t r = io.read(in, DISK_READ_CHUNK, ifile);
+            size_t r = io.read_valid_length(in, minimum(file_size - file_read, DISK_READ_CHUNK), ifile, input_file);
             if(input_file == UNITXT("-stdin") && r == 0) {
                 break;
-            }
+            }            
             file_read += r;
             payload_read += r;            
             checksum(in, r, &file_meta.ct);
@@ -1758,7 +1758,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
     }
     else {
         assert(file_size <= DISK_READ_CHUNK - payload_queue.size());
-        size_t r = io.read(in, file_size, ifile);
+        size_t r = io.read_valid_length(in, file_size, ifile, input_file);       
         file_read += r;
         payload_read += r;
         checksum(in, r, &file_meta.ct);
