@@ -189,7 +189,7 @@ STRING Cio::readstr(FILE *_File) {
     MultiByteToWideChar(CP_UTF8, 0, tmp3, -1, tmp2, t);
     return STRING(tmp2);
 #else
-    return STRING(tmp);
+    return STRING(tmp3);
 #endif
 }
 

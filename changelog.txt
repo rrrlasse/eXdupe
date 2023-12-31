@@ -1,5 +1,7 @@
 New in version 1.1.0:
 ----------------------------------------------------------------------------------------------
+ * Concatenates small files into 1 MB chunks to increase compression ratio (i.e. "solid archive")
+ * Started using boost::ut
  * Now using clang format
  * Now using CMake
  * Added support for long (> 260 chars) file paths on Windows

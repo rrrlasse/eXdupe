@@ -5,6 +5,9 @@
 // Copyrights:
 // 2010 - 2023: Lasse Mikkel Reinhold
 
+
+#define OUT_BLOCK_SIZE 1024 * 1024
+
 #if defined _MSC_VER
 #include <intrin.h>
 #endif
@@ -16,8 +19,8 @@
 #endif
 
 #define DUP_MAX_INPUT (32 * 1024 * 1024)
-#define DUP_MATCH "DM"
-#define DUP_LITERAL "DL"
+#define DUP_MATCH "MM"
+#define DUP_LITERAL "TT"
 
 #if defined(__SVR4) && defined(__sun)
 #include <thread.h>
@@ -630,7 +633,7 @@ INLINE static void hashat(const unsigned char *src, uint64_t pay, size_t len, in
     pthread_mutex_unlock_wrapper(&table_mutex);
 }
 
-INLINE static size_t write_match(size_t length, uint64_t payload, unsigned char *dst) {
+static size_t write_match(size_t length, uint64_t payload, unsigned char *dst) {
     if (length > 0) {
         memcpy(dst, DUP_MATCH, 2);
         dst += 8 - 6;
@@ -638,7 +641,7 @@ INLINE static size_t write_match(size_t length, uint64_t payload, unsigned char 
         dst += 4;
         ll2str(length, (char *)dst, 4);
         dst += 4;
-        ll2str(payload, (char *)dst, 8);
+        ll2str(payload, (char *)dst, 8); 
         dst += 8;
         return 32 - (6 + 8);
     }
@@ -701,7 +704,7 @@ INLINE static size_t cons_match(size_t length, uint64_t payload, unsigned char *
     return write_match(length, payload, dst);
 #endif
 
-    if (*q_len > 0 && payload == *q_pay + *q_len && (payload + length < *q_com || !add_data) && *q_len + length <= 256 * 1024) {
+    if (*q_len > 0 && payload == *q_pay + *q_len && (payload + length < *q_com || !add_data) && *q_len + length <= OUT_BLOCK_SIZE) {
         *q_len += length;
         return 0;
     } else {
@@ -723,7 +726,7 @@ INLINE static size_t cons_literals(const unsigned char *src, size_t length, unsi
     dst += cons_flush(dst, q_pay, q_len, q_com);
 
     while (length > 0) {
-        size_t process = minimum(256 * 1024, length);
+        size_t process = minimum(OUT_BLOCK_SIZE, length);
         dst += write_literals(src, process, dst, thread_id);
         length -= process;
         src += process;
@@ -1081,7 +1084,7 @@ int dup_decompress_simulate(const unsigned char *src, size_t *length, uint64_t *
 
 size_t flush_pend(char *dst, uint64_t *payloadret) {
     char *orig_dst = dst;
-
+    *payloadret = 0;
     int i;
     for (i = 0; i < THREADS; i++) {
         pthread_mutex_lock_wrapper(&jobs[i].jobmutex);
@@ -1106,6 +1109,7 @@ uint64_t dup_get_flushed() { return flushed; }
 
 INLINE size_t dup_compress2(const void *src, char *dst, size_t size, uint64_t *payloadreturned) {
     char *dst_orig = dst;
+    *payloadreturned = 0;
 
 #if 0 // single threaded naive for debugging
 	if (size > 0)

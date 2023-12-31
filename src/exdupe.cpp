@@ -8,7 +8,7 @@
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 1
 #define VERSION_REVISION 0
-#define VERSION_BETA 16
+#define VERSION_BETA 17
 
 #define NOMINMAX
 #include <string>
@@ -102,7 +102,7 @@ size_t DEDUPE_LARGE = 128 * K;
 
 // Data is read from disk and deduplicated in DISK_READ_CHUNK bytes at a time
 // during backup.
-const size_t DISK_READ_CHUNK = 512 * K;
+const size_t DISK_READ_CHUNK = 1 * M;
 
 // Restore takes part by resolving a tree structure of backwards references in
 // past data. Resolve RESTORE_CHUNKSIZE bytes of payload at a time (too large
@@ -219,6 +219,7 @@ typedef struct {
     bool symlink;
     bool wrote_F;
     checksum_t ct;
+    STRING extra;
 } contents_t;
 
 vector<contents_t> contents;
@@ -731,7 +732,7 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
         contents.push_back(c);
 
         if (write) {
-            io.try_write("D", 1, ofile);
+            io.try_write("I", 1, ofile);
             write_contents_item(ofile, &c);
         }
 
@@ -876,8 +877,8 @@ vector<STRING> wildcard_expand(vector<STRING> files) {
     vector<STRING> ret;
 
     for (uint32_t i = 0; i < files.size(); i++) {
-        STRING q = remove_delimitor(files[i]);
-        STRING s = right(q) == UNITXT("") ? q : right(q);
+        STRING payload_queue = remove_delimitor(files[i]);
+        STRING s = right(payload_queue) == UNITXT("") ? payload_queue : right(payload_queue);
         if (s.find_first_of(UNITXT("*?")) == string::npos) {
             ret.push_back(files[i]);
         } else {
@@ -1504,72 +1505,114 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
     io.seek(ffull, orig, SEEK_SET);
 }
 
-void decompress_file(FILE *ofile, bool add_files, STRING &name) {
-    size_t a;
 
+uint64_t payload_written = 0;
+uint64_t add_file_payload = 0;
+uint64_t curfile_written = 0;
+uint64_t current_outfile_begin = 0;
+checksum_t decompress_checksum;
+
+void decompress_files(vector<contents_t>& c, bool add_files) {
     STRING last_file = UNITXT("");
-    uint64_t payload_orig = dup_counter_payload();
+    uint64_t payload_orig = payload_written;
 
-    checksum_t t;
-    checksum_init(&t);
     files++;
 
-    statusbar(dup_counter_payload(), max64, name);
+    statusbar(payload_written, max64, name);
+    for(;;) {
+        size_t len;
+        size_t len2;
+        uint64_t payload;
 
-    while ((a = io.read(in, 8, ifile)) > 0) {
-        size_t len, len2;
+        io.read(in, 1, ifile);
+        
+        if(*in == 'B') {
+            return;
+        }
+        
+        io.read(in + 1, 7, ifile);
+        assert((in[0] == 'T' && in[1] == 'T') || (in[0] == 'M' && in[1] == 'M'));
+
         statusbar(dup_counter_payload(), max64, name);
 
-        if (*in == DUP_BLOCK) {
-            uint64_t payload;
+        io.try_read(in + 8, (32 - 6 - 8) - 8, ifile);
+        len = dup_size_compressed(in);
+        io.try_read(in + (32 - 6 - 8), len - (32 - 6 - 8) , ifile);
+        int r = dup_decompress(in, out, &len, &payload);
+        abort(r == -1 || r == -2, UNITXT("Internal error, dup_decompress() = %p"), r);
 
-            io.try_read(in + 8, (32 - 6 - 8) - 8, ifile);
-            len = dup_size_compressed(in);
-            io.try_read(in + (32 - 6 - 8), len - (32 - 6 - 8), ifile);
-            int r = dup_decompress(in, out, &len, &payload);
-            abort(r == -1 || r == -2, UNITXT("Internal error, dup_decompress() = %p"), r);
+        assert(c.size() > 0);
+        payload_orig = c[0].payload;
 
-            if (r == 0) {
-                checksum(out, len, &t);
-                io.try_write(out, len, ofile);
-            } else if (r == 1) {
-                if (payload >= payload_orig && add_files) {
-                    size_t fo = belongs_to(payload);
-                    int j = io.seek(ofile, payload - payload_orig, SEEK_SET);
-
+        if (r == 0) {
+            // dup_decompress() wrote literal at the destination, nothing we need to do
+        } else if (r == 1) {
+            // dup_decompress() returned a reference into a past written file
+            size_t resolved = 0;
+            while(resolved < len) {
+                if (payload + resolved >= payload_orig && add_files) {               
+                    size_t fo = belongs_to(payload + resolved);                
+                    int j = io.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
                     abort(j != 0, UNITXT("Internal error 1 or non-seekable device: seek(%s, %p, %p)"), infiles[fo].filename.c_str(), payload, payload_orig);
-                    len2 = io.read(out, len, ofile);
-                    abort(len2 != len, UNITXT("Internal error 2: read(%s, %p, %p)"), infiles[fo].filename.c_str(), len, len2);
+                    len2 = io.read(out + resolved, len - resolved, ofile);
+                    abort(len2 != len - resolved, UNITXT("Internal error 2: read(%s, %p, %p)"), infiles[fo].filename.c_str(), len, len2);
+                    resolved += len2;
                     io.seek(ofile, 0, SEEK_END);
-                    checksum(out, len, &t);
-
-                    io.try_write(out, len, ofile);
-                } else {
+                } else {                
                     FILE *ifile2;
-                    size_t fo = belongs_to(payload);
+                    size_t fo = belongs_to(payload + resolved);
                     {
                         ifile2 = try_open(infiles[fo].filename, 'r', true);
                         infiles[fo].handle = ifile2;
-                        int j = io.seek(ifile2, payload - infiles[fo].offset, SEEK_SET);
-                        abort(j != 0, UNITXT("Internal error 9 or destination is a non-seekable device: seek(%s, %p, %p)"), infiles[fo].filename.c_str(),
-                              payload, infiles[fo].offset);
+                        int j = io.seek(ifile2, payload + resolved - infiles[fo].offset, SEEK_SET);
+                        abort(j != 0, UNITXT("Internal error 9 or destination is a non-seekable device: seek(%s, %p, %p)"), infiles[fo].filename.c_str(), payload, infiles[fo].offset);
                     }
-                    len2 = io.read(out, len, ifile2);
+                    len2 = io.read(out + resolved, len - resolved, ifile2);
+                    resolved += len2;
                     fclose(ifile2);
-                    abort(len2 != len, UNITXT("Internal error 10: read(%s, %p, %p)"), infiles[fo].filename.c_str(), len, len2);
-                    checksum((unsigned char *)out, len, &t);
-                    io.try_write(out, len, ofile);
                 }
-            } else {
-                abort(true, UNITXT("Internal errror or source file corrupted: %d"), r);
             }
         } else {
-            break;
+            abort(true, UNITXT("Internal errror or source file corrupted: %d"), r);
+        }
+
+        uint64_t src_consumed = 0;
+
+        while(c.size() > 0 && src_consumed < len) {
+            if(ofile == 0) {
+                ofile = try_open(c[0].extra, 'w', true);
+                checksum_init(&decompress_checksum);
+
+                if (add_files) {
+                    add_file(c[0].extra, add_file_payload);
+                    add_file_payload += c[0].size;
+                }
+
+                curfile_written = 0;
+            }
+
+            auto missing = c[0].size - curfile_written;
+            auto has = minimum(missing, len - src_consumed);
+            curfile_written += has;
+
+            io.try_write(out + src_consumed, has, ofile);
+            checksum(out + src_consumed, has, &decompress_checksum);
+
+            payload_written += has;
+            src_consumed += has;
+            
+            if(curfile_written == c[0].size) {
+                current_outfile_begin += c[0].size;
+
+                io.close(ofile);
+                ofile = 0;
+                curfile_written = 0;
+                abort(c[0].checksum != decompress_checksum.result, UNITXT("File checksum error"));
+
+                c.erase(c.begin());
+            }
         }
     }
-
-    uint64_t c = io.read64(ifile);
-    abort(c != t.result, UNITXT("File checksum error"));
 }
 
 #ifndef WINDOWS
@@ -1613,13 +1656,13 @@ void compress_symlink(const STRING &link, const STRING &target) {
 }
 #endif
 
-vector<contents_t> file_q;
-int currentq = 0;
-uint64_t payload_returned = 0;
-uint64_t partpay;
-uint64_t totaladded = 0;
+uint64_t payload_compressed = 0;    // Total payload returned by dup_compress() and flush_pend()
+uint64_t payload_read = 0;          // Total payload read from disk
+string payload_queue;               // Queue of payload read from disk. Can contain multiple small files
+vector<contents_t> file_queue;
 
 void compress_file(const STRING &input_file, const STRING &filename, const bool flush = true) {
+
     if (input_file != UNITXT("-stdin") && ISNAMEDPIPE(get_attributes(input_file, follow_symlinks)) && !named_pipes) {
         PRINT(2, UNITXT("Skipped, no -p flag for named pipes: %s"), input_file.c_str());
         return;
@@ -1627,133 +1670,131 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
 
     ifile = try_open(input_file.c_str(), 'r', false);
 
+    if(!ifile) {
+        if (continue_flag) {
+            PRINT(2, UNITXT("Skipped, error opening source file: %s"), input_file.c_str());
+            return;
+        } 
+        else {
+            abort(true, UNITXT("Aborted, error opening source file: '%s'"), input_file.c_str());
+        }
+    }
+
     tm file_date;
     int attributes = 0;
-    checksum_t t;
-    checksum_init(&t);
-    uint64_t filesize = 0;
+    checksum_t file_checksum;
+    checksum_init(&file_checksum);
+    uint64_t file_size = 0;
+    contents_t file_meta;
+    uint64_t file_read = 0;
 
-    contents_t c;
+    file_meta.payload = payload_read;
 
-    c.payload = totaladded;
-
-    // wcerr << input_file << "\n-";
     statusbar(dup_counter_payload(), io.write_count, input_file);
 
-    if (ifile) {
-        if (input_file != UNITXT("-stdin")) {
-            io.seek(ifile, 0, SEEK_END);
-            filesize = io.tell(ifile);
-
-#ifdef WINDOWS
-            // Region locked files
-            if (filesize > 0) {
-                io.seek(ifile, 0, SEEK_SET);
-                size_t r = io.read(in, 1, ifile);
-                if (r != 1) {
-                    io.close(ifile);
-                    if (continue_flag) {
-                        PRINT(2, UNITXT("Skipped, error reading source file: %s"), input_file.c_str());
-                        return;
-                    } else {
-                        abort(true, UNITXT("Aborted, error reading source file: '%s'"), input_file.c_str());
-                    }
-                }
-                io.seek(ifile, 0, SEEK_END);
-            }
-#endif
-            totaladded += filesize;
-
-            get_date(input_file, &file_date);
-            attributes = get_attributes(input_file, follow_symlinks);
-            io.seek(ifile, 0, SEEK_SET);
-        } else {
-            cur_date(&file_date);
-            filesize = std::numeric_limits<uint64_t>::max();
-        }
-
-        size_t r = 0;
-
-        statusbar(dup_counter_payload(), io.write_count, input_file);
-
-        c.name = filename;
-        c.size = filesize;
-        c.file_date = file_date;
-        c.attributes = attributes;
-        c.wrote_F = false;
-        checksum_init(&c.ct);
-        file_q.push_back(c);
-
-        files++;
-
-        size_t DRC = DISK_READ_CHUNK;
-        bool cont = true;
-        size_t cc = 0;
-        size_t read_from_file = 0;
-        bool stdin_end = false;
-
-        while (cont) {
-            if (file_q.size() > 0 && file_q[0].payload == payload_returned && !file_q[0].wrote_F) {
-                io.try_write("F", 1, ofile);
-                currentq++;
-
-                write_contents_item(ofile, &file_q[0]);
-                file_q[0].wrote_F = true;
-            }
-
-            if (!(file_q.size() > 0 && file_q[0].size == 0)) { // isnt fileq always > 0 in size?
-
-                r = io.read(in, DRC, ifile);
-                read_from_file += r;
-                if (r > 0) {
-                    cc = dup_compress(in, out, r,
-                                      &partpay); // note, is allowed/possible to return 0
-                } else {
-                    cc = flush_pend((char *)out, &partpay); // flush
-                }
-
-                payload_returned += partpay;
-                partpay = 0;
-
-                add_references(out, cc, io.write_count);
-                if (r > 0) {
-                    checksum((unsigned char *)in, r, &t);
-                    memcpy(&file_q[file_q.size() - 1].ct, &t, sizeof(checksum_t));
-                }
-                io.try_write(out, cc, ofile);
-            }
-
-            statusbar(dup_counter_payload(), io.write_count, input_file);
-
-            stdin_end = (input_file == UNITXT("-stdin") && r == 0 && read_from_file == payload_returned);
-            if (stdin_end || (file_q.size() > 0 && file_q[0].payload + file_q[0].size == payload_returned)) {
-                assert(file_q[0].wrote_F);
-                io.try_write("ENDSENDS", 8, ofile);
-                currentq--;
-                io.write64(file_q[0].ct.result, ofile);
-                file_q.erase(file_q.begin());
-            }
-
-            cont = (flush && file_q.size() > 0) || (cc > 0) || (r > 0);
-
-            if (stdin_end) {
-                cont = false;
-                c.size = payload_returned;
-            }
-        }
-
-        io.close(ifile);
-        c.directory = false;
-        c.symlink = false;
-        c.checksum = t.result;
-        c.file_date = file_date; // fixme redundant
-        contents.push_back(c);
-
-    } else if (continue_flag) {
-        PRINT(2, UNITXT("Skipped, error opening source file: %s"), input_file.c_str());
+    if (input_file != UNITXT("-stdin")) {
+        io.seek(ifile, 0, SEEK_END);
+        file_size = io.tell(ifile);
+        get_date(input_file, &file_date);
+        attributes = get_attributes(input_file, follow_symlinks);
+        io.seek(ifile, 0, SEEK_SET);
     } else {
-        abort(true, UNITXT("Aborted, error opening source file: '%s'"), input_file.c_str());
+        cur_date(&file_date);
+        file_size = std::numeric_limits<uint64_t>::max();
     }
+
+    file_meta.name = filename;
+    file_meta.size = file_size;
+    file_meta.file_date = file_date;
+    file_meta.attributes = attributes;
+    file_meta.wrote_F = false;
+    file_meta.directory = false;
+    file_meta.symlink = false;
+    checksum_init(&file_meta.ct);
+    file_queue.push_back(file_meta);
+
+    files++;
+
+    auto empty_q = [&]() {
+        if(payload_queue.size() > 0) {
+            uint64_t pay;
+            size_t cc = dup_compress(payload_queue.c_str(), out, payload_queue.size(), &pay);
+            payload_compressed += pay;
+            if(cc > 0) {
+                io.try_write("A", 1, ofile);
+                add_references(out, cc, io.write_count);
+                io.try_write(out, cc, ofile);
+                io.try_write("B", 1, ofile);
+            }
+            payload_queue.clear();
+        }
+    };
+
+    io.try_write("F", 1, ofile);
+    write_contents_item(ofile, &file_meta);
+
+    if(file_size > DISK_READ_CHUNK - payload_queue.size()) {
+        empty_q();
+
+        while(file_read < file_size) {
+            statusbar(dup_counter_payload(), io.write_count, input_file);
+            size_t r = io.read(in, DISK_READ_CHUNK, ifile);
+            if(input_file == UNITXT("-stdin") && r == 0) {
+                break;
+            }
+            file_read += r;
+            payload_read += r;            
+            checksum(in, r, &file_meta.ct);
+            payload_queue += string((char*)in, r);
+
+            if(file_read == file_size) {
+                io.try_write("C", 1, ofile);
+                file_meta.checksum = file_meta.ct.result;
+                io.write64(file_meta.ct.result, ofile);
+            }
+            empty_q();
+        }
+        file_queue.clear();
+    }
+    else {
+        assert(file_size <= DISK_READ_CHUNK - payload_queue.size());
+        size_t r = io.read(in, file_size, ifile);
+        file_read += r;
+        payload_read += r;
+        checksum(in, r, &file_meta.ct);
+        assert(file_read == file_size);
+        if(file_read == file_size) {
+            io.try_write("C", 1, ofile);
+            file_meta.checksum = file_meta.ct.result;
+            io.write64(file_meta.ct.result, ofile);
+        }
+        payload_queue += string((char*)in, r);
+    }
+
+    fclose(ifile);
+
+    if(flush) {
+        empty_q();
+
+        while(payload_compressed < payload_read) {
+            size_t pay;
+            size_t cc = flush_pend((char *)out, &pay);
+            payload_compressed += pay;               
+            if(cc > 0) {
+                io.try_write("A", 1, ofile);
+                add_references(out, cc, io.write_count);
+                io.try_write(out, cc, ofile);
+                io.try_write("B", 1, ofile);
+
+            }
+        }
+    }
+
+    if(input_file == UNITXT("-stdin")) {
+        file_meta.size = file_read;
+    }
+    file_meta.checksum = file_meta.ct.result;
+    contents.push_back(file_meta);
 }
 
 bool lua_test(STRING path, const STRING &script) {
@@ -2016,34 +2057,42 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
     save_directory(UNITXT(""), curdir + DELIM_STR); // initial root
 
     for (;;) {
-        contents_t c;
         char w;
 
         r = io.read(&w, 1, ifile);
         abort(r == 0, UNITXT("Unexpected end of archive (block marker)"));
 
-        if (w == 'D') {
+        if (w == 'I') {
+            contents_t c;
             read_content_item(ifile, &c);
             ensure_relative(c.name);
             curdir = extract_dir + DELIM_STR + c.name;
             save_directory(UNITXT(""), curdir);
             create_directories(curdir);
-        } else if (w == 'F') {
+        } 
+        else if (w == 'F') {
+            contents_t c;
             read_content_item(ifile, &c);
             STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
-
+            c.extra = buf2;
+            c.checksum = 0;
+            file_queue.push_back(c);
             statusbar(dup_counter_payload(), max64, c.name);
-
-            if (add_files) {
-                add_file(buf2, dup_counter_payload());
-            }
-
-            FILE *f = open_destination(buf2);
-            decompress_file(f, add_files, c.name);
-            fclose(f);
-        } else if (w == 'L') {
+            name = c.name;
+        } 
+        else if (w == 'A') {
+            decompress_files(file_queue, add_files);
+        }
+        else if (w == 'C') { // crc
+            contents_t c;
+            auto crc = io.read64(ifile); 
+            file_queue[file_queue.size() - 1].checksum = crc;
+        }
+        else if (w == 'L') { // symlink
+            contents_t c;
             read_content_item(ifile, &c);
 #ifdef WINDOWS
+            // FIXME
 #else
             STRING buf2 = curdir + DELIM_CHAR + c.name;
             create_symlink(buf2, c);
