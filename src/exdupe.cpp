@@ -745,13 +745,13 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
 }
 
 int write_hashtable(FILE *file) {
-    size_t t = dup_table_condense();
+    size_t t = dup_compress_hashtable();
     io.try_write("HASHTBLE", 8, file);
     io.write64(t, file);
     io.try_write(hashtable, t, file);
     io.write64(t + 8, file);
 #ifdef _DEBUG
-    dup_table_expand(t);
+    dup_decompress_hashtable(t);
 #endif
     return 0;
 }
@@ -765,7 +765,7 @@ uint64_t read_hashtable(FILE *file) {
     }
     io.try_read(hashtable, s, file);
     io.seek(file, orig, SEEK_SET);
-    int i = dup_table_expand(s);
+    int i = dup_decompress_hashtable(s);
     abort(i != 0, UNITXT("'%s' is corrupted or not a .full file (hash table)"), slashify(full).c_str());
     return 0;
 }

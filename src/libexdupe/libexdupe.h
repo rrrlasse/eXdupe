@@ -28,8 +28,8 @@ uint64_t dup_counter_payload(void);
 uint64_t dup_counter_compressed(void);
 
 void dup_add(bool add);
-size_t dup_table_condense(void);
-int dup_table_expand(size_t len);
+size_t dup_compress_hashtable(void);
+int dup_decompress_hashtable(size_t len);
 void dup_deinit(void);
 
 void reset_profiling(void);

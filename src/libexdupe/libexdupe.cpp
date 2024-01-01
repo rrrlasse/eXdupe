@@ -5,9 +5,6 @@
 // Copyrights:
 // 2010 - 2023: Lasse Mikkel Reinhold
 
-
-#define OUT_BLOCK_SIZE 1024 * 1024
-
 #if defined _MSC_VER
 #include <intrin.h>
 #endif
@@ -17,6 +14,12 @@
 #else
 #define INLINE __attribute__((always_inline)) inline
 #endif
+
+#define OUT_BLOCK_SIZE 1024 * 1024
+
+// When compressing the hashtable, worst case is that all entries are in use, in which case it ends up
+// growing COMPRESSED_HASHTABLE_OVERHEAD bytes in size. Tighter upper bound is probably 16 or so.
+#define COMPRESSED_HASHTABLE_OVERHEAD 100
 
 #define DUP_MAX_INPUT (32 * 1024 * 1024)
 #define DUP_MATCH "MM"
@@ -87,7 +90,7 @@ void threadtest_delay(void) {
     }
 }
 #else
-    void threadtest_delay(void) {}
+void threadtest_delay(void) {}
 #endif
 
 int pthread_mutex_lock_wrapper(pthread_mutex_t *m) {
@@ -314,27 +317,29 @@ INLINE static uint64_t shall(const void *src, size_t len) {
 }
 
 void print_table() {
-    cerr << "\n";
+    cerr << "\nbegin\n";
     for (uint64_t i = 0; i < HASH_ENTRIES; i++) {
         for (int j = 0; j < 2; j++) {
-            cerr << table[i][j].slide << " ";
+            cerr << table[i][j].hash << "," << table[i][j].slide << "," << table[i][j].offset << "     ";
         }
         cerr << "\n";
     }
+    cerr << "\nend\n";
 }
 
-size_t dup_table_condense(void) {
+size_t dup_compress_hashtable(void) {
+    // print_table();
     uint64_t hash;
     char *dst = (char *)table;
     uint64_t i = 0;
     size_t siz;
 
-    bool used2 = used(table[0][0]) || used(table[0][1]);
+    bool used2 = used(table[0][0]);
 
     do {
         uint64_t count = 1;
-        while (i + count < HASH_ENTRIES) {
-            bool used3 = used(table[i + count][0]) || used(table[i + count][1]);
+        while (i + count < HASH_ENTRIES * 2) {
+            bool used3 = used(table[(i + count) / 2][(i + count) % 2]);
             if (used2 != used3) {
                 break;
             }
@@ -344,43 +349,35 @@ size_t dup_table_condense(void) {
         if (used2) {
             for (uint64_t k = 0; k < count; k++) {
                 hash_t h;
-                for (int j = 0; j < 2; j++) {
-                    memcpy(&h, &table[i][j], sizeof(hash_t));
-                    ll2str(h.offset, dst, 8);
-                    ll2str(h.hash, dst + 8, 2);
-                    ll2str(h.slide, dst + 8 + 2, 2);
-                    memcpy(dst + 8 + 2 + 2, h.sha, SHA_SIZE);
-                    dst += 8 + 2 + 2 + SHA_SIZE;
-                }
+                memcpy(&h, &table[i / 2][i % 2], sizeof(hash_t));
+                ll2str(h.offset, dst, 8);
+                ll2str(h.hash, dst + 8, 2);
+                ll2str(h.slide, dst + 8 + 2, 2);
+                memcpy(dst + 8 + 2 + 2, h.sha, SHA_SIZE);
+                dst += 8 + 2 + 2 + SHA_SIZE;
                 i++;
             }
         } else {
             i += count;
         }
-
         *dst = used2 ? 'Y' : 'N';
         dst++;
         ll2str(count, dst, 8);
         dst += 8;
-
         used2 = !used2;
-
-    } while (i < HASH_ENTRIES);
+    } while (i < HASH_ENTRIES * 2);
 
     siz = dst - (char *)table;
-
     hash = shall(table, siz);
     ll2str(hash, (char *)table + siz, 8);
-
     siz += 8;
-    // print_table();
+
     return siz;
 }
 
-int dup_table_expand(size_t len) {
-    // print_table();
+int dup_decompress_hashtable(size_t len) {
     unsigned char *src = (unsigned char *)table + len - 1;
-    size_t i = HASH_ENTRIES - 1;
+    size_t i = HASH_ENTRIES * 2 - 1;
 
     uint64_t hash = str2ll(src - 7, 8);
     auto g = shall(table, src - (unsigned char *)table + 1 - 8);
@@ -390,8 +387,7 @@ int dup_table_expand(size_t len) {
         return -1;
     }
 
-    src -= 8;
-    src -= 8;
+    src -= 8 + 8;
 
     bool used = *src == 'Y' ? true : false;
     size_t count = str2ll(src + 1, 8);
@@ -403,7 +399,7 @@ int dup_table_expand(size_t len) {
         if (i > count) {
             unsigned char *next = src;
             if (used) {
-                next -= (2 * count) * sizeof(hash_t);
+                next -= (count) * sizeof(hash_t);
             }
             next -= 9;
             used = *(next) == 'Y' ? true : false;
@@ -411,31 +407,28 @@ int dup_table_expand(size_t len) {
         }
 
         for (uint64_t k = 0; k < count2; k++) {
-            for (int j = 0; j < 2; j++) {
-                if (used2) {
-                    unsigned char temp[100];
-                    src -= (8 + 2 + 2 + SHA_SIZE);
-                    memcpy(temp, src, 8 + 2 + 2 + SHA_SIZE);
-                    table[i][1 - j].offset = str2ll(temp, 8);
-                    table[i][1 - j].hash = static_cast<uint16_t>(str2ll(temp + 8, 2));
-                    table[i][1 - j].slide = static_cast<uint16_t>(str2ll(temp + 8 + 2, 2));
-                    memcpy(table[i][1 - j].sha, temp + 8 + 2 + 2, SHA_SIZE);
-                } else {
-                    memset(&table[i][1 - j], 0, sizeof(hash_t));
-                }
+            if (used2) {
+                unsigned char temp[100];
+                src -= (8 + 2 + 2 + SHA_SIZE);
+                memcpy(temp, src, 8 + 2 + 2 + SHA_SIZE);
+                table[i / 2][i % 2].offset = str2ll(temp, 8);
+                table[i / 2][i % 2].hash = static_cast<uint16_t>(str2ll(temp + 8, 2));
+                table[i / 2][i % 2].slide = static_cast<uint16_t>(str2ll(temp + 8 + 2, 2));
+                memcpy(table[i / 2][i % 2].sha, temp + 8 + 2 + 2, SHA_SIZE);
+            } else {
+                memset(&table[i / 2][i % 2], 0, sizeof(hash_t));
             }
-
             if (i == 0) {
                 assert(k == count2 - 1);
                 break;
             }
-
             i--;
         }
         src -= 8; // cnt
         src -= 1; // used
     }
 
+    //    print_table();
     return 0;
 }
 
@@ -936,7 +929,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
     SMALL_BLOCK = small_block;
     LARGE_BLOCK = large_block;
 
-    HASH_ENTRIES = (mem - 200) / (2 * sizeof(hash_t));
+    HASH_ENTRIES = (mem - COMPRESSED_HASHTABLE_OVERHEAD) / (2 * sizeof(hash_t));
 
     table = (hash_t(*)[2])space;
 
