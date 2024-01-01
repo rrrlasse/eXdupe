@@ -400,9 +400,9 @@ void abort(bool b, const CHR *fmt, ...) {
            "restore, typed as\n")                                                                                                                              \
     UNITXT("   printed by the -L flag")
 
-#define LIST                                                                                                                                                   \
-    UNITXT("List contents:\n")                                                                                                                                 \
-    UNITXT("   -L <.full file | .diff file>")
+#define OTHER \
+    UNITXT("List contents: -L <.full file | .diff file>\n\n") \
+    UNITXT("Show build info: -B")
 
 void PRINT(uint32_t verbosity, const CHR *fmt, ...) {
     va_list argv;
@@ -947,7 +947,7 @@ void parse_flags(void) {
             abort(true, UNITXT("-s flag not supported in *nix"));
 #endif
         } else {
-            size_t e = flags.find_first_not_of(UNITXT("-hRroxcDupilLatgmv0123456789"));
+            size_t e = flags.find_first_not_of(UNITXT("-hRroxcDupilLatgmv0123456789B"));
             if (e != string::npos) {
                 abort(true, UNITXT("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
@@ -994,6 +994,11 @@ void parse_flags(void) {
             }
             if (regx(flagsS, "h") != "") {
                 hash_flag = true;
+            }
+            if (regx(flagsS, "B") != "") {
+                STRING b = STRING(UNITXT("Built ")) + UNITXT(BUILD_TIME) + UNITXT(" [") + UNITXT(GIT_COMMIT_HASH) + UNITXT("]");
+                PRINT(0, b.c_str());
+                exit(0);
             }
             if (int_flag(flagsS, "t") != -1) {
                 threads_flag = int_flag(flagsS, "t");
@@ -1171,7 +1176,7 @@ void print_usage()
 	DIFFERENTIAL_BACKUP UNITXT("\n\n")
 	RESTORE_FULL_BACKUP UNITXT("\n\n")
 	RESTORE_DIFFERENTIAL_BACKUP UNITXT("\n\n")
-	LIST UNITXT("\n\n")
+	OTHER UNITXT("\n\n")
 	UNITXT("Flags:\n")
 	UNITXT("     -r Do not include sub directories\n")
 	UNITXT("     -o Overwrite existing files (default is to abort)\n"  )
