@@ -146,29 +146,53 @@ unsigned int Cio::read32(FILE *_File) {
     return j;
 }
 
+// todo, template all these
+size_t Cio::write16(uint16_t i, FILE *_File) {
+    unsigned int j = i;
+    char c[2];
+    for (unsigned int k = 0; k < 2; k++) {
+        c[k] = (char)j;
+        j >>= 8;
+    }
+    size_t r = try_write(c, 2, _File);
+    return r;
+}
+
+uint16_t Cio::read16(FILE *_File) {
+    unsigned int j = 0;
+    unsigned char c[2];
+    try_read(c, 2, _File);
+    for (unsigned int k = 0; k < 2; k++) {
+        j = j << 8;
+        j = (j | c[1 - k]);
+    }
+    return j;
+}
+
+
 bool Cio::write_date(tm *t, FILE *_File) {
-    write32(t->tm_hour, _File);
-    write32(t->tm_isdst, _File);
-    write32(t->tm_mday, _File);
-    write32(t->tm_min, _File);
-    write32(t->tm_mon, _File);
-    write32(t->tm_sec, _File);
-    write32(t->tm_wday, _File);
-    write32(t->tm_yday, _File);
-    write32(t->tm_year, _File);
+    write8(t->tm_hour, _File);
+    write8(t->tm_isdst, _File);
+    write8(t->tm_mday, _File);
+    write8(t->tm_min, _File);
+    write8(t->tm_mon, _File);
+    write8(t->tm_sec, _File);
+    write8(t->tm_wday, _File);
+    write16(t->tm_yday, _File);
+    write8(t->tm_year, _File);
     return true;
 }
 
 bool Cio::read_date(tm *t, FILE *_File) {
-    t->tm_hour = read32(_File);
-    t->tm_isdst = read32(_File);
-    t->tm_mday = read32(_File);
-    t->tm_min = read32(_File);
-    t->tm_mon = read32(_File);
-    t->tm_sec = read32(_File);
-    t->tm_wday = read32(_File);
-    t->tm_yday = read32(_File);
-    t->tm_year = read32(_File);
+    t->tm_hour = read8(_File);
+    t->tm_isdst = read8(_File);
+    t->tm_mday = read8(_File);
+    t->tm_min = read8(_File);
+    t->tm_mon = read8(_File);
+    t->tm_sec = read8(_File);
+    t->tm_wday = read8(_File);
+    t->tm_yday = read16(_File);
+    t->tm_year = read8(_File);
     return true;
 }
 
@@ -195,11 +219,13 @@ uint64_t Cio::read64(FILE *_File) {
     return j;
 }
 
+// Todo, these functions are badly written
 STRING Cio::readstr(FILE *_File) {
     char tmp3[MAX_PATH_LEN];
     memset(tmp3, 0, MAX_PATH_LEN);
-    int t = read32(_File);
-    try_read(tmp3, t, _File); // read string
+    int t = read16(_File);
+    abort(t > MAX_PATH_LEN, UNITXT("Internal error, attempted to read a string longer than MAX_PATH_LEN"));
+    try_read(tmp3, t, _File);
 #ifdef WINDOWS
     wchar_t tmp2[MAX_PATH_LEN];
     memset(tmp2, 0, MAX_PATH_LEN);
@@ -211,9 +237,10 @@ STRING Cio::readstr(FILE *_File) {
 }
 
 size_t Cio::writestr(STRING str, FILE *_File) {
+    abort(str.size() > MAX_PATH_LEN, UNITXT("Internal error, attempted to write a string longer than MAX_PATH_LEN"));
     CHR tmp3[MAX_PATH_LEN];
     memset(tmp3, 0, MAX_PATH_LEN);
-    char tmp2[4096];
+    char tmp2[2*MAX_PATH_LEN];
 
 #ifdef WINDOWS
     memset(tmp2, 0, MAX_PATH_LEN);
@@ -223,7 +250,7 @@ size_t Cio::writestr(STRING str, FILE *_File) {
     memcpy(tmp2, str.c_str(), str.length());
 #endif
 
-    size_t r = write32((unsigned int)t, _File);
+    size_t r = write16((unsigned int)t, _File);
     r += try_write(tmp2, t, _File);
     return r;
 }

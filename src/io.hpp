@@ -48,10 +48,13 @@ class Cio {
     size_t read_valid_length(void *DstBuf, size_t Count, FILE *_File, STRING name);
     size_t write64(uint64_t i, FILE *_File);
     size_t write32(unsigned int i, FILE *_File);
+    size_t write16(uint16_t i, FILE *_File);
     size_t write8(char i, FILE *_File);
     char read8(FILE *_File);
     unsigned int read32(FILE *_File);
+    uint16_t read16(FILE *_File);
     uint64_t read64(FILE *_File);
+
     STRING readstr(FILE *_File);
     size_t writestr(STRING str, FILE *_File);
 };
