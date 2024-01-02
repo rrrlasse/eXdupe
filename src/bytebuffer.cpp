@@ -3,7 +3,7 @@
 // eXdupe deduplication library and file archiver.
 //
 // Copyrights:
-// 2010 - 2023: Lasse Mikkel Reinhold
+// 2010 - 2024: Lasse Mikkel Reinhold
 
 #include "bytebuffer.h"
 #include "utilities.hpp"

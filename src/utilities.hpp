@@ -1,11 +1,9 @@
-// eXdupe deduplication file archiver and library
+// SPDX-License-Identifier: GPL-2.0-or-later
+// 
+// eXdupe deduplication library and file archiver.
 //
-// Contributers:
-//
-// 2010 - 2023: Lasse Mikkel Reinhold
-//
-// eXdupe is now Public Domain (PD): The world's fastest deduplication with the
-// worlds least restrictive terms.
+// Copyrights:
+// 2010 - 2024: Lasse Mikkel Reinhold
 
 #ifndef UTILITIES_HEADER
 #define UTILITIES_HEADER

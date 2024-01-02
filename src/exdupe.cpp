@@ -3,7 +3,7 @@
 // eXdupe deduplication library and file archiver.
 //
 // Copyrights:
-// 2010 - 2023: Lasse Mikkel Reinhold
+// 2010 - 2024: Lasse Mikkel Reinhold
 
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 1
@@ -1170,7 +1170,7 @@ void parse_files(void) {
 void print_usage()
 {
     PRINT(0, (
-	UNITXT("eXdupe ") + str(VERSION_MAJOR) + UNITXT(".") + str(VERSION_MINOR) + UNITXT(".") + str(VERSION_REVISION) + UNITXT(".dev") + str(VERSION_BETA) + UNITXT(" file archiver. GPLv2 or later. Copyright 2010 - 2023\n\n")
+	UNITXT("eXdupe ") + str(VERSION_MAJOR) + UNITXT(".") + str(VERSION_MINOR) + UNITXT(".") + str(VERSION_REVISION) + UNITXT(".dev") + str(VERSION_BETA) + UNITXT(" file archiver. GPLv2 or later. Copyright 2010 - 2024\n\n")
 
 	FULL_BACKUP UNITXT("\n\n")
 	DIFFERENTIAL_BACKUP UNITXT("\n\n")
