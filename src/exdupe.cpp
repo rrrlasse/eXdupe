@@ -82,6 +82,7 @@ const bool WIN = false;
 #include "ui.hpp"
 #include "unicode.h"
 #include "utilities.hpp"
+#include "timestamp.h"
 
 #ifdef _WIN32
 #pragma warning(disable : 4459) // todo
@@ -847,7 +848,10 @@ void parse_flags(void) {
                 hash_flag = true;
             }
             if (regx(flagsS, "B") != "") {
-                STRING b = STRING(UNITXT("Built ")) + UNITXT(BUILD_TIME) + UNITXT(" [") + UNITXT(GIT_COMMIT_HASH) + UNITXT("]");
+                // "2024-01-04T09:27:05+0100"
+                STRING td = UNITXT(_TIMEZ_);
+                td = td.substr(0, 10) + UNITXT(" ") + td.substr(11, 8) + UNITXT(" ") + td.substr(19, 5);
+                STRING b = STRING(UNITXT("Built ")) + td + UNITXT(" [") + UNITXT(GIT_COMMIT_HASH) + UNITXT("]");
                 statusbar.print(0, b.c_str());
                 exit(0);
             }

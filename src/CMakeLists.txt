@@ -48,28 +48,20 @@ execute_process(
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     OUTPUT_VARIABLE GIT_BRANCH
     OUTPUT_STRIP_TRAILING_WHITESPACE)
-
 execute_process(
-    COMMAND git rev-parse HEAD
+    COMMAND git rev-parse --short HEAD
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     OUTPUT_VARIABLE GIT_COMMIT_HASH
     OUTPUT_STRIP_TRAILING_WHITESPACE)
-	
-
-if (WIN32)
-    execute_process(
-        COMMAND cmd /c "echo %date% %time%"
-        OUTPUT_VARIABLE BUILD_TIME
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-else()
-    execute_process(
-        COMMAND date "+%Y-%m-%d %H:%M:%S"
-        OUTPUT_VARIABLE BUILD_TIME
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-endif()
-
+FILE (WRITE ${CMAKE_BINARY_DIR}/timestamp.cmake "STRING(TIMESTAMP TIMEZ %Y-%m-%dT%H:%M:%S%z)\n")
+FILE (APPEND ${CMAKE_BINARY_DIR}/timestamp.cmake "FILE(WRITE timestamp.h \"#pragma once\\n\")\n")
+FILE (APPEND ${CMAKE_BINARY_DIR}/timestamp.cmake "FILE(APPEND timestamp.h \"#define _TIMEZ_ \\\"\${TIMEZ}\\\"\\n\\n\")\n")
+ADD_CUSTOM_TARGET (
+    timestamp
+    COMMAND ${CMAKE_COMMAND} -P ${CMAKE_BINARY_DIR}/timestamp.cmake
+    ADD_DEPENDENCIES ${CMAKE_BINARY_DIR}/timestamp.cmake)
+ADD_DEPENDENCIES (exdupe timestamp)
+target_include_directories(exdupe PRIVATE ${CMAKE_BINARY_DIR})
 target_compile_definitions(${PROJECT_NAME} PRIVATE "-DGIT_COMMIT_HASH=\"${GIT_COMMIT_HASH}\"")
-target_compile_definitions(${PROJECT_NAME} PRIVATE "-DBUILD_TIME=\"${BUILD_TIME}\"")
+
 	
