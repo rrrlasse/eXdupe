@@ -10,6 +10,8 @@
 
 #include "unicode.h"
 
+#define NOMINMAX
+
 // Do not increase too much because this amount is saved on stack in several
 // places
 #define MAX_PATH_LEN 2048
@@ -54,8 +56,13 @@
 #include <utime.h>
 #endif
 
-using namespace std;
+using namespace std; // fixme, remove
+
 enum { FILE_TYPE, DIR_TYPE, SYMLINK_TYPE, ERROR_TYPE };
+enum status_t { BACKUP, DIFF_BACKUP, RESTORE, DIFF_RESTORE };
+
+std::string format_size(uint64_t size);
+void clear_line();
 
 uint64_t rnd64();
 
@@ -79,9 +86,14 @@ STRING ucase(STRING str);
 STRING lcase(STRING str);
 STRING remove_leading_curdir(STRING path);
 STRING remove_delimitor(STRING path);
+STRING remove_leading_delimitor(STRING path);
 void abort(bool b, const CHR *fmt, ...);
 STRING get_pid(void);
 uint64_t filesize(STRING file, bool followlinks);
+
+STRING s2w(const std::string &s);
+STRING left(const STRING &s);
+STRING right(const STRING &s);
 
 bool ISNAMEDPIPE(int attributes);
 bool ISDIR(int attributes);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// 
+//
 // eXdupe deduplication library and file archiver.
 //
 // Copyrights:
@@ -9,6 +9,9 @@
 #include <iostream>
 #include <random>
 #include <time.h>
+#include <iomanip>
+#include <cmath>
+#include <cfenv>
 
 #include "unicode.h"
 #include "utilities.hpp"
@@ -26,8 +29,8 @@ unsigned int GetTickCount() {
 namespace fs = std::filesystem;
 
 #ifdef _WIN32
-#pragma warning( disable : 4267 ) 
-#pragma warning( disable : 4244 ) 
+#pragma warning(disable : 4267)
+#pragma warning(disable : 4244)
 #endif
 
 #ifdef WINDOWS
@@ -39,6 +42,65 @@ namespace fs = std::filesystem;
 #define DELIM_STR UNITXT("/")
 #define DELIM_CHAR UNITXT('/')
 #endif
+
+std::string format_size(uint64_t size) {
+    if (size <= 999) {
+        return std::to_string(size) + " B";
+    }
+
+    const char *suffixes[] = {" B", " KB", " MB", " GB", " TB", " PB" };
+    int suffixIndex = 0;
+
+    double sizeInKB = static_cast<double>(size);
+
+    while (sizeInKB >= 1024.0 && suffixIndex < 8) {
+        sizeInKB /= 1024.0;
+        suffixIndex++;
+    }
+
+    if (sizeInKB >= 1000.0) {
+        sizeInKB /= 1024.0;
+        suffixIndex++;
+    }
+
+    std::ostringstream oss;
+    const auto prev_round = std::fegetround();
+    std::fesetround(FE_DOWNWARD);  
+
+    if (sizeInKB > 999) {
+        oss << std::fixed << std::setprecision(0);
+    } else if (sizeInKB > 99) {
+        oss << std::fixed << std::setprecision(0);
+    } else if (sizeInKB > 9.9) {
+        oss << std::fixed << std::setprecision(1);
+    } else {
+        oss << std::fixed << std::setprecision(2);
+    }
+    oss << sizeInKB << "" << suffixes[suffixIndex];
+
+    string ret = oss.str();
+    return ret;
+}
+
+STRING s2w(const std::string &s) { return STRING(s.begin(), s.end()); }
+
+STRING left(const STRING &s) {
+    const size_t t = s.find_last_of(UNITXT("/\\"));
+    if (t != string::npos) {
+        return s.substr(0, t);
+    } else {
+        return UNITXT("");
+    }
+}
+
+STRING right(const STRING &s) {
+    const size_t t = s.find_last_of(UNITXT("/\\"));
+    if (t != string::npos) {
+        return s.substr(t + 1);
+    } else {
+        return UNITXT("");
+    }
+}
 
 uint64_t rnd64() {
     std::random_device rd;
@@ -262,7 +324,7 @@ void checksum_init(checksum_t *t) {
 }
 
 void checksum(unsigned char *data, size_t len, checksum_t *t) {
-    if(len == 0) {
+    if (len == 0) {
         return;
     }
 
@@ -392,6 +454,13 @@ STRING remove_delimitor(STRING path) {
     } else {
         return path;
     }
+}
+
+STRING remove_leading_delimitor(STRING path) {
+    if (path.starts_with(UNITXT("\\")) || path.starts_with(UNITXT("/"))) {
+        path.erase(path.begin());
+    }
+    return path;
 }
 
 bool ISNAMEDPIPE(int attributes) {
@@ -605,24 +674,7 @@ bool create_directory(STRING path) {
 
 // todo fixme: this function is not implemented very generic
 bool create_directories(STRING path) {
-    unsigned int leading_slashes = 0;
-    while ((leading_slashes < path.size() && path.substr(leading_slashes, 1) == UNITXT("\\")) || path.substr(leading_slashes, 1) == UNITXT("/")) {
-        leading_slashes++;
-    }
-
-    vector<STRING> dirs;
-    dirs = split_string(path, UNITXT("\\/"));
-    STRING dir = path.substr(0, leading_slashes) + dirs[0];
-    create_directory(dir);
-
-    for (unsigned int i = 1; i < dirs.size(); i++) {
-        if (dirs[i] != UNITXT("")) {
-            dir += DELIM_STR + dirs[i];
-            create_directory(dir);
-            abort(!exists(dir), UNITXT("Error creating directory '%s'"), dir.c_str());
-        }
-    }
-    return true;
+    return std::filesystem::create_directories(path);
 }
 
 bool equal2(const void *src1, const void *src2, size_t len) {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// 
+//
 // eXdupe deduplication library and file archiver.
 //
 // Copyrights:
@@ -11,7 +11,6 @@
 #define VERSION_BETA 19
 
 #define NOMINMAX
-#include <string>
 #include <algorithm>
 #include <assert.h>
 #include <chrono>
@@ -25,6 +24,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string>
 #include <sys/stat.h>
 #include <thread>
 #include <utility>
@@ -79,6 +79,7 @@ const bool WIN = false;
 #include "libexdupe/libexdupe.h"
 #include "luawrapper.h"
 #include "trex/trex.h"
+#include "ui.hpp"
 #include "unicode.h"
 #include "utilities.hpp"
 
@@ -119,8 +120,6 @@ compile_assert(sizeof(size_t) == 8);
 
 uint64_t start_time = GetTickCount();
 
-uint64_t max64 = std::numeric_limits<uint64_t>::max();
-
 using namespace std;
 
 // command line flags
@@ -133,11 +132,9 @@ uint32_t threads = 8;
 int flags_exist = 0;
 bool diff_flag = false;
 bool compress_flag = false;
-bool tty_stderr;
 bool list_flag = false;
 bool named_pipes = false;
 bool follow_symlinks = false;
-bool gui_interact = false;
 bool shadow_copy = false;
 bool absolute_path = false;
 bool hash_flag = false;
@@ -160,7 +157,6 @@ STRING diff;
 STRING directory;
 vector<STRING> inputfiles;
 STRING name;
-STRING base_dir;
 vector<STRING> restorelist; // optional list of individual files/dirs to restore
 vector<STRING> excludelist;
 STRING lua = UNITXT("");
@@ -169,6 +165,7 @@ vector<STRING> shadows;
 FILE *ofile = 0, *ifile = 0;
 
 Cio io = Cio();
+Statusbar statusbar;
 
 unsigned char *in, *out;
 uint64_t bits;
@@ -179,22 +176,13 @@ int argc;
 STRING flags;
 
 char tmp[1000000 + DISK_READ_CHUNK];
-CHR wtmp[1000000 + DISK_READ_CHUNK];
 
 unsigned char extract_concatenate[RESTORE_CHUNKSIZE + 1000000];
 unsigned char *extract_in;
 unsigned char *extract_out;
 
-STRING BLANK_LINE = UNITXT("                                                   "
-                           "                           ");
-size_t LINE_WIDTH = BLANK_LINE.size();
-
 STRING output_file;
 bool output_file_mine = false;
-
-enum status_t { BACKUP, DIFF_BACKUP, RESTORE, DIFF_RESTORE };
-status_t status;
-
 void *hashtable;
 
 STRING tempdiff = UNITXT("EXDUPE.TMP");
@@ -237,62 +225,6 @@ vector<reference_t> read_ahead;
 
 uint64_t total_decompressed = 0;
 
-std::string format_size(uint64_t size) {
-    const char *suffixes[] = {" B", " KB", " MB", " GB", " TB", " PB", "E", "Z", "Y"};
-    int suffixIndex = 0;
-
-    double sizeInKB = static_cast<double>(size);
-
-    while (sizeInKB >= 1024.0 && suffixIndex < 8) {
-        sizeInKB /= 1024.0;
-        suffixIndex++;
-    }
-
-    if (sizeInKB >= 1000.0) {
-        sizeInKB /= 1024.0;
-        suffixIndex++;
-    }
-
-    std::ostringstream oss;
-
-    if (sizeInKB > 999) {
-        oss << std::fixed << std::setprecision(0);
-    } else if (sizeInKB > 99) {
-        oss << std::fixed << std::setprecision(0);
-    } else if (sizeInKB > 9.9) {
-        oss << std::fixed << std::setprecision(1);
-    } else {
-        oss << std::fixed << std::setprecision(2);
-    }
-    oss << sizeInKB << "" << suffixes[suffixIndex];
-
-    if (oss.str() == string("0.0 B")) {
-        return "0 B";
-    }
-
-    return oss.str();
-}
-
-STRING s2w(const std::string &s) { return STRING(s.begin(), s.end()); }
-
-STRING left(const STRING &s) {
-    const size_t t = s.find_last_of(UNITXT("/\\"));
-    if (t != string::npos) {
-        return s.substr(0, t);
-    } else {
-        return UNITXT("");
-    }
-}
-
-STRING right(const STRING &s) {
-    const size_t t = s.find_last_of(UNITXT("/\\"));
-    if (t != string::npos) {
-        return s.substr(t + 1);
-    } else {
-        return UNITXT("");
-    }
-}
-
 void move_cursor_up() {
 #ifdef _WIN32
     CONSOLE_SCREEN_BUFFER_INFO csbi;
@@ -304,61 +236,11 @@ void move_cursor_up() {
 #endif
 }
 
-void clear_line() { FPRINTF(stderr, UNITXT("\r%s\r"), BLANK_LINE.c_str()); }
-
-// Todo, remove using static and global ("status" enum) variables
-void statusbar(uint64_t counter_payload, uint64_t into, STRING path) {
-    static uint64_t last_file_print = 0;
-
-    static STRING lastpath;
-
-    bool v3 = verbose_level == 3;
-    size_t maxpath = max64;
-    if (!v3) {
-        maxpath = LINE_WIDTH - string(into == max64 ? "9.90 MB, " : "9.90 MB, 9.99 MB, ").size();
-    }
-
-    // todo: would printing the full path be useful in verbose mode? for interpretation by scripts?
-    // if (!v3) {
-    path = path.substr(base_dir.size());
-    //}
-
-    if (verbose_level < 1 || !tty_stderr) {
-        return;
-    }
-
-    uint64_t f = GetTickCount() - last_file_print;
-    if (f > 1000 || v3) {
-        last_file_print = GetTickCount();
-        STRING line;
-        if (status == RESTORE || status == DIFF_RESTORE) {
-            line = s2w(format_size(counter_payload)) + UNITXT(", ");
-        } else {
-            line = s2w(format_size(counter_payload)) + UNITXT(", ") + s2w(format_size(into)) + UNITXT(", ");
-        }
-
-        if (verbose_level > 0) {
-            if (v3 && lastpath != path) {
-                lastpath = path;
-                line += path;
-                FPRINTF(stderr, UNITXT("   %s\n"), path.c_str());
-            } else if (!v3) {
-                clear_line();
-                if (path.size() > maxpath) {
-                    path = path.substr(0, maxpath - 2) + UNITXT("..");
-                }
-                line += path;
-                FPRINTF(stderr, UNITXT("%s"), line.c_str());
-            }
-        }
-    }
-}
-
 void abort(bool b, const CHR *fmt, ...) {
     if (b) {
         va_list argv;
         va_start(argv, fmt);
-        clear_line();
+        statusbar.clear_line();
         VFPRINTF(stderr, fmt, argv);
         va_end(argv);
         FPRINTF(stderr, UNITXT("\n"));
@@ -400,37 +282,9 @@ void abort(bool b, const CHR *fmt, ...) {
            "restore, typed as\n")                                                                                                                              \
     UNITXT("   printed by the -L flag")
 
-#define OTHER \
-    UNITXT("List contents: -L <.full file | .diff file>\n\n") \
+#define OTHER                                                                                                                                                  \
+    UNITXT("List contents: -L <.full file | .diff file>\n\n")                                                                                                  \
     UNITXT("Show build info: -B")
-
-void PRINT(uint32_t verbosity, const CHR *fmt, ...) {
-    va_list argv;
-    va_start(argv, fmt);
-
-    if (verbosity > verbose_level) {
-        return;
-    }
-
-    VSPRINTF(wtmp, fmt, argv);
-    STRING s = STRING(wtmp);
-
-    va_end(argv);
-
-    if (s.size() < 78) {
-        s = s + STRING(78 - s.size(), ' ');
-    }
-    if (verbosity > 0) {
-        clear_line();
-    }
-    FPRINTF(stderr, UNITXT("%s\n"), s.c_str());
-
-    //	messages2.push_back(s);
-
-    if (gui_interact) {
-        fflush(stderr);
-    }
-}
 
 STRING date2str(tm *date) {
     if (date == 0) {
@@ -681,13 +535,13 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
 
 void print_file(STRING filename, uint64_t size, tm *file_date = 0, int attributes = 0) {
 #ifdef WINDOWS
-    PRINT(0, UNITXT("%s  %c%c%c%c%c  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 22).c_str(),
-          attributes & FILE_ATTRIBUTE_ARCHIVE ? 'A' : ' ', attributes & FILE_ATTRIBUTE_SYSTEM ? 'S' : ' ', attributes & FILE_ATTRIBUTE_HIDDEN ? 'H' : ' ',
-          attributes & FILE_ATTRIBUTE_READONLY ? 'R' : ' ', attributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED ? 'I' : ' ', date2str(file_date).c_str(),
-          filename.c_str());
+    statusbar.print(0, UNITXT("%s  %c%c%c%c%c  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 22).c_str(),
+                    attributes & FILE_ATTRIBUTE_ARCHIVE ? 'A' : ' ', attributes & FILE_ATTRIBUTE_SYSTEM ? 'S' : ' ',
+                    attributes & FILE_ATTRIBUTE_HIDDEN ? 'H' : ' ', attributes & FILE_ATTRIBUTE_READONLY ? 'R' : ' ',
+                    attributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED ? 'I' : ' ', date2str(file_date).c_str(), filename.c_str());
 #else
-    PRINT(0, UNITXT("%s  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 22).c_str(),
-          date2str(file_date).c_str(), filename.c_str());
+    statusbar.print(0, UNITXT("%s  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 22).c_str(),
+                    date2str(file_date).c_str(), filename.c_str());
 #endif
 }
 
@@ -760,8 +614,8 @@ uint64_t read_hashtable(FILE *file) {
     uint64_t orig = seek_to_header(file, "HASHTBLE");
     uint64_t s = io.read64(file);
     if (verbose_level > 0) {
-        clear_line();
-        FPRINTF(stderr, UNITXT("Reading %s MB of meta data from .full file...\r"), s2w(format_size(s)).c_str());
+        statusbar.clear_line();
+        statusbar.print(1, UNITXT("Reading %s MB of meta data from .full file...\r"), s2w(format_size(s)).c_str());
     }
     io.try_read(hashtable, s, file);
     io.seek(file, orig, SEEK_SET);
@@ -813,7 +667,7 @@ void read_content_item(FILE *file, contents_t *c) {
         STRING i = c->name;
         c->name = slashify(validchars(c->name));
         if (i != c->name) {
-            PRINT(2, UNITXT("*nix filename '%s' renamed to '%s'"), i.c_str(), c->name.c_str());
+            statusbar.print(2, UNITXT("*nix filename '%s' renamed to '%s'"), i.c_str(), c->name.c_str());
         }
     }
 }
@@ -834,12 +688,12 @@ uint64_t dump_contents(FILE *file) {
                 static STRING last_full = UNITXT("");
                 static bool first_time = true;
 
-                STRING full = base_dir + c.name;
+                STRING full = c.name;
                 full = remove_delimitor(full) + DELIM_STR;
                 STRING full_orig = full;
 
                 if (full != last_full || first_time) {
-                    PRINT(0, UNITXT("   %s%s"), STRING(full_orig != full ? UNITXT("*") : UNITXT("")).c_str(), full.c_str());
+                    statusbar.print(0, UNITXT("   %s%s"), STRING(full_orig != full ? UNITXT("*") : UNITXT("")).c_str(), full.c_str());
                     last_full = full;
                     first_time = false;
                 }
@@ -851,7 +705,7 @@ uint64_t dump_contents(FILE *file) {
         }
     }
 
-    PRINT(0, UNITXT("%s B in %s files"), del(payload).c_str(), del(files).c_str());
+    statusbar.print(0, UNITXT("%s B in %s files"), del(payload).c_str(), del(files).c_str());
 
     io.seek(file, orig, SEEK_SET);
     return 0;
@@ -983,9 +837,6 @@ void parse_flags(void) {
             if (regx(flagsS, "l") != "") {
                 follow_symlinks = true;
             }
-            if (regx(flagsS, "G") != "") {
-                gui_interact = true;
-            }
             if (regx(flagsS, "L") != "") {
                 list_flag = true;
             }
@@ -997,7 +848,7 @@ void parse_flags(void) {
             }
             if (regx(flagsS, "B") != "") {
                 STRING b = STRING(UNITXT("Built ")) + UNITXT(BUILD_TIME) + UNITXT(" [") + UNITXT(GIT_COMMIT_HASH) + UNITXT("]");
-                PRINT(0, b.c_str());
+                statusbar.print(0, b.c_str());
                 exit(0);
             }
             if (int_flag(flagsS, "t") != -1) {
@@ -1064,7 +915,7 @@ void add_item(const STRING &item) {
         STRING e = item.substr(2);
         e = remove_delimitor(CASESENSE(abs_path(e)));
         if (!(exists(e))) {
-            PRINT(2, UNITXT("Excluded item '%s' does not exist"), e.c_str());
+            statusbar.print(2, UNITXT("Excluded item '%s' does not exist"), e.c_str());
         } else {
             excludelist.push_back(e);
         }
@@ -1150,7 +1001,7 @@ void parse_files(void) {
         for (uint32_t i = 0; i < inputfiles.size(); i++) {
             if (abs_path(inputfiles.at(i)) == STRING(UNITXT(""))) {
                 abort(!continue_flag, UNITXT("Aborted, does not exist: %s"), slashify(inputfiles[i]).c_str());
-                PRINT(2, UNITXT("Skipped, does not exist: %s"), slashify(inputfiles[i]).c_str());
+                statusbar.print(2, UNITXT("Skipped, does not exist: %s"), slashify(inputfiles[i]).c_str());
             } else {
                 inputfiles2.push_back(abs_path(inputfiles[i]));
 #ifdef WINDOWS
@@ -1169,7 +1020,7 @@ void parse_files(void) {
 // clang-format off
 void print_usage()
 {
-    PRINT(0, (
+    statusbar.print(0, (
 	UNITXT("eXdupe ") + str(VERSION_MAJOR) + UNITXT(".") + str(VERSION_MINOR) + UNITXT(".") + str(VERSION_REVISION) + UNITXT(".dev") + str(VERSION_BETA) + UNITXT(" file archiver. GPLv2 or later. Copyright 2010 - 2024\n\n")
 
 	FULL_BACKUP UNITXT("\n\n")
@@ -1407,7 +1258,9 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
     uint64_t resolved = 0;
     uint64_t basepay = 0;
     STRING curdir = UNITXT("");
-    STRING root = remove_delimitor(directory);
+    STRING base_dir = abs_path(directory);
+    statusbar.m_base_dir = base_dir;
+
     vector<contents_t> content;
 
     for (uint32_t i = 0; i < restorelist.size(); i++) {
@@ -1451,9 +1304,9 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
             ensure_relative(x);
 
             if (x.substr(0, 1) != UNITXT("\\") && x.substr(0, 1) != UNITXT("/")) {
-                dstdir = remove_delimitor(root + DELIM_STR + x) + DELIM_STR;
+                dstdir = remove_delimitor(base_dir + DELIM_STR + x) + DELIM_STR;
             } else {
-                dstdir = remove_delimitor(root + x) + DELIM_STR;
+                dstdir = remove_delimitor(base_dir + x) + DELIM_STR;
             }
 
             if (!pipe_out) {
@@ -1470,16 +1323,17 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
 
                 if (c.symlink) {
 #ifdef WINDOWS
-                    PRINT(1, UNITXT("*nix symlink %s -> %s cannot be restored on Windows"), c.name.c_str(), c.link.c_str());
+                    statusbar.print(1, UNITXT("*nix symlink %s -> %s cannot be restored on Windows"), c.name.c_str(), c.link.c_str());
                     // todo, symlink windows
 #else
-                    statusbar(tot_res, max64, c.name + " -> " + c.link);
+                    statusbar.update(RESTORE, 0, tot_res, c.name + " -> " + c.link);
                     create_symlink(dstdir + DELIM_STR + c.name, c);
 #endif
                 } else {
-                    statusbar(tot_res, max64, c.name);
+                    STRING outfile = remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
+                    statusbar.update(RESTORE, 0, tot_res, outfile);
 
-                    ofile = pipe_out ? stdout : open_destination(remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name);
+                    ofile = pipe_out ? stdout : open_destination(outfile);
 
                     resolved = 0;
 
@@ -1491,7 +1345,7 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
                         checksum(extract_concatenate, process, &t);
                         io.write(extract_concatenate, process, ofile);
                         tot_res += process;
-                        statusbar(tot_res, max64, c.name);
+                        statusbar.update(RESTORE, 0, tot_res, outfile);
                         resolved += process;
                         payload += c.size;
                     }
@@ -1510,37 +1364,34 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
     io.seek(ffull, orig, SEEK_SET);
 }
 
-
 uint64_t payload_written = 0;
 uint64_t add_file_payload = 0;
 uint64_t curfile_written = 0;
 uint64_t current_outfile_begin = 0;
 checksum_t decompress_checksum;
 
-void decompress_files(vector<contents_t>& c, bool add_files) {
+void decompress_files(vector<contents_t> &c, bool add_files) {
+    STRING destfile;
     STRING last_file = UNITXT("");
     uint64_t payload_orig = payload_written;
 
-    statusbar(payload_written, max64, name);
-    for(;;) {
+    for (;;) {
         size_t len;
         size_t len2;
         uint64_t payload;
 
         io.read(in, 1, ifile);
-        
-        if(*in == 'B') {
+
+        if (*in == 'B') {
             return;
         }
-        
+
         io.read(in + 1, 7, ifile);
         assert((in[0] == 'T' && in[1] == 'T') || (in[0] == 'M' && in[1] == 'M'));
 
-        statusbar(dup_counter_payload(), max64, name);
-
         io.try_read(in + 8, (32 - 6 - 8) - 8, ifile);
         len = dup_size_compressed(in);
-        io.try_read(in + (32 - 6 - 8), len - (32 - 6 - 8) , ifile);
+        io.try_read(in + (32 - 6 - 8), len - (32 - 6 - 8), ifile);
         int r = dup_decompress(in, out, &len, &payload);
         abort(r == -1 || r == -2, UNITXT("Internal error, dup_decompress() = %p"), r);
 
@@ -1552,23 +1403,24 @@ void decompress_files(vector<contents_t>& c, bool add_files) {
         } else if (r == 1) {
             // dup_decompress() returned a reference into a past written file
             size_t resolved = 0;
-            while(resolved < len) {
-                if (payload + resolved >= payload_orig && add_files) {               
-                    size_t fo = belongs_to(payload + resolved);                
+            while (resolved < len) {
+                if (payload + resolved >= payload_orig && add_files) {
+                    size_t fo = belongs_to(payload + resolved);
                     int j = io.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
                     abort(j != 0, UNITXT("Internal error 1 or non-seekable device: seek(%s, %p, %p)"), infiles[fo].filename.c_str(), payload, payload_orig);
                     len2 = io.read(out + resolved, len - resolved, ofile);
                     abort(len2 != len - resolved, UNITXT("Internal error 2: read(%s, %p, %p)"), infiles[fo].filename.c_str(), len, len2);
                     resolved += len2;
                     io.seek(ofile, 0, SEEK_END);
-                } else {                
+                } else {
                     FILE *ifile2;
                     size_t fo = belongs_to(payload + resolved);
                     {
                         ifile2 = try_open(infiles[fo].filename, 'r', true);
                         infiles[fo].handle = ifile2;
                         int j = io.seek(ifile2, payload + resolved - infiles[fo].offset, SEEK_SET);
-                        abort(j != 0, UNITXT("Internal error 9 or destination is a non-seekable device: seek(%s, %p, %p)"), infiles[fo].filename.c_str(), payload, infiles[fo].offset);
+                        abort(j != 0, UNITXT("Internal error 9 or destination is a non-seekable device: seek(%s, %p, %p)"), infiles[fo].filename.c_str(),
+                              payload, infiles[fo].offset);
                     }
                     len2 = io.read(out + resolved, len - resolved, ifile2);
                     resolved += len2;
@@ -1581,9 +1433,10 @@ void decompress_files(vector<contents_t>& c, bool add_files) {
 
         uint64_t src_consumed = 0;
 
-        while(c.size() > 0 && src_consumed < len) {
-            if(ofile == 0) {
+        while (c.size() > 0 && src_consumed < len) {
+            if (ofile == 0) {
                 ofile = open_destination(c[0].extra);
+                destfile = c[0].extra;
                 files++;
                 checksum_init(&decompress_checksum);
 
@@ -1599,13 +1452,15 @@ void decompress_files(vector<contents_t>& c, bool add_files) {
             auto has = minimum(missing, len - src_consumed);
             curfile_written += has;
 
+            statusbar.update(RESTORE, 0, dup_counter_payload(), destfile);
+
             io.try_write(out + src_consumed, has, ofile);
             checksum(out + src_consumed, has, &decompress_checksum);
 
             payload_written += has;
             src_consumed += has;
-            
-            if(curfile_written == c[0].size) {
+
+            if (curfile_written == c[0].size) {
                 current_outfile_begin += c[0].size;
 
                 io.close(ofile);
@@ -1629,14 +1484,14 @@ void compress_symlink(const STRING &link, const STRING &target) {
     int t = readlink(link.c_str(), tmp, MAX_PATH_LEN);
     if (t == -1) {
         if (continue_flag) {
-            PRINT(2, UNITXT("Skipped, error by readlink(): %s"), link.c_str());
+            statusbar.print(2, UNITXT("Skipped, error by readlink(): %s"), link.c_str());
         } else {
             abort(true, UNITXT("Aborted, error by readlink(): %s"), link.c_str());
         }
         return;
     }
 
-    statusbar(dup_counter_payload(), io.write_count, link + UNITXT(" -> ") + STRING(abs_path(tmp)));
+    statusbar.update(BACKUP, dup_counter_payload(), io.write_count, link + UNITXT(" -> ") + STRING(abs_path(tmp)));
     // print_file(STRING(target + UNITXT(" -> ") + STRING(tmp)).c_str(), -1,
     // &file_date);
     io.try_write("L", 1, ofile); // todo
@@ -1660,26 +1515,25 @@ void compress_symlink(const STRING &link, const STRING &target) {
 }
 #endif
 
-uint64_t payload_compressed = 0;    // Total payload returned by dup_compress() and flush_pend()
-uint64_t payload_read = 0;          // Total payload read from disk
-string payload_queue;               // Queue of payload read from disk. Can contain multiple small files
+uint64_t payload_compressed = 0; // Total payload returned by dup_compress() and flush_pend()
+uint64_t payload_read = 0;       // Total payload read from disk
+string payload_queue;            // Queue of payload read from disk. Can contain multiple small files
 vector<contents_t> file_queue;
 
 void compress_file(const STRING &input_file, const STRING &filename, const bool flush = true) {
 
     if (input_file != UNITXT("-stdin") && ISNAMEDPIPE(get_attributes(input_file, follow_symlinks)) && !named_pipes) {
-        PRINT(2, UNITXT("Skipped, no -p flag for named pipes: %s"), input_file.c_str());
+        statusbar.print(2, UNITXT("Skipped, no -p flag for named pipes: %s"), input_file.c_str());
         return;
     }
 
     ifile = try_open(input_file.c_str(), 'r', false);
 
-    if(!ifile) {
+    if (!ifile) {
         if (continue_flag) {
-            PRINT(2, UNITXT("Skipped, error opening source file: %s"), input_file.c_str());
+            statusbar.print(2, UNITXT("Skipped, error opening source file: %s"), input_file.c_str());
             return;
-        } 
-        else {
+        } else {
             abort(true, UNITXT("Aborted, error opening source file: '%s'"), input_file.c_str());
         }
     }
@@ -1694,7 +1548,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
 
     file_meta.payload = payload_read;
 
-    statusbar(dup_counter_payload(), io.write_count, input_file);
+    statusbar.update(BACKUP, dup_counter_payload(), io.write_count, input_file);
 
     if (input_file != UNITXT("-stdin")) {
         io.seek(ifile, 0, SEEK_END);
@@ -1720,11 +1574,11 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
     files++;
 
     auto empty_q = [&]() {
-        if(payload_queue.size() > 0) {
+        if (payload_queue.size() > 0) {
             uint64_t pay;
             size_t cc = dup_compress(payload_queue.c_str(), out, payload_queue.size(), &pay);
             payload_compressed += pay;
-            if(cc > 0) {
+            if (cc > 0) {
                 io.try_write("A", 1, ofile);
                 add_references(out, cc, io.write_count);
                 io.try_write(out, cc, ofile);
@@ -1737,21 +1591,21 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
     io.try_write("F", 1, ofile);
     write_contents_item(ofile, &file_meta);
 
-    if(file_size > DISK_READ_CHUNK - payload_queue.size()) {
+    if (file_size > DISK_READ_CHUNK - payload_queue.size()) {
         empty_q();
 
-        while(file_read < file_size) {
-            statusbar(dup_counter_payload(), io.write_count, input_file);
+        while (file_read < file_size) {
+            statusbar.update(BACKUP, dup_counter_payload(), io.write_count, input_file);
             size_t r = io.read_valid_length(in, minimum(file_size - file_read, DISK_READ_CHUNK), ifile, input_file);
-            if(input_file == UNITXT("-stdin") && r == 0) {
+            if (input_file == UNITXT("-stdin") && r == 0) {
                 break;
-            }            
+            }
             file_read += r;
-            payload_read += r;            
+            payload_read += r;
             checksum(in, r, &file_meta.ct);
-            payload_queue += string((char*)in, r);
+            payload_queue += string((char *)in, r);
 
-            if(file_read == file_size && file_size > 0) {
+            if (file_read == file_size && file_size > 0) {
                 // No CRC block for 0-sized files
                 io.try_write("C", 1, ofile);
                 file_meta.checksum = file_meta.ct.result;
@@ -1760,43 +1614,41 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
             empty_q();
         }
         file_queue.clear();
-    }
-    else {
+    } else {
         assert(file_size <= DISK_READ_CHUNK - payload_queue.size());
-        size_t r = io.read_valid_length(in, file_size, ifile, input_file);       
+        size_t r = io.read_valid_length(in, file_size, ifile, input_file);
         file_read += r;
         payload_read += r;
         checksum(in, r, &file_meta.ct);
         assert(file_read == file_size);
-        if(file_read == file_size && file_size > 0) {
+        if (file_read == file_size && file_size > 0) {
             // No CRC block for 0-sized files
             io.try_write("C", 1, ofile);
             file_meta.checksum = file_meta.ct.result;
             io.write64(file_meta.ct.result, ofile);
         }
-        payload_queue += string((char*)in, r);
+        payload_queue += string((char *)in, r);
     }
 
     fclose(ifile);
 
-    if(flush) {
+    if (flush) {
         empty_q();
 
-        while(payload_compressed < payload_read) {
+        while (payload_compressed < payload_read) {
             size_t pay;
             size_t cc = flush_pend((char *)out, &pay);
-            payload_compressed += pay;               
-            if(cc > 0) {
+            payload_compressed += pay;
+            if (cc > 0) {
                 io.try_write("A", 1, ofile);
                 add_references(out, cc, io.write_count);
                 io.try_write(out, cc, ofile);
                 io.try_write("B", 1, ofile);
-
             }
         }
     }
 
-    if(input_file == UNITXT("-stdin")) {
+    if (input_file == UNITXT("-stdin")) {
         file_meta.size = file_read;
     }
     file_meta.checksum = file_meta.ct.result;
@@ -1858,14 +1710,14 @@ bool include(const STRING &name) {
     for (uint32_t j = 0; j < excludelist.size(); j++) {
         STRING e = excludelist[j];
         if (n == e) {
-            // PRINT(9, UNITXT("Skipped, in -- exclude list: %s"),
+            // statusbar.print(9, UNITXT("Skipped, in -- exclude list: %s"),
             // name.c_str());
             return false;
         }
     }
 
     if (!lua_test(name, lua)) {
-        // PRINT(9, UNITXT("Skipped, by -f filter: %s"), name.c_str());
+        // statusbar.print(9, UNITXT("Skipped, by -f filter: %s"), name.c_str());
         return false;
     }
     return true;
@@ -1873,7 +1725,7 @@ bool include(const STRING &name) {
 
 void fail_list_dir(const STRING &dir) {
     if (continue_flag) {
-        PRINT(2, UNITXT("Skipped, error listing directory: %s"), dir.c_str());
+        statusbar.print(2, UNITXT("Skipped, error listing directory: %s"), dir.c_str());
     } else {
         abort(true, UNITXT("Aborted, error listing directory: %s"), dir.c_str());
     }
@@ -1909,7 +1761,7 @@ void compress(const STRING &base_dir, vector<STRING> items) {
         int type = get_attributes(sub, follow_symlinks);
         if (type == -1) {
             if (continue_flag) {
-                PRINT(2, UNITXT("Skipped, access error: %s"), sub.c_str());
+                statusbar.print(2, UNITXT("Skipped, access error: %s"), sub.c_str());
             } else {
                 abort(true, UNITXT("Aborted, access error: %s"), sub.c_str());
             }
@@ -1965,7 +1817,7 @@ void compress(const STRING &base_dir, vector<STRING> items) {
             // that *nix is case sensitive.
             if (output_file == UNITXT("-stdout") || (CASESENSE(abs_path(sub)) != CASESENSE(abs_path(output_file)))) {
 #ifdef WINDOWS
-                PRINT(2, UNITXT("Skipped, symlinks not supported on Windows: %s"), sub.c_str());
+                statusbar.print(2, UNITXT("Skipped, symlinks not supported on Windows: %s"), sub.c_str());
 #else
                 save_directory(base_dir, left(items[j]) + (left(items[j]) == UNITXT("") ? UNITXT("") : DELIM_STR), true);
                 compress_symlink(sub, right(items[j]) == UNITXT("") ? items[j] : right(items[j]));
@@ -2041,12 +1893,13 @@ void compress_args(vector<STRING> args) {
     }
 
     size_t prefix = longest_common_prefix(args, !WIN);
-    base_dir = args[0].substr(0, prefix);
+    STRING base_dir = args[0].substr(0, prefix);
 
     base_dir = left(base_dir);
     if (base_dir != UNITXT("")) {
         base_dir += DELIM_CHAR;
     }
+    statusbar.m_base_dir = base_dir;
 
     for (i = 0; i < args.size(); i++) {
         args[i] = args[i].substr(base_dir.length());
@@ -2057,6 +1910,8 @@ void compress_args(vector<STRING> args) {
 void decompress_sequential(const STRING &extract_dir, bool add_files) {
     STRING curdir;
     size_t r = 0;
+    STRING base_dir = abs_path(extract_dir);
+    statusbar.m_base_dir = base_dir;
 
     curdir = extract_dir;
     // ensure_relative(curdir);
@@ -2075,34 +1930,30 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
             curdir = extract_dir + DELIM_STR + c.name;
             save_directory(UNITXT(""), curdir);
             create_directories(curdir);
-        } 
-        else if (w == 'F') {
+        } else if (w == 'F') {
             contents_t c;
             read_content_item(ifile, &c);
             STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
-            if(c.size == 0) {
+
+            if (c.size == 0) {
                 // May not have a corrosponding data block ('A' block) to trigger decompress_files()
                 ofile = open_destination(buf2);
                 files++;
                 io.close(ofile);
                 ofile = 0;
-            }
-            else {
-            c.extra = buf2;
+            } else {
+                c.extra = buf2;
                 c.checksum = 0;
                 file_queue.push_back(c);
-                statusbar(dup_counter_payload(), max64, c.name);
+                statusbar.update(RESTORE, 0, dup_counter_payload(), buf2);
                 name = c.name;
             }
-        } 
-        else if (w == 'A') {
+        } else if (w == 'A') {
             decompress_files(file_queue, add_files);
-        }
-        else if (w == 'C') { // crc
-            auto crc = io.read64(ifile); 
-            file_queue[file_queue.size() - 1].checksum = crc;        
-        }
-        else if (w == 'L') { // symlink
+        } else if (w == 'C') { // crc
+            auto crc = io.read64(ifile);
+            file_queue[file_queue.size() - 1].checksum = crc;
+        } else if (w == 'L') { // symlink
             contents_t c;
             read_content_item(ifile, &c);
 #ifdef WINDOWS
@@ -2182,7 +2033,7 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
     return io.read64(file); // mem usage
 }
 
-void wrote_message(uint64_t bytes, uint64_t files) { PRINT(1, UNITXT("Wrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
+void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, UNITXT("Wrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
 
 void create_shadows(void) {
 #ifdef WINDOWS
@@ -2191,7 +2042,7 @@ void create_shadows(void) {
     vector<pair<STRING, STRING>> snaps; //(STRING mount, STRING shadow)
     snaps = get_snaps();
     for (uint32_t i = 0; i < snaps.size(); i++) {
-        PRINT(3, UNITXT("Created snapshot %s -> %s"), snaps[i].first.c_str(), snaps[i].second.c_str());
+        statusbar.print(3, UNITXT("Created snapshot %s -> %s"), snaps[i].first.c_str(), snaps[i].second.c_str());
     }
 #endif
 }
@@ -2213,14 +2064,14 @@ int main(int argc2, char *argv2[])
     extract_in = static_cast<unsigned char *>(malloc(DEDUPE_LARGE + 1000000));
     extract_out = static_cast<unsigned char *>(malloc(DEDUPE_LARGE + 1000000));
     bits = max_bits(memory_usage);
-    tty_stderr = (_isatty(_fileno(stderr)) != 0);
     create_shadows();
-    parse_files();
+    parse_files(); // sets "directory"
 
 #ifdef WINDOWS
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
+    statusbar.m_verbose_level = verbose_level;
 
     if (restore_flag || compress_flag || list_flag) {
         in = static_cast<unsigned char *>(tmalloc(DISK_READ_CHUNK + M));
@@ -2238,14 +2089,12 @@ int main(int argc2, char *argv2[])
         // Restore from file.
         // =================================================================================================
         if (diff_flag) {
-            status = DIFF_RESTORE;
             FILE *fdiff = try_open(diff, 'r', true);
             FILE *ffull = try_open(full, 'r', true);
             read_header(ffull, full, BACKUP);
             read_header(fdiff, diff, DIFF_BACKUP);
             decompress_individuals(ffull, fdiff);
         } else {
-            status = RESTORE;
             ifile = try_open(full, 'r', true);
             read_header(ifile, full, BACKUP);
             decompress_individuals(ifile, ifile);
@@ -2254,7 +2103,6 @@ int main(int argc2, char *argv2[])
     } else if ((restore_flag && (full == UNITXT("-stdin"))) && restorelist.size() == 0) {
         // Restore from stdin. Only entire archive can be restored this way
         STRING s = remove_delimitor(directory);
-        status = RESTORE;
         ifile = try_open(full, 'r', true);
         read_header(ifile, full, BACKUP);
         decompress_sequential(s, true);
@@ -2271,8 +2119,6 @@ int main(int argc2, char *argv2[])
         if (diff_flag) {
             output_file = diff;
             ofile = open_destination(output_file);
-
-            status = DIFF_BACKUP;
             ifile = try_open(full, 'r', true);
             memory_usage = read_header(ifile, full, BACKUP); // also inits hash_salt
             hashtable = malloc(memory_usage);
@@ -2297,9 +2143,7 @@ int main(int argc2, char *argv2[])
         } else {
             output_file = full;
             ofile = open_destination(output_file);
-
             hash_salt = rnd64();
-            status = BACKUP;
             hashtable = tmalloc(memory_usage);
             abort(!hashtable, UNITXT("Out of memory. Reduce -m, -g or -t flag"));
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt);
@@ -2309,7 +2153,7 @@ int main(int argc2, char *argv2[])
         }
 
         output_file_mine = true; // todo, can this be deleted?
-        write_header(ofile, status, memory_usage, hash_flag, hash_salt);
+        write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt);
 
         if (inputfiles.size() > 0 && inputfiles[0] != UNITXT("-stdin")) {
             compress_args(inputfiles);
@@ -2339,9 +2183,10 @@ int main(int argc2, char *argv2[])
         io.try_write("END", 3, ofile);
 
         auto speed = s2w(format_size(dup_counter_payload() / (GetTickCount() - start_time) * 1000));
-        auto sratio = ((float(io.write_count) / float(dup_counter_payload() + 1)) * 100.);
-        PRINT(1, UNITXT("Compressed %s B in %s files into %s (%.1f%%) at %s/s"), del(dup_counter_payload()).c_str(), del(files).c_str(),
-              s2w(format_size(io.write_count)).c_str(), sratio, speed.c_str());
+        auto sratio = ((float(io.write_count) / float(dup_counter_payload() + 0.01)) * 100.);
+        sratio = sratio > 999.9 ? 999.9 : sratio;
+        statusbar.print(1, UNITXT("Compressed %s B in %s files into %s (%.1f%%) at %s/s"), del(dup_counter_payload()).c_str(), del(files).c_str(),
+                        s2w(format_size(io.write_count)).c_str(), sratio, speed.c_str());
 
         //		cerr << format_size(large_hits()) << " " <<
         // format_size(small_hits())"\n";

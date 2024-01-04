@@ -27,6 +27,8 @@ using std::string;
 #define REMOVE _wremove
 #define FOPEN _wfopen
 #define STRLEN wcslen
+#define OSTREAM std::wostream
+#define CERR std::wcerr
 #else
 #define SPRINTF sprintf
 #define VSPRINTF vsprintf
@@ -38,6 +40,8 @@ using std::string;
 #define REMOVE remove
 #define FOPEN fopen
 #define STRLEN strlen
+#define OSTREAM std::ostream
+#define CERR std::cerr
 #endif
 
 #endif
