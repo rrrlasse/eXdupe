@@ -1412,7 +1412,7 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
                     size_t fo = belongs_to(payload + resolved);
                     int j = io.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
                     abort(j != 0, UNITXT("Internal error 1 or non-seekable device: seek(%s, %p, %p)"), infiles[fo].filename.c_str(), payload, payload_orig);
-                    len2 = io.read(out + resolved, len - resolved, ofile);
+                    len2 = io.try_read(out + resolved, len - resolved, ofile);
                     abort(len2 != len - resolved, UNITXT("Internal error 2: read(%s, %p, %p)"), infiles[fo].filename.c_str(), len, len2);
                     resolved += len2;
                     io.seek(ofile, 0, SEEK_END);

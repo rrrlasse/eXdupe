@@ -73,7 +73,7 @@ class Cio {
         return value;
     }
 
-
+    static bool stdin_tty();
 
 };
 #endif

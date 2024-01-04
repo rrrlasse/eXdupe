@@ -13,6 +13,7 @@
 #include "utilities.hpp"
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
+#include <io.h>
 #define WINDOWS
 #endif
 
@@ -32,6 +33,15 @@
 Cio::Cio() {
     write_count = 0;
     read_count = 0;
+}
+
+// Only way I could find that detected both pipes and redirection. Todo, is this OK?
+bool Cio::stdin_tty() {
+#ifdef _WIN32
+    return _isatty(0);
+#else
+    return isatty(0);
+#endif
 }
 
 int Cio::close(FILE *_File) { return fclose(_File); }
@@ -90,7 +100,7 @@ size_t Cio::try_read(void *DstBuf, size_t Count, FILE *_File) {
     while (c < Count) {
         size_t r = minimum(Count - c, 512 * 1024);
         size_t w = Cio::read((char *)DstBuf + c, r, _File);
-        abort(w != r, UNITXT("Unexpected end of source file"));
+        abort(stdin_tty() && w != r, UNITXT("Unexpected end of source file"));
         c += r;
     }
     return Count;
@@ -98,16 +108,11 @@ size_t Cio::try_read(void *DstBuf, size_t Count, FILE *_File) {
 
 // Call if you have prior tested that the file is long enough that the read will not exceed it
 size_t Cio::read_valid_length(void *DstBuf, size_t Count, FILE *_File, STRING name) {
-#ifdef WINDOWS
-    bool is_std = _fileno(_File) == _fileno(stdin);
-#else
-    bool is_std = fileno(_File) == fileno(stdin);
-#endif
     size_t w = Cio::read((char *)DstBuf, Count, _File);
     // Can be caused by region-locked files if on Windows, where it can occur anywhere inside
     // the file. We do not want to attempt to discard compressed data that has already been written
     // to the destination file (this is even impossible if compressing to stdout). So just abort. 
-    abort(!is_std && w != Count, (UNITXT("Error reading file that has been opened successfully for reading - cannot recover: ") + name).c_str());
+    abort(stdin_tty() && w != Count, (UNITXT("Error reading file that has been opened successfully for reading - cannot recover: ") + name).c_str());
 
     return w;
 }
