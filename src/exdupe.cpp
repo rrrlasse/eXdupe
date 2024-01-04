@@ -8,7 +8,7 @@
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 1
 #define VERSION_REVISION 0
-#define VERSION_BETA 19
+#define VERSION_BETA 20
 
 #define NOMINMAX
 #include <algorithm>
@@ -300,13 +300,13 @@ STRING date2str(tm *date) {
 void write_contents_item(FILE *file, contents_t *c) {
     io.writestr(c->name, file);
     io.writestr(c->link, file);
-    io.write64(c->size, file);
-    io.write64(c->payload, file);
-    io.write64(c->checksum, file);
+    io.write_ui<uint64_t>(c->size, file);
+    io.write_ui<uint64_t>(c->payload, file);
+    io.write_ui<uint64_t>(c->checksum, file);
     io.write_date(&c->file_date, file);
-    io.write32(c->attributes, file);
-    io.write8(c->directory ? 1 : 0, file);
-    io.write8(c->symlink ? 1 : 0, file);
+    io.write_ui<uint32_t>(c->attributes, file);
+    io.write_ui<uint8_t>(c->directory ? 1 : 0, file);
+    io.write_ui<uint8_t>(c->symlink ? 1 : 0, file);
 }
 
 void add_file(const STRING &file, uint64_t offset) {
@@ -386,22 +386,22 @@ void add_references(const unsigned char *src, size_t len, uint64_t archive_offse
 int write_references(FILE *file) {
     io.try_write("REFERENC", 8, file);
     uint64_t w = io.write_count;
-    io.write64(references.size(), file);
+    io.write_ui<uint64_t>(references.size(), file);
 
     for (size_t i = 0; i < references.size(); i++) {
-        io.write8(references[i].is_reference, file);
+        io.write_ui<uint8_t>(references[i].is_reference, file);
         if (references[i].is_reference) {
-            io.write64(references[i].payload_reference, file);
+            io.write_ui<uint64_t>(references[i].payload_reference, file);
         } else {
-            io.write64(references[i].archive_offset, file);
+            io.write_ui<uint64_t>(references[i].archive_offset, file);
         }
 
-        io.write64(references[i].payload, file);
-        io.write32(static_cast<uint32_t>(references[i].length), file);
+        io.write_ui<uint64_t>(references[i].payload, file);
+        io.write_ui<uint32_t>(static_cast<uint32_t>(references[i].length), file);
     }
 
-    io.write32(0, file);
-    io.write64(io.write_count - w, file);
+    io.write_ui<uint32_t>(0, file);
+    io.write_ui<uint64_t>(io.write_count - w, file);
 
     return 0;
 }
@@ -419,7 +419,7 @@ uint64_t seek_to_header(FILE *file, const string &header) {
 
     while (h != header) {
         abort(io.seek(file, -8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), header.c_str());
-        s = io.read64(file);
+        s = io.read_ui<uint64_t>(file);
         abort(io.seek(file, -8 - s - 8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), header.c_str());
         memset(tmp, 0, 9);
         io.try_read(tmp, 8, file);
@@ -432,20 +432,20 @@ uint64_t seek_to_header(FILE *file, const string &header) {
 
 uint64_t read_references(FILE *file, uint64_t base_payload) {
     uint64_t orig = seek_to_header(file, "REFERENC");
-    uint64_t n = io.read64(file);
+    uint64_t n = io.read_ui<uint64_t>(file);
     uint64_t added_payload = 0;
 
     for (uint64_t i = 0; i < n; i++) {
         reference_t ref;
 
-        ref.is_reference = io.read8(file);
+        ref.is_reference = io.read_ui<uint8_t>(file);
         if (ref.is_reference) {
-            ref.payload_reference = io.read64(file);
+            ref.payload_reference = io.read_ui<uint64_t>(file);
         } else {
-            ref.archive_offset = io.read64(file);
+            ref.archive_offset = io.read_ui<uint64_t>(file);
         }
-        ref.payload = io.read64(file) + base_payload;
-        ref.length = io.read32(file);
+        ref.payload = io.read_ui<uint64_t>(file) + base_payload;
+        ref.length = io.read_ui<uint32_t>(file);
 
         added_payload += ref.length;
         references.push_back(ref);
@@ -602,9 +602,9 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
 int write_hashtable(FILE *file) {
     size_t t = dup_compress_hashtable();
     io.try_write("HASHTBLE", 8, file);
-    io.write64(t, file);
+    io.write_ui<uint64_t>(t, file);
     io.try_write(hashtable, t, file);
-    io.write64(t + 8, file);
+    io.write_ui<uint64_t>(t + 8, file);
 #ifdef _DEBUG
     dup_decompress_hashtable(t);
 #endif
@@ -613,7 +613,7 @@ int write_hashtable(FILE *file) {
 
 uint64_t read_hashtable(FILE *file) {
     uint64_t orig = seek_to_header(file, "HASHTBLE");
-    uint64_t s = io.read64(file);
+    uint64_t s = io.read_ui<uint64_t>(file);
     if (verbose_level > 0) {
         statusbar.clear_line();
         statusbar.print(1, UNITXT("Reading %s MB of meta data from .full file...\r"), s2w(format_size(s)).c_str());
@@ -628,12 +628,12 @@ uint64_t read_hashtable(FILE *file) {
 int write_contents(FILE *file) {
     io.try_write("CONTENTS", 8, file);
     uint64_t w = io.write_count;
-    io.write64(contents.size(), file);
+    io.write_ui<uint64_t>(contents.size(), file);
     for (size_t i = 0; i < contents.size(); i++) {
         write_contents_item(file, &contents[i]);
     }
-    io.write32(0, file);
-    io.write64(io.write_count - w, file);
+    io.write_ui<uint32_t>(0, file);
+    io.write_ui<uint64_t>(io.write_count - w, file);
     return 0;
 }
 
@@ -657,13 +657,13 @@ STRING validchars(STRING filename) {
 void read_content_item(FILE *file, contents_t *c) {
     c->name = slashify(io.readstr(file));
     c->link = slashify(io.readstr(file));
-    c->size = io.read64(file);
-    c->payload = io.read64(file);
-    c->checksum = io.read64(file);
+    c->size = io.read_ui<uint64_t>(file);
+    c->payload = io.read_ui<uint64_t>(file);
+    c->checksum = io.read_ui<uint64_t>(file);
     io.read_date(&c->file_date, file);
-    c->attributes = io.read32(file);
-    c->directory = io.read8(file) == 0 ? false : true;
-    c->symlink = io.read8(file) == 0 ? false : true;
+    c->attributes = io.read_ui<uint32_t>(file);
+    c->directory = io.read_ui<uint8_t>(file) == 0 ? false : true;
+    c->symlink = io.read_ui<uint8_t>(file) == 0 ? false : true;
     if (!c->directory) {
         STRING i = c->name;
         c->name = slashify(validchars(c->name));
@@ -677,7 +677,7 @@ uint64_t dump_contents(FILE *file) {
     uint64_t orig = seek_to_header(file, "CONTENTS");
     uint64_t payload = 0, files = 0;
 
-    uint64_t n = io.read64(file);
+    uint64_t n = io.read_ui<uint64_t>(file);
     for (uint64_t i = 0; i < n; i++) {
         contents_t c;
         read_content_item(file, &c);
@@ -1280,7 +1280,7 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
         basepay = read_references(ffull, 0);
     }
 
-    uint64_t n = io.read64(archive_file);
+    uint64_t n = io.read_ui<uint64_t>(archive_file);
     for (uint64_t i = 0; i < n; i++) {
         read_content_item(archive_file, &c);
         content.push_back(c);
@@ -1613,7 +1613,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
                 // No CRC block for 0-sized files
                 io.try_write("C", 1, ofile);
                 file_meta.checksum = file_meta.ct.result;
-                io.write64(file_meta.ct.result, ofile);
+                io.write_ui<uint64_t>(file_meta.ct.result, ofile);
             }
             empty_q();
         }
@@ -1629,7 +1629,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
             // No CRC block for 0-sized files
             io.try_write("C", 1, ofile);
             file_meta.checksum = file_meta.ct.result;
-            io.write64(file_meta.ct.result, ofile);
+            io.write_ui<uint64_t>(file_meta.ct.result, ofile);
         }
         payload_queue += string((char *)in, r);
     }
@@ -1955,7 +1955,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
         } else if (w == 'A') {
             decompress_files(file_queue, add_files);
         } else if (w == 'C') { // crc
-            auto crc = io.read64(ifile);
+            auto crc = io.read_ui<uint64_t>(ifile);
             file_queue[file_queue.size() - 1].checksum = crc;
         } else if (w == 'L') { // symlink
             contents_t c;
@@ -1994,17 +1994,17 @@ void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t
         abort(true, UNITXT("Internal error 25"));
     }
 
-    io.write8(VERSION_MAJOR, file);
-    io.write8(VERSION_MINOR, file);
-    io.write8(VERSION_REVISION, file);
+    io.write_ui<uint8_t>(VERSION_MAJOR, file);
+    io.write_ui<uint8_t>(VERSION_MINOR, file);
+    io.write_ui<uint8_t>(VERSION_REVISION, file);
 
-    io.write64(DEDUPE_SMALL, file);
-    io.write64(DEDUPE_LARGE, file);
+    io.write_ui<uint64_t>(DEDUPE_SMALL, file);
+    io.write_ui<uint64_t>(DEDUPE_LARGE, file);
 
-    io.write8(hash_flag ? 1 : 0, file);
-    io.write64(hash_salt, file);
+    io.write_ui<uint8_t>(hash_flag ? 1 : 0, file);
+    io.write_ui<uint64_t>(hash_salt, file);
 
-    io.write64(mem, file);
+    io.write_ui<uint64_t>(mem, file);
 }
 
 uint64_t read_header(FILE *file, STRING filename, status_t expected) {
@@ -2017,24 +2017,26 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
         abort(true, UNITXT("Internal error 278"));
     }
 
-    char major = io.read8(file);
+    char major = io.read_ui<uint8_t>(file);
     (void)major;
-    char minor = io.read8(file);
+    char minor = io.read_ui<uint8_t>(file);
     (void)minor;
-    char revision = io.read8(file);
+    char revision = io.read_ui<uint8_t>(file);
     (void)revision;
 
-    DEDUPE_SMALL = io.read64(file);
-    DEDUPE_LARGE = io.read64(file);
+    DEDUPE_SMALL = io.read_ui<uint64_t>(file);
+    DEDUPE_LARGE = io.read_ui<uint64_t>(file);
+
+
 
     abort(major != VERSION_MAJOR,
           UNITXT("'%s' was created with eXdupe version %d.%d.%d, please use "
                  "%d.x.x on it"),
           filename.c_str(), major, minor, revision, major);
 
-    hash_flag = io.read8(file) == 1;
-    hash_salt = io.read64(file);
-    return io.read64(file); // mem usage
+    hash_flag = io.read_ui<uint8_t>(file) == 1;
+    hash_salt = io.read_ui<uint64_t>(file);
+    return io.read_ui<uint64_t>(file); // mem usage
 }
 
 void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, UNITXT("Wrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }

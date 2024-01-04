@@ -5,19 +5,20 @@
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
 
-#include "unicode.h"
 
 #ifndef AIO_HEADER
 #define AIO_HEADER
 
-#include "utilities.hpp"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <cstdint>
 #ifdef WINDOWS
 #include <windows.h>
 #endif
+
+#include "utilities.hpp"
+#include "unicode.h"
 
 using namespace std;
 
@@ -44,16 +45,35 @@ class Cio {
     size_t try_write(const void *Str, size_t Count, FILE *_File);
     size_t try_read(void *DstBuf, size_t Count, FILE *_File);
     size_t read_valid_length(void *DstBuf, size_t Count, FILE *_File, STRING name);
-    size_t write64(uint64_t i, FILE *_File);
-    size_t write32(unsigned int i, FILE *_File);
-    size_t write16(uint16_t i, FILE *_File);
-    size_t write8(char i, FILE *_File);
-    char read8(FILE *_File);
-    unsigned int read32(FILE *_File);
-    uint16_t read16(FILE *_File);
-    uint64_t read64(FILE *_File);
-
     STRING readstr(FILE *_File);
     size_t writestr(STRING str, FILE *_File);
+
+    template <std::unsigned_integral T> size_t write_ui(T value, FILE* _File) {
+        const std::size_t size = sizeof(T);
+        std::uint8_t buf[size];
+
+        for (std::size_t i = 0; i < size; ++i) {
+            buf[i] = static_cast<uint8_t>(value);
+            value >>= 8;
+        }
+        size_t r = try_write(buf, size, _File);
+        return r;
+    }
+
+    template <std::unsigned_integral T> T read_ui(FILE* _File) {
+        const std::size_t size = sizeof(T);
+        std::uint8_t buf[size];
+        try_read(buf, size, _File);
+        T value = 0;
+
+        for (std::size_t i = 0; i < size; ++i) {
+            value <<= 8;
+            value |= static_cast<T>(buf[size - 1 - i]);
+        }     
+        return value;
+    }
+
+
+
 };
 #endif
