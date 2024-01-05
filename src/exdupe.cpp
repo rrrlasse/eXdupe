@@ -511,7 +511,7 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
                 uint64_t orig = io.tell(f);
                 uint64_t ao = references[rr].archive_offset;
                 io.seek(f, ao, SEEK_SET);
-                io.read(extract_in, (32 - 6 - 8), f);
+                io.try_read(extract_in, (32 - 6 - 8), f);
                 size_t len = dup_size_compressed(extract_in);
                 io.try_read(extract_in + (32 - 6 - 8), len - (32 - 6 - 8), f);
                 uint64_t p;
@@ -1384,13 +1384,13 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
         size_t len2;
         uint64_t payload;
 
-        io.read(in, 1, ifile);
+        io.try_read(in, 1, ifile);
 
         if (*in == 'B') {
             return;
         }
 
-        io.read(in + 1, 7, ifile);
+        io.try_read(in + 1, 7, ifile);
         assert((in[0] == 'T' && in[1] == 'T') || (in[0] == 'M' && in[1] == 'M'));
 
         io.try_read(in + 8, (32 - 6 - 8) - 8, ifile);
@@ -1412,7 +1412,7 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
                     size_t fo = belongs_to(payload + resolved);
                     int j = io.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
                     abort(j != 0, UNITXT("Internal error 1 or non-seekable device: seek(%s, %p, %p)"), infiles[fo].filename.c_str(), payload, payload_orig);
-                    len2 = io.try_read(out + resolved, len - resolved, ofile);
+                    len2 = io.read(out + resolved, len - resolved, ofile);
                     abort(len2 != len - resolved, UNITXT("Internal error 2: read(%s, %p, %p)"), infiles[fo].filename.c_str(), len, len2);
                     resolved += len2;
                     io.seek(ofile, 0, SEEK_END);
@@ -1924,7 +1924,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
     for (;;) {
         char w;
 
-        r = io.read(&w, 1, ifile);
+        r = io.try_read(&w, 1, ifile);
         abort(r == 0, UNITXT("Unexpected end of archive (block marker)"));
 
         if (w == 'I') {
@@ -1941,10 +1941,9 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
 
             if (c.size == 0) {
                 // May not have a corrosponding data block ('A' block) to trigger decompress_files()
-                ofile = open_destination(buf2);
+                FILE* h = open_destination(buf2);
                 files++;
-                io.close(ofile);
-                ofile = 0;
+                io.close(h);
             } else {
                 c.extra = buf2;
                 c.checksum = 0;
@@ -1955,7 +1954,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
         } else if (w == 'A') {
             decompress_files(file_queue, add_files);
         } else if (w == 'C') { // crc
-            auto crc = io.read_ui<uint64_t>(ifile);
+            uint64_t crc = io.read_ui<uint64_t>(ifile);
             file_queue[file_queue.size() - 1].checksum = crc;
         } else if (w == 'L') { // symlink
             contents_t c;
@@ -1966,7 +1965,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
             STRING buf2 = curdir + DELIM_CHAR + c.name;
             create_symlink(buf2, c);
 #endif
-            io.read(tmp, 8, ifile); // ENDSENDS
+            io.try_read(tmp, 8, ifile); // ENDSENDS
         }
 
         else if (w == 'X') {
