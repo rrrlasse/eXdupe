@@ -15,7 +15,7 @@ void Statusbar::clear_line() {
 };
 
 void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING path, bool no_delay) {
-    if (m_verbose_level < 1) {
+    if (m_verbose_level < 1 || path.size() == 0) {
         return;
     }
 
