@@ -8,7 +8,7 @@
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 1
 #define VERSION_REVISION 0
-#define VERSION_BETA 20
+#define VERSION_BETA 21
 
 #define NOMINMAX
 #include <algorithm>
