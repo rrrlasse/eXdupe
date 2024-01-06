@@ -143,10 +143,6 @@ int LEVEL;
 
 bool g_crypto_hash = false;
 uint64_t g_hash_salt = 0;
-
-// Unused. Todo, figure out if useful at all
-bool exit_threads;
-
 pthread_mutex_t table_mutex;
 pthread_cond_t jobdone_cond;
 pthread_mutex_t jobdone_mutex;
@@ -616,7 +612,7 @@ INLINE static void hashat(const unsigned char *src, uint64_t pay, size_t len, in
 
             memcpy((unsigned char *)table[j][no].sha, hash, SHA_SIZE);
 
-            assert(o - src <= 0xffffull);
+            assert(o - src <= 0xffff); // todo, use gsl::narrow
             table[j][no].slide = static_cast<uint16_t>(o - src);
 
             static_assert(is_same<decltype(table[j][no].slide), uint16_t>::value);
@@ -846,14 +842,11 @@ INLINE static int get_free(void) {
 INLINE static void *compress_thread(void *arg) {
     job_t *me = (job_t *)arg;
 
-    while (!exit_threads) {
+    for(;;) {
         pthread_mutex_lock_wrapper(&me->jobmutex);
         // Nothing to do, or waiting for consumer to fetch result
         while (me->size_source == 0 || me->size_destination > 0) {
             pthread_cond_wait_wrapper(&me->cond, &me->jobmutex);
-            if (exit_threads) {
-                return 0;
-            }
         }
 
         me->busy = true;
@@ -900,10 +893,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
 
     g_crypto_hash = crypto_hash;
     g_hash_salt = hash_seed;
-
     LEVEL = compression_level;
-
-    exit_threads = false;
     THREADS = thread_count;
 
     jobs = (job_t *)malloc(sizeof(job_t) * THREADS);
@@ -968,8 +958,6 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
 
 void dup_deinit(void) {
     int i;
-    exit_threads = true;
-
     for (i = 0; i < THREADS; i++) {
         pthread_mutex_lock_wrapper(&jobs[i].jobmutex);
         pthread_cond_signal_wrapper(&jobs[i].cond);

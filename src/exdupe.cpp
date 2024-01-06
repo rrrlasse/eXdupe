@@ -78,11 +78,11 @@ const bool WIN = false;
 #include "io.hpp"
 #include "libexdupe/libexdupe.h"
 #include "luawrapper.h"
+#include "timestamp.h"
 #include "trex/trex.h"
 #include "ui.hpp"
 #include "unicode.h"
 #include "utilities.hpp"
-#include "timestamp.h"
 
 #ifdef _WIN32
 #pragma warning(disable : 4459) // todo
@@ -206,7 +206,6 @@ typedef struct {
     int attributes;
     bool directory;
     bool symlink;
-    bool wrote_F; // Fixme, remove
     checksum_t ct;
     STRING extra;
 } contents_t;
@@ -800,7 +799,7 @@ void parse_flags(void) {
             abort(true, UNITXT("-s flag not supported in *nix"));
 #endif
         } else {
-            size_t e = flags.find_first_not_of(UNITXT("-hRroxcDupilLatgmv0123456789B"));
+            size_t e = flags.find_first_not_of(UNITXT("-hRroxcDpilLatgmv0123456789B"));
             if (e != string::npos) {
                 abort(true, UNITXT("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
@@ -826,9 +825,6 @@ void parse_flags(void) {
             }
             if (regx(flagsS, "D") != "") {
                 diff_flag = true;
-            }
-            if (regx(flagsS, "u") != "") {
-                list_flag = true;
             }
             if (regx(flagsS, "p") != "") {
                 named_pipes = true;
@@ -1557,7 +1553,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
         return;
     };
 
-    if(flush && input_file == UNITXT("")) {
+    if (flush && input_file == UNITXT("")) {
         flushit();
         return;
     }
@@ -1586,8 +1582,6 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
     contents_t file_meta;
     uint64_t file_read = 0;
 
-    file_meta.payload = payload_read;
-
     statusbar.update(BACKUP, dup_counter_payload(), io.write_count, input_file);
 
     if (input_file != UNITXT("-stdin")) {
@@ -1601,11 +1595,11 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
         file_size = std::numeric_limits<uint64_t>::max();
     }
 
+    file_meta.payload = payload_read;
     file_meta.name = filename;
     file_meta.size = file_size;
     file_meta.file_date = file_date;
     file_meta.attributes = attributes;
-    file_meta.wrote_F = false;
     file_meta.directory = false;
     file_meta.symlink = false;
     checksum_init(&file_meta.ct);
@@ -1657,7 +1651,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
 
     fclose(ifile);
 
-    if(flush) {
+    if (flush) {
         flushit();
     }
 
@@ -1677,11 +1671,11 @@ bool lua_test(STRING path, const STRING &script) {
 #ifdef WINDOWS
     path = lcase(path);
 #endif
-    STRING dir = UNITXT("");
-    STRING file = UNITXT("");
+    STRING dir;
+    STRING file;
     uint64_t size = 0;
-    STRING ext = UNITXT("");
-    STRING name = UNITXT("");
+    STRING ext;
+    STRING name;
     uint32_t attrib = 0;
     tm date;
 
@@ -1796,9 +1790,6 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items) {
         STRING sub = base_dir + items[j];
         if (!ISDIR(attributes[j]) && !(ISLINK(attributes[j]) && !follow_symlinks) && include(sub)) {
             save_directory(base_dir, left(items[j]) + (left(items[j]) == UNITXT("") ? UNITXT("") : DELIM_STR), true);
-
-
-
             STRING u = items[j];
             STRING s = right(u) == UNITXT("") ? u : right(u);
             compress_file(sub, s, false);
@@ -1882,7 +1873,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items) {
 }
 
 void compress(const STRING &base_dir, vector<STRING> items) {
-    compress_recursive(base_dir, items); // calls compress_file() with flush parameter = false
+    compress_recursive(base_dir, items);         // calls compress_file() with flush parameter = false
     compress_file(UNITXT(""), UNITXT(""), true); // flush at the end - VERY important!
 }
 
@@ -1941,7 +1932,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
 
             if (c.size == 0) {
                 // May not have a corrosponding data block ('A' block) to trigger decompress_files()
-                FILE* h = open_destination(buf2);
+                FILE *h = open_destination(buf2);
                 files++;
                 io.close(h);
             } else {
@@ -2017,11 +2008,8 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
     }
 
     char major = io.read_ui<uint8_t>(file);
-    (void)major;
     char minor = io.read_ui<uint8_t>(file);
-    (void)minor;
     char revision = io.read_ui<uint8_t>(file);
-    (void)revision;
 
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);

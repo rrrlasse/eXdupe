@@ -78,6 +78,7 @@ std::string format_size(uint64_t size) {
     }
     oss << sizeInKB << "" << suffixes[suffixIndex];
 
+    std::fesetround(prev_round);
     string ret = oss.str();
     return ret;
 }
