@@ -20,6 +20,7 @@
 #include <iostream>
 #include <limits>
 #include <random>
+#include <regex>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -128,7 +129,7 @@ using namespace std;
 uint64_t memory_usage = 2 * G;
 bool continue_flag = false;
 bool overwrite_flag = false;
-bool recursive_flag = true;
+bool no_recursion_flag = false;
 bool restore_flag = false;
 uint32_t threads = 8;
 int flags_exist = 0;
@@ -140,6 +141,7 @@ bool follow_symlinks = false;
 bool shadow_copy = false;
 bool absolute_path = false;
 bool hash_flag = false;
+bool build_info_flag = false;
 
 uint32_t verbose_level = 1;
 uint32_t megabyte_flag = 0;
@@ -176,8 +178,6 @@ uint64_t bits;
 vector<STRING> argv;
 int argc;
 STRING flags;
-
-char tmp[1000000 + DISK_READ_CHUNK];
 
 unsigned char extract_concatenate[RESTORE_CHUNKSIZE + 1000000];
 unsigned char *extract_in;
@@ -422,7 +422,6 @@ uint64_t seek_to_header(FILE *file, const string &header) {
         abort(io.seek(file, -8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), header.c_str());
         s = io.read_ui<uint64_t>(file);
         abort(io.seek(file, -8 - s - 8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), header.c_str());
-        memset(tmp, 0, 9);
         h = io.try_read(8, file);
         abort(io.seek(file, -8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), header.c_str());
     }
@@ -639,16 +638,8 @@ int write_contents(FILE *file) {
 
 STRING validchars(STRING filename) {
 #ifdef WINDOWS
-    replace(filename.begin(), filename.end(), '\\', '=');
-    replace(filename.begin(), filename.end(), '/', '=');
-    replace(filename.begin(), filename.end(), ':', '=');
-    replace(filename.begin(), filename.end(), '*', '=');
-    replace(filename.begin(), filename.end(), '?', '=');
-    replace(filename.begin(), filename.end(), '"', '=');
-    replace(filename.begin(), filename.end(), '<', '=');
-    replace(filename.begin(), filename.end(), '>', '=');
-    replace(filename.begin(), filename.end(), '|', '=');
-    return filename;
+    std::wregex invalid(L"[<>:\"/\\|?*]");
+    return std::regex_replace(filename, invalid, L"=");
 #else
     return filename;
 #endif
@@ -712,17 +703,14 @@ uint64_t dump_contents(FILE *file) {
     return 0;
 }
 
-int int_flag(const string &argv, const string &flag) {
-    if (regx(argv, flag) == "") {
-        return -1;
-    }
-
-    string f = regx(argv, flag + "\\d+");
-    abort(f == "", UNITXT("Invalid value for -%s flag"), flag.c_str());
-    int i = atoi(f.substr(1).c_str());
-
-    return i;
+void print_build_info() {
+    // "2024-01-04T09:27:05+0100"
+    STRING td = UNITXT(_TIMEZ_);
+    td = td.substr(0, 10) + UNITXT(" ") + td.substr(11, 8) + UNITXT(" ") + td.substr(19, 5);
+    STRING b = STRING(UNITXT("Built ")) + td + UNITXT(" [") + UNITXT(GIT_COMMIT_HASH) + UNITXT("]");
+    statusbar.print(0, b.c_str());
 }
+
 
 #ifdef WINDOWS
 vector<STRING> wildcard_expand(vector<STRING> files) {
@@ -814,46 +802,36 @@ void parse_flags(void) {
                 abort(true, UNITXT("Numeric values must be preceded by m, g, t, v, or x"));
             }
 
-            if (regx(flagsS, "R") != "") {
-                restore_flag = true;
-            }
-            if (regx(flagsS, "r") != "") {
-                recursive_flag = false;
-            }
-            if (regx(flagsS, "o") != "") {
-                overwrite_flag = true;
-            }
-            if (regx(flagsS, "c") != "") {
-                continue_flag = true;
-            }
-            if (regx(flagsS, "D") != "") {
-                diff_flag = true;
-            }
-            if (regx(flagsS, "p") != "") {
-                named_pipes = true;
-            }
-            if (regx(flagsS, "l") != "") {
-                follow_symlinks = true;
-            }
-            if (regx(flagsS, "L") != "") {
-                list_flag = true;
-            }
-            if (regx(flagsS, "a") != "") {
-                absolute_path = true;
-            }
-            if (regx(flagsS, "h") != "") {
-                hash_flag = true;
-            }
-            if (regx(flagsS, "B") != "") {
-                // "2024-01-04T09:27:05+0100"
-                STRING td = UNITXT(_TIMEZ_);
-                td = td.substr(0, 10) + UNITXT(" ") + td.substr(11, 8) + UNITXT(" ") + td.substr(19, 5);
-                STRING b = STRING(UNITXT("Built ")) + td + UNITXT(" [") + UNITXT(GIT_COMMIT_HASH) + UNITXT("]");
-                statusbar.print(0, b.c_str());
-                exit(0);
-            }
-            if (int_flag(flagsS, "t") != -1) {
-                threads_flag = int_flag(flagsS, "t");
+            auto set_bool_flag = [&](bool &flag_ref, const string letter) {
+                if (regx(flagsS, letter) != "") {
+                    flag_ref = true;
+                }
+            };
+
+            set_bool_flag(restore_flag, "R");
+            set_bool_flag(no_recursion_flag, "r");
+            set_bool_flag(overwrite_flag, "o");
+            set_bool_flag(continue_flag, "c");
+            set_bool_flag(diff_flag, "D");
+            set_bool_flag(named_pipes, "p");
+            set_bool_flag(follow_symlinks, "l");
+            set_bool_flag(list_flag, "L");
+            set_bool_flag(absolute_path, "a");
+            set_bool_flag(hash_flag, "h");
+            set_bool_flag(build_info_flag, "B");
+
+            auto set_int_flag = [&](uint32_t &flag_ref, const string letter) {
+                if (regx(flagsS, letter) == "") {
+                    return false;
+                }
+                string f = regx(flagsS, letter + "\\d+");
+                abort(f == "", UNITXT("Invalid value for -%s flag"), letter.c_str());
+                int i = atoi(f.substr(1).c_str());
+                flag_ref = i;
+                return true;
+            };
+
+            if (set_int_flag(threads_flag, "t")) {
                 if (threads_flag >= 1) {
                     threads = threads_flag;
                 } else {
@@ -861,35 +839,28 @@ void parse_flags(void) {
                 }
             }
 
-            if (int_flag(flagsS, "g") != -1) {
-                gigabyte_flag = int_flag(flagsS, "g");
-
+            if (set_int_flag(gigabyte_flag, "g")) {
                 if ((gigabyte_flag & (gigabyte_flag - 1)) == 0) {
                     memory_usage = gigabyte_flag * G;
                 } else {
-                    abort(true, UNITXT("-g flag value must be a power of 2 (-g1, "
-                                       "-g2, -g4, -g8, -g16, -g32, ...)"));
+                    // todo, this no longer has to be a requirement
+                    abort(true, UNITXT("-g flag value must be a power of 2 (-g1, -g2, -g4, -g8, -g16, -g32, ...)"));
                 }
             }
 
-            if (int_flag(flagsS, "m") != -1) {
-                megabyte_flag = int_flag(flagsS, "m");
-
+            if (set_int_flag(megabyte_flag, "m")) {
                 if ((megabyte_flag & (megabyte_flag - 1)) == 0) {
                     memory_usage = megabyte_flag * M;
                 } else {
-                    abort(true, UNITXT("-m flag value must be a power of 2 "
-                                       "(-m8, -m32, -m64, -m128, -m256, ...)"));
+                    abort(true, UNITXT("-m flag value must be a power of 2 (-m8, -m32, -m64, -m128, -m256, ...)"));
                 }
             }
 
-            if (int_flag(flagsS, "v") != -1) {
-                verbose_level = int_flag(flagsS, "v");
+            if (set_int_flag(verbose_level, "v")) {
                 abort(verbose_level < 0 || verbose_level > 9, UNITXT("-v flag value must be 0...9"));
             }
 
-            if (int_flag(flagsS, "x") != -1) {
-                compression_level = int_flag(flagsS, "x");
+            if (set_int_flag(compression_level, "x")) {
                 abort(compression_level > 3 || compression_level < 0, UNITXT("-x flag value must be 0...3"));
             }
         }
@@ -902,11 +873,11 @@ void parse_flags(void) {
 
     // todo, add s and p verification
     abort(megabyte_flag != 0 && gigabyte_flag != 0, UNITXT("-m flag not compatible with -g"));
-    abort(restore_flag && (!recursive_flag || continue_flag), UNITXT("-R flag not compatible with -n or -c"));
+    abort(restore_flag && (no_recursion_flag || continue_flag), UNITXT("-R flag not compatible with -n or -c"));
     abort(restore_flag && (megabyte_flag != 0 || gigabyte_flag != 0), UNITXT("-m and -t flags not applicable to restore (no memory required)"));
     abort(restore_flag && (threads_flag != 0), UNITXT("-t flag not supported for restore"));
-    abort(diff_flag && compress_flag && (megabyte_flag != 0 || gigabyte_flag != 0), UNITXT("-m and -t flags not applicable to differential backup (uses "
-                                                                                           "same memory as full)"));
+    abort(diff_flag && compress_flag && (megabyte_flag != 0 || gigabyte_flag != 0),
+          UNITXT("-m and -t flags not applicable to differential backup (uses same memory as full)"));
     abort(hash_flag && diff_flag, UNITXT("-h flag not applicable to differential backup"));
     abort(hash_flag && !compress_flag, UNITXT("-h flag not applicable to restore"));
 }
@@ -971,8 +942,8 @@ void parse_files(void) {
             restorelist.push_back(argv.at(i + 3 + flags_exist));
         }
 
-        abort(directory == UNITXT("-stdout") && full == UNITXT("-stdin"), UNITXT("Restore with both -stdin and -stdout is not supported. "
-                                                                                 "One must be a seekable device. ") RESTORE_FULL_BACKUP);
+        abort(directory == UNITXT("-stdout") && full == UNITXT("-stdin"),
+              UNITXT("Restore with both -stdin and -stdout is not supported. One must be a seekable device. ") RESTORE_FULL_BACKUP);
         abort(full == UNITXT("-stdout") || directory == UNITXT("-stdin") || argc < 3 + flags_exist,
               UNITXT("Syntax error in source or destination. ") RESTORE_FULL_BACKUP);
     } else if (!compress_flag && diff_flag) {
@@ -1174,8 +1145,7 @@ void verify_restorelist(vector<STRING> restorelist, const vector<contents_t> &co
 
         c = content[i];
         if (c.directory) {
-            if (c.name != UNITXT("./")) { // todo, simplify by not making an
-                                          // archive possible to contain ./ ?
+            if (c.name != UNITXT("./")) { // todo, simplify by not making an archive possible to contain ./ ?
                 curdir = remove_delimitor(c.name);
             }
         } else {
@@ -1193,9 +1163,7 @@ void verify_restorelist(vector<STRING> restorelist, const vector<contents_t> &co
     }
 
     for (uint32_t i = 0; i < restorelist.size(); i++) {
-        abort(restorelist[i] != UNITXT(":"),
-              UNITXT("'%s' does not exist in archive or is included multiple "
-                     "times by your [files] list"),
+        abort(restorelist[i] != UNITXT(":"), UNITXT("'%s' does not exist in archive or is included multiple times by your [files] list"),
               restorelist[i].c_str());
     }
 }
@@ -1821,7 +1789,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items) {
     // finally process directories
     for (uint32_t j = 0; j < items.size(); j++) {
         STRING sub = base_dir + items[j];
-        if (ISDIR(attributes[j]) && recursive_flag && include(sub)) {
+        if (ISDIR(attributes[j]) && !no_recursion_flag && include(sub)) {
             if (items[j] != UNITXT("")) {
                 items[j] = remove_delimitor(items[j]) + DELIM_STR;
             }
@@ -2017,10 +1985,8 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-    abort(major != VERSION_MAJOR,
-          UNITXT("'%s' was created with eXdupe version %d.%d.%d, please use "
-                 "%d.x.x on it"),
-          filename.c_str(), major, minor, revision, major);
+    abort(major != VERSION_MAJOR, UNITXT("'%s' was created with eXdupe version %d.%d.%d, please use %d.x.x on it"), filename.c_str(), major, minor, revision,
+          major);
 
     hash_flag = io.read_ui<uint8_t>(file) == 1;
     hash_salt = io.read_ui<uint64_t>(file);
@@ -2054,6 +2020,11 @@ int main(int argc2, char *argv2[])
     tidy_args(argc2, argv2);
 
     parse_flags();
+
+    if(build_info_flag) {
+        print_build_info();
+        return 0;
+    }
 
     extract_in = static_cast<unsigned char *>(malloc(DEDUPE_LARGE + 1000000));
     extract_out = static_cast<unsigned char *>(malloc(DEDUPE_LARGE + 1000000));
@@ -2099,8 +2070,10 @@ int main(int argc2, char *argv2[])
         assert(!diff_flag);
         wrote_message(dup_counter_payload(), files);
 
-        while (ifile == stdin && io.read(tmp, 32 * K, stdin))
-            ; // read remainder to avoid pipe err from OS io.close(ifile);
+        // read remainder of file like content section, etc, to avoid error from OS
+        vector<std::byte> tmp(32*1024, {});
+        while (ifile == stdin && io.read(tmp.data(), 32*1024, stdin)) {
+        }
     }
 
     // Compress
@@ -2113,19 +2086,10 @@ int main(int argc2, char *argv2[])
             memory_usage = read_header(ifile, full, BACKUP); // also inits hash_salt
             hashtable = malloc(memory_usage);
             memset(hashtable, 0, memory_usage);
-            abort(!hashtable,
-                  UNITXT("Out of memory. This differential backup requires %d "
-                         "MB. Try -t1 flag"),
-                  dup_memory(bits) >> 20);
+            abort(!hashtable, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), dup_memory(bits) >> 20);
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt);
-            abort(r == 1,
-                  UNITXT("Out of memory. This differential backup requires %d "
-                         "MB. Try -t1 flag"),
-                  dup_memory(bits) >> 20);
-            abort(r == 2,
-                  UNITXT("Error creating threads. This differential backup "
-                         "requires %d MB memory. Try -t1 flag"),
-                  dup_memory(bits) >> 20);
+            abort(r == 1, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), dup_memory(bits) >> 20);
+            abort(r == 2, UNITXT("Error creating threads. This differential backup requires %d MB memory. Try -t1 flag"), dup_memory(bits) >> 20);
             read_hashtable(ifile);
             io.close(ifile);
             dup_add(false);
@@ -2152,9 +2116,8 @@ int main(int argc2, char *argv2[])
         }
 
         if (files + dirs == 0) {
-            if (!recursive_flag) {
-                abort(true, UNITXT("0 source files or directories. Missing '*' "
-                                   "wildcard with -r flag?"));
+            if (no_recursion_flag) {
+                abort(true, UNITXT("0 source files or directories. Missing '*' wildcard with -r flag?"));
             } else {
                 abort(true, UNITXT("0 source files or directories"));
             }
