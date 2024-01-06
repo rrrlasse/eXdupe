@@ -413,8 +413,7 @@ uint64_t seek_to_header(FILE *file, const string &header) {
     string h = "";
     int i = io.seek(file, -3, SEEK_END);
     abort(i != 0, UNITXT("Archive corrupted or on a non-seekable device"));
-    io.try_read(tmp, 3, file);
-    abort(!equal2(tmp, "END", 3), UNITXT("Unexpected end of archive (header end marker)"));
+    abort(io.try_read(3, file) != "END", UNITXT("Unexpected end of archive (header end tag)"));
     io.seek(file, -3, SEEK_END);
 
     while (h != header) {
@@ -422,8 +421,7 @@ uint64_t seek_to_header(FILE *file, const string &header) {
         s = io.read_ui<uint64_t>(file);
         abort(io.seek(file, -8 - s - 8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), header.c_str());
         memset(tmp, 0, 9);
-        io.try_read(tmp, 8, file);
-        h = tmp;
+        h = io.try_read(8, file);
         abort(io.seek(file, -8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), header.c_str());
     }
     io.seek(file, 8, SEEK_CUR);
@@ -511,9 +509,9 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
                 uint64_t orig = io.tell(f);
                 uint64_t ao = references[rr].archive_offset;
                 io.seek(f, ao, SEEK_SET);
-                io.try_read(extract_in, (32 - 6 - 8), f);
+                io.try_read_buf(extract_in, (32 - 6 - 8), f);
                 size_t len = dup_size_compressed(extract_in);
-                io.try_read(extract_in + (32 - 6 - 8), len - (32 - 6 - 8), f);
+                io.try_read_buf(extract_in + (32 - 6 - 8), len - (32 - 6 - 8), f);
                 uint64_t p;
                 int r = dup_decompress(extract_in, extract_out, &len, &p);
                 total_decompressed += len;
@@ -618,7 +616,7 @@ uint64_t read_hashtable(FILE *file) {
         statusbar.clear_line();
         statusbar.print(1, UNITXT("Reading %s MB of meta data from .full file...\r"), s2w(format_size(s)).c_str());
     }
-    io.try_read(hashtable, s, file);
+    io.try_read_buf(hashtable, s, file);
     io.seek(file, orig, SEEK_SET);
     int i = dup_decompress_hashtable(s);
     abort(i != 0, UNITXT("'%s' is corrupted or not a .full file (hash table)"), slashify(full).c_str());
@@ -1384,18 +1382,18 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
         size_t len2;
         uint64_t payload;
 
-        io.try_read(in, 1, ifile);
+        io.try_read_buf(in, 1, ifile);
 
         if (*in == 'B') {
             return;
         }
 
-        io.try_read(in + 1, 7, ifile);
+        io.try_read_buf(in + 1, 7, ifile);
         assert((in[0] == 'T' && in[1] == 'T') || (in[0] == 'M' && in[1] == 'M'));
 
-        io.try_read(in + 8, (32 - 6 - 8) - 8, ifile);
+        io.try_read_buf(in + 8, (32 - 6 - 8) - 8, ifile);
         len = dup_size_compressed(in);
-        io.try_read(in + (32 - 6 - 8), len - (32 - 6 - 8), ifile);
+        io.try_read_buf(in + (32 - 6 - 8), len - (32 - 6 - 8), ifile);
         int r = dup_decompress(in, out, &len, &payload);
         abort(r == -1 || r == -2, UNITXT("Internal error, dup_decompress() = %p"), r);
 
@@ -1926,8 +1924,8 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
     for (;;) {
         char w;
 
-        r = io.try_read(&w, 1, ifile);
-        abort(r == 0, UNITXT("Unexpected end of archive (block marker)"));
+        r = io.try_read_buf(&w, 1, ifile);
+        abort(r == 0, UNITXT("Unexpected end of archive (block tag)"));
 
         if (w == 'I') {
             contents_t c;
@@ -1967,7 +1965,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
             STRING buf2 = curdir + DELIM_CHAR + c.name;
             create_symlink(buf2, c);
 #endif
-            io.try_read(tmp, 8, ifile); // ENDSENDS
+            abort(io.try_read(8, ifile) != "ENDSENDS", UNITXT("Source file corrupted (missing END tag)"));
         }
 
         else if (w == 'X') {
@@ -2009,11 +2007,11 @@ void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t
 }
 
 uint64_t read_header(FILE *file, STRING filename, status_t expected) {
-    io.try_read(tmp, 8, file);
+    string header = io.try_read(8, file);
     if (expected == BACKUP) {
-        abort(!equal2(tmp, "EXDUPE F", 8), UNITXT("'%s' is corrupted or not a .full file (file header)"), filename.c_str());
+        abort(header != "EXDUPE F", UNITXT("'%s' is not a .full file"), filename.c_str());
     } else if (expected == DIFF_BACKUP) {
-        abort(!equal2(tmp, "EXDUPE D", 8), UNITXT("'%s' is corrupted or not a .diff file (file header)"), filename.c_str());
+        abort(header != "EXDUPE D", UNITXT("'%s' is not a .diff file"), filename.c_str());
     } else {
         abort(true, UNITXT("Internal error 278"));
     }
@@ -2027,8 +2025,6 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
 
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
-
-
 
     abort(major != VERSION_MAJOR,
           UNITXT("'%s' was created with eXdupe version %d.%d.%d, please use "

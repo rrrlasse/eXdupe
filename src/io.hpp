@@ -43,10 +43,11 @@ class Cio {
     size_t read(void *_DstBuf, size_t _Count, FILE *_File);
     size_t write(const void *_Str, size_t _Count, FILE *_File);
     size_t try_write(const void *Str, size_t Count, FILE *_File);
-    size_t try_read(void *DstBuf, size_t Count, FILE *_File);
+    size_t try_read_buf(void *DstBuf, size_t Count, FILE *_File);
     size_t read_valid_length(void *DstBuf, size_t Count, FILE *_File, STRING name);
     STRING readstr(FILE *_File);
-    size_t writestr(STRING str, FILE *_File);
+    void writestr(STRING str, FILE *_File);
+    std::string try_read(size_t Count, FILE *_File);
 
     template <std::unsigned_integral T> size_t write_ui(T value, FILE* _File) {
         const std::size_t size = sizeof(T);
@@ -63,7 +64,7 @@ class Cio {
     template <std::unsigned_integral T> T read_ui(FILE* _File) {
         const std::size_t size = sizeof(T);
         std::uint8_t buf[size];
-        try_read(buf, size, _File);
+        try_read_buf(buf, size, _File);
         T value = 0;
 
         for (std::size_t i = 0; i < size; ++i) {

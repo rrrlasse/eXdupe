@@ -95,7 +95,16 @@ size_t Cio::try_write(const void *Str, size_t Count, FILE *_File) {
     return Count;
 }
 
-size_t Cio::try_read(void *DstBuf, size_t Count, FILE *_File) {
+std::string Cio::try_read(size_t Count, FILE *_File) {
+    std::string str(Count, 'c');
+    if(Count > 0) {
+        size_t r = Cio::try_read_buf(&str[0], Count, _File);
+        abort(stdin_tty() && r != Count, UNITXT("Unexpected end of source file"));
+    }
+    return str;
+}
+
+size_t Cio::try_read_buf(void *DstBuf, size_t Count, FILE *_File) {
     size_t c = 0;
     while (c < Count) {
         size_t r = minimum(Count - c, 512 * 1024);
@@ -143,38 +152,32 @@ bool Cio::read_date(tm *t, FILE *_File) {
     return true;
 }
 
-// Todo, these functions are badly written
+
 STRING Cio::readstr(FILE *_File) {
-    char tmp3[MAX_PATH_LEN];
-    memset(tmp3, 0, MAX_PATH_LEN);
     int t = read_ui<uint16_t>(_File);
-    abort(t > MAX_PATH_LEN, UNITXT("Internal error, attempted to read a string longer than MAX_PATH_LEN"));
-    try_read(tmp3, t, _File);
+    std::string tmp = try_read(t, _File);
 #ifdef WINDOWS
-    wchar_t tmp2[MAX_PATH_LEN];
-    memset(tmp2, 0, MAX_PATH_LEN);
-    MultiByteToWideChar(CP_UTF8, 0, tmp3, -1, tmp2, t);
-    return STRING(tmp2);
+    int req = MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(), -1, nullptr, 0);
+    wstring res(req, 'c');
+    MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(), -1, &res[0], t);
+    res.pop_back(); // WideCharToMultiByte() adds trailing zero
+    return res;
 #else
-    return STRING(tmp3);
+    return tmp;
 #endif
 }
 
-size_t Cio::writestr(STRING str, FILE *_File) {
-    abort(str.size() > MAX_PATH_LEN, UNITXT("Internal error, attempted to write a string longer than MAX_PATH_LEN"));
-    CHR tmp3[MAX_PATH_LEN];
-    memset(tmp3, 0, MAX_PATH_LEN);
-    char tmp2[2*MAX_PATH_LEN];
-
+void Cio::writestr(STRING str, FILE *_File) {
 #ifdef WINDOWS
-    memset(tmp2, 0, MAX_PATH_LEN);
-    size_t t = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, tmp2, MAX_PATH_LEN, 0, 0);
+    size_t req = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    abort(req > std::numeric_limits<uint16_t>::max(), UNITXT("Internal error, attempted to write a string longer than 65535"));
+    std::vector<char> v(req, L'c');
+    WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, &v[0], req, 0, 0);
+    req--; // WideCharToMultiByte() adds trailing zero
+    write_ui<uint16_t>(req, _File); // todo, gsl::narrow
+    try_write(&v[0], req, _File);
 #else
-    size_t t = str.length();
-    memcpy(tmp2, str.c_str(), str.length());
+    write_ui<uint16_t>(str.size(), _File);
+    try_write(str.c_str(), str.size(), _File);
 #endif
-
-    size_t r = write_ui<uint16_t>((unsigned int)t, _File);
-    r += try_write(tmp2, t, _File);
-    return r;
 }
