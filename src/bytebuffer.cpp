@@ -1,82 +1,42 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// 
+//
 // eXdupe deduplication library and file archiver.
 //
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
 
-#include "bytebuffer.h"
-#include "utilities.hpp"
 #include <vector>
 
-char *buff;
+#include "bytebuffer.h"
+#include "utilities.hpp"
 
-typedef struct {
-    uint64_t pay;
-    size_t len;
-    char *buffer_offset;
-} buffer_t;
-std::vector<buffer_t> buffers;
+Bytebuffer::Bytebuffer(size_t max_size) : m_max_size(max_size) {}
 
-size_t buffer_size;
-
-void buffer_init(size_t mem) {
-    buff = (char *)tmalloc(mem);
-    buffer_size = mem;
-}
-
-void buffer_add(const unsigned char *src, uint64_t payload, size_t len) {
-    char *insert_at = 0;
-
-    if (buffers.size() == 0) {
-        insert_at = buff;
-    } else if (buffers.back().buffer_offset - buff + buffers.back().len + len <= buffer_size) {
-        insert_at = buffers.back().buffer_offset + buffers.back().len;
-        unsigned int del = 0;
-        while (buffers.size() > 0 && buffers.size() > del && buffers[del].buffer_offset < insert_at + len && buffers[del].buffer_offset >= insert_at) {
-            del++;
-        }
-        if (del > 0) {
-            buffers.erase(buffers.begin(), buffers.begin() + del);
-        }
-    } else if (buffers.back().buffer_offset - buff + buffers.back().len + len > buffer_size) {
-        insert_at = buff;
-        int del = 0;
-        while (buffers[del].buffer_offset != buff) {
-            del++;
-        }
-        if (del > 0) {
-            buffers.erase(buffers.begin(), buffers.begin() + del);
-        }
-
-        del = 0;
-        while (buffers[del].buffer_offset < insert_at + len + 4 * 1024 * 1024) {
-            del++;
-        }
-
-        if (del > 0) {
-            buffers.erase(buffers.begin(), buffers.begin() + del);
-        }
+void Bytebuffer::buffer_add(const unsigned char *src, uint64_t offset, size_t len) {
+    // Return if fully contained already. Partial overlap is OK
+    if (len > m_max_size || buffer_find(offset, len)) {
+        return;
     }
-    abort(insert_at == 0, UNITXT("insert_at == 0"));
 
-    buffer_t b;
-    b.pay = payload;
-    b.buffer_offset = insert_at;
-    memcpy(insert_at, src, len);
-    b.len = len;
-    buffers.push_back(b);
+    while (m_current_size + len > m_max_size) {
+        m_current_size -= m_buffers.begin()->data.size();
+        m_buffers.erase(m_buffers.begin());
+    }
+    std::vector<unsigned char> v(src, src + len);
+    m_buffers.emplace_back(buffer_t(offset, std::move(v)));
+    m_current_size += len;
 }
 
-char *buffer_find(uint64_t payload, size_t len) {
-    for (unsigned int i = 0; i < buffers.size(); i++) {
-        if (payload >= buffers[i].pay && payload + len <= buffers[i].pay + buffers[i].len) {
+char *Bytebuffer::buffer_find(uint64_t offset, size_t len) {
+    for (unsigned int i = 0; i < m_buffers.size(); i++) {
+        if (offset >= m_buffers[i].offset && offset + len <= m_buffers[i].offset + m_buffers[i].data.size()) {
             size_t off = 0;
-            if (payload > buffers[i].pay) {
-                off = payload - buffers[i].pay;
+            if (offset > m_buffers[i].offset) {
+                off = offset - m_buffers[i].offset;
             }
-            return buffers[i].buffer_offset + off;
+            m_hitsize += len;
+            return reinterpret_cast<char *>(m_buffers[i].data.data() + off);
         }
     }
-    return 0;
+    return nullptr;
 }

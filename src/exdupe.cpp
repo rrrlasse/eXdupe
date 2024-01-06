@@ -112,8 +112,9 @@ const size_t DISK_READ_CHUNK = 1 * M;
 const size_t RESTORE_CHUNKSIZE = 128 * K;
 
 // Keep the last RESTORE_BUFFER bytes of resolved data in memory, so that we
-// don't have to seek on the disk while building above mentioned tree
-const size_t RESTORE_BUFFER = 256 * M;
+// don't have to seek on the disk while building above mentioned tree. Todo,
+// this was benchmarked in 2010, test if still valid today
+const size_t RESTORE_BUFFER = 64 * M;
 
 #define compile_assert(x) extern int __dummy[(int)x];
 
@@ -185,6 +186,8 @@ unsigned char *extract_out;
 STRING output_file;
 bool output_file_mine = false;
 void *hashtable;
+
+Bytebuffer bytebuffer(RESTORE_BUFFER);
 
 STRING tempdiff = UNITXT("EXDUPE.TMP");
 
@@ -493,7 +496,7 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
             resolve(references[rr].payload_reference + prior, ref_has, dst + bytes_resolved, ifile, fdiff, splitpay);
         } else {
 
-            char *b = buffer_find(references[rr].payload, references[rr].length);
+            char *b = bytebuffer.buffer_find(references[rr].payload, ref_has);
             if (b != 0) {
                 memcpy(dst + bytes_resolved, b + prior, ref_has);
             } else {
@@ -519,7 +522,7 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
                     abort(true, UNITXT("Internal error, dup_decompress() = %d"), r);
                 }
 
-                buffer_add(extract_out, references[rr].payload, references[rr].length);
+                bytebuffer.buffer_add(extract_out, references[rr].payload, references[rr].length);
 
                 io.seek(f, orig, SEEK_SET);
                 memcpy(dst + bytes_resolved, extract_out + prior, ref_has);
@@ -2067,10 +2070,6 @@ int main(int argc2, char *argv2[])
     if (restore_flag || compress_flag || list_flag) {
         in = static_cast<unsigned char *>(tmalloc(DISK_READ_CHUNK + M));
         out = static_cast<unsigned char *>(tmalloc((threads + 1) * DISK_READ_CHUNK + M)); // todo, compute exact to save memory
-    }
-
-    if (restore_flag) {
-        buffer_init(RESTORE_BUFFER);
     }
 
     if (list_flag) {
