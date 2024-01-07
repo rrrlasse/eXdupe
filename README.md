@@ -17,7 +17,7 @@ It finds identical data blocks of 4 KB at byte grannularity positions across ter
 | **Time**          |          24 s |    366 s |         562 s |     72 s |     35 s |
 | **Options**       |       -g1 -t10 | -m1 -t12 |       fastest | default |    -1 -T0 |
 
-Try the latest development version (*backwards compatibility broken often!*) that doubles the speed and improves compression ratio: [Windows](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe21.exe) and [Linux amd64](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe_1.1.0.dev21_linux_amd64.tar.gz).
+Try the latest development version (*backwards compatibility broken often!*) that doubles the speed and improves compression ratio: [Windows](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe22.exe) and [Linux amd64](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe_1.1.0.dev22_linux_amd64.tar.gz).
 
 Or get the [latest stable version](https://github.com/rrrlasse/eXdupe/releases/tag/v1.0.0).
 <img src="https://github.com/rrrlasse/exdupe/blob/stuff/cmd.webp" width="80%">
