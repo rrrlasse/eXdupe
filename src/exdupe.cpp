@@ -8,7 +8,7 @@
 #define VER_MAJOR 1
 #define VER_MINOR 1
 #define VER_REVISION 0
-#define VER_DEV 21
+#define VER_DEV 22
 
 #define Q(x) #x
 #define QUOTE(x) Q(x)
@@ -978,8 +978,8 @@ List contents: -L <full or diff backup file>
 
 Show build info: -B
 
-<sources> is a list of files, directories or drives to backup. [items] is a list
-of files, directories or drives to restore, written as printed by the -L flag.
+<sources> is a list of files or paths to backup. [items] is a list of files or
+paths to restore, written as printed by the -L flag.
 
 Flags:
    -f Overwrite existing files (default is abort)
@@ -1027,6 +1027,8 @@ Restore differential backup:
 
 List contents: -L <full or diff backup file>
 
+Show complete help: -?
+
 Most common flags:
    -f Overwrite existing files (default is abort)
    -c Continue if a source file cannot be read (default is abort)
@@ -1038,9 +1040,7 @@ Most common flags:
 
 Example:
   exdupe my_files_dir backup.full
-  exdupe -R backup.full restore_dir
-
-Show complete help: -?)";
+  exdupe -R backup.full restore_dir)";
 
     for(auto &a : {&long_help, &short_help}) {
         *a = std::regex_replace(*a, std::regex("%/"), WIN ? "\\" : "/");
@@ -2029,6 +2029,7 @@ int main(int argc2, char *argv2[])
 #ifdef WINDOWS
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_U16TEXT);
 #endif
     statusbar.m_verbose_level = verbose_level;
 
