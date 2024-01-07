@@ -5,10 +5,15 @@
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
 
-#define VERSION_MAJOR 1
-#define VERSION_MINOR 1
-#define VERSION_REVISION 0
-#define VERSION_BETA 21
+#define VER_MAJOR 1
+#define VER_MINOR 1
+#define VER_REVISION 0
+#define VER_DEV 21
+
+#define Q(x) #x
+#define QUOTE(x) Q(x)
+
+#define VER QUOTE(VER_MAJOR) "." QUOTE(VER_MINOR) "." QUOTE(VER_REVISION) ".dev" QUOTE(VER_DEV)
 
 #define NOMINMAX
 #include <algorithm>
@@ -128,7 +133,7 @@ using namespace std;
 // command line flags
 uint64_t memory_usage = 2 * G;
 bool continue_flag = false;
-bool overwrite_flag = false;
+bool force_flag = false;
 bool no_recursion_flag = false;
 bool restore_flag = false;
 uint32_t threads = 8;
@@ -142,6 +147,7 @@ bool shadow_copy = false;
 bool absolute_path = false;
 bool hash_flag = false;
 bool build_info_flag = false;
+bool show_long_help = false;
 
 uint32_t verbose_level = 1;
 uint32_t megabyte_flag = 0;
@@ -253,41 +259,6 @@ void abort(bool b, const CHR *fmt, ...) {
         exit(1);
     }
 }
-
-#define FULL_BACKUP                                                                                                                                            \
-    UNITXT("Full backup:\n")                                                                                                                                   \
-    UNITXT("   [-vxarctpmglh] [-f] [-s] <sources> <destination>\n")                                                                                            \
-    UNITXT("   [-vxarctpmglh] <-stdin> <filename to assign> <destination>\n\n")                                                                                \
-    UNITXT("   <destination> can either be -stdout or a file. Use .full as "                                                                                   \
-           "file extension")
-
-#define DIFFERENTIAL_BACKUP                                                                                                                                    \
-    UNITXT("Differential backup:\n")                                                                                                                           \
-    UNITXT("   -D[vxarctpl] [-f] [-s] <sources> <.full file> <destination>\n")                                                                                 \
-    UNITXT("   -D[vxarctpl] <-stdin> <filename to assign> <.full file> "                                                                                       \
-           "<destination>\n\n")                                                                                                                                \
-    UNITXT("   <destination> can either be -stdout or a file. Use .diff as "                                                                                   \
-           "file extension")
-
-#define RESTORE_FULL_BACKUP                                                                                                                                    \
-    UNITXT("Restore full backup:\n")                                                                                                                           \
-    UNITXT("   -R[vo] <.full file> <destination directory | -stdout> [files]\n")                                                                               \
-    UNITXT("   -R[vo] <-stdin> <destination directory>\n\n")                                                                                                   \
-    UNITXT("   [files] is one or more files, drives or directories to "                                                                                        \
-           "restore, typed as\n")                                                                                                                              \
-    UNITXT("   printed by the -L flag")
-
-#define RESTORE_DIFFERENTIAL_BACKUP                                                                                                                            \
-    UNITXT("Restore differential backup:\n")                                                                                                                   \
-    UNITXT("   -RD[vo] <.full> <.diff file> <destination directory | "                                                                                         \
-           "-stdout> [files]\n\n")                                                                                                                             \
-    UNITXT("   [files] is one or more files, drives or directories to "                                                                                        \
-           "restore, typed as\n")                                                                                                                              \
-    UNITXT("   printed by the -L flag")
-
-#define OTHER                                                                                                                                                  \
-    UNITXT("List contents: -L <.full file | .diff file>\n\n")                                                                                                  \
-    UNITXT("Show build info: -B")
 
 STRING date2str(tm *date) {
     if (date == 0) {
@@ -535,13 +506,10 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
 
 void print_file(STRING filename, uint64_t size, tm *file_date = 0, int attributes = 0) {
 #ifdef WINDOWS
-    statusbar.print(0, UNITXT("%s  %c%c%c%c%c  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 22).c_str(),
-                    attributes & FILE_ATTRIBUTE_ARCHIVE ? 'A' : ' ', attributes & FILE_ATTRIBUTE_SYSTEM ? 'S' : ' ',
-                    attributes & FILE_ATTRIBUTE_HIDDEN ? 'H' : ' ', attributes & FILE_ATTRIBUTE_READONLY ? 'R' : ' ',
-                    attributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED ? 'I' : ' ', date2str(file_date).c_str(), filename.c_str());
+    statusbar.print(0, UNITXT("%s  %c%c%c%c%c  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 22).c_str(), attributes & FILE_ATTRIBUTE_ARCHIVE ? 'A' : ' ', attributes & FILE_ATTRIBUTE_SYSTEM ? 'S' : ' ',
+                    attributes & FILE_ATTRIBUTE_HIDDEN ? 'H' : ' ', attributes & FILE_ATTRIBUTE_READONLY ? 'R' : ' ', attributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED ? 'I' : ' ', date2str(file_date).c_str(), filename.c_str());
 #else
-    statusbar.print(0, UNITXT("%s  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 22).c_str(),
-                    date2str(file_date).c_str(), filename.c_str());
+    statusbar.print(0, UNITXT("%s  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 22).c_str(), date2str(file_date).c_str(), filename.c_str());
 #endif
 }
 
@@ -707,10 +675,9 @@ void print_build_info() {
     // "2024-01-04T09:27:05+0100"
     STRING td = UNITXT(_TIMEZ_);
     td = td.substr(0, 10) + UNITXT(" ") + td.substr(11, 8) + UNITXT(" ") + td.substr(19, 5);
-    STRING b = STRING(UNITXT("Built ")) + td + UNITXT(" [") + UNITXT(GIT_COMMIT_HASH) + UNITXT("]");
+    STRING b = STRING(UNITXT("ver " VER ", built ")) + td + UNITXT(", sha ") + UNITXT(GIT_COMMIT_HASH);
     statusbar.print(0, b.c_str());
 }
-
 
 #ifdef WINDOWS
 vector<STRING> wildcard_expand(vector<STRING> files) {
@@ -772,15 +739,14 @@ void tidy_args(int argc2, CHR *argv2[]) {
 void parse_flags(void) {
     int i = 1;
 
-    while (argc > i && argv[i].substr(0, 1) == UNITXT("-") && argv[i].substr(0, 2) != UNITXT("--") && argv[i] != UNITXT("-stdin") &&
-           argv[i] != UNITXT("-stdout")) {
+    while (argc > i && argv[i].substr(0, 1) == UNITXT("-") && argv[i].substr(0, 2) != UNITXT("--") && argv[i] != UNITXT("-stdin") && argv[i] != UNITXT("-stdout")) {
         flags = argv[i];
         i++;
         flags_exist++;
 
-        if (flags.length() > 2 && flags.substr(0, 2) == UNITXT("-f")) {
+        if (flags.length() > 2 && flags.substr(0, 2) == UNITXT("-u")) {
             lua = flags.substr(2);
-            abort(lua == UNITXT(""), UNITXT("Missing command in -f flag"));
+            abort(lua == UNITXT(""), UNITXT("Missing command in -u flag"));
         } else if (flags.length() > 2 && flags.substr(0, 2) == UNITXT("-s")) {
 #ifdef WINDOWS
             STRING mount = flags.substr(2);
@@ -790,7 +756,7 @@ void parse_flags(void) {
             abort(true, UNITXT("-s flag not supported in *nix"));
 #endif
         } else {
-            size_t e = flags.find_first_not_of(UNITXT("-hRroxcDpilLatgmv0123456789B"));
+            size_t e = flags.find_first_not_of(UNITXT("-fhuRrxcDpilLatgmv0123456789B?"));
             if (e != string::npos) {
                 abort(true, UNITXT("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
@@ -810,7 +776,7 @@ void parse_flags(void) {
 
             set_bool_flag(restore_flag, "R");
             set_bool_flag(no_recursion_flag, "r");
-            set_bool_flag(overwrite_flag, "o");
+            set_bool_flag(force_flag, "f");
             set_bool_flag(continue_flag, "c");
             set_bool_flag(diff_flag, "D");
             set_bool_flag(named_pipes, "p");
@@ -819,6 +785,7 @@ void parse_flags(void) {
             set_bool_flag(absolute_path, "a");
             set_bool_flag(hash_flag, "h");
             set_bool_flag(build_info_flag, "B");
+            set_bool_flag(show_long_help, "\\?");
 
             auto set_int_flag = [&](uint32_t &flag_ref, const string letter) {
                 if (regx(flagsS, letter) == "") {
@@ -844,7 +811,7 @@ void parse_flags(void) {
                     memory_usage = gigabyte_flag * G;
                 } else {
                     // todo, this no longer has to be a requirement
-                    abort(true, UNITXT("-g flag value must be a power of 2 (-g1, -g2, -g4, -g8, -g16, -g32, ...)"));
+                    abort(true, UNITXT("-g flag value must be a power of 2 (-g1, -g2, -g4, -g8, -g16, ...)"));
                 }
             }
 
@@ -852,7 +819,7 @@ void parse_flags(void) {
                 if ((megabyte_flag & (megabyte_flag - 1)) == 0) {
                     memory_usage = megabyte_flag * M;
                 } else {
-                    abort(true, UNITXT("-m flag value must be a power of 2 (-m8, -m32, -m64, -m128, -m256, ...)"));
+                    abort(true, UNITXT("-m flag value must be a power of 2 (-m32, -m64, -m128, -m256, -m512, ...)"));
                 }
             }
 
@@ -876,8 +843,7 @@ void parse_flags(void) {
     abort(restore_flag && (no_recursion_flag || continue_flag), UNITXT("-R flag not compatible with -n or -c"));
     abort(restore_flag && (megabyte_flag != 0 || gigabyte_flag != 0), UNITXT("-m and -t flags not applicable to restore (no memory required)"));
     abort(restore_flag && (threads_flag != 0), UNITXT("-t flag not supported for restore"));
-    abort(diff_flag && compress_flag && (megabyte_flag != 0 || gigabyte_flag != 0),
-          UNITXT("-m and -t flags not applicable to differential backup (uses same memory as full)"));
+    abort(diff_flag && compress_flag && (megabyte_flag != 0 || gigabyte_flag != 0), UNITXT("-m and -t flags not applicable to differential backup (uses same memory as full)"));
     abort(hash_flag && diff_flag, UNITXT("-h flag not applicable to differential backup"));
     abort(hash_flag && !compress_flag, UNITXT("-h flag not applicable to restore"));
 }
@@ -902,57 +868,55 @@ void parse_files(void) {
             add_item(argv.at(i));
         }
 
-        abort(argc - 1 < flags_exist + 2, UNITXT("Missing arguments. ") FULL_BACKUP);
+        abort(argc - 1 < flags_exist + 2, UNITXT("Missing arguments. "));
         full = argv.at(argc - 1);
         if (inputfiles.at(0) == UNITXT("-stdin")) {
-            abort(argc - 1 < flags_exist + 3, UNITXT("Missing arguments. ") FULL_BACKUP);
+            abort(argc - 1 < flags_exist + 3, UNITXT("Missing arguments. "));
             name = argv.at(flags_exist + 2);
         }
 
-        abort(inputfiles[0] == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdin") ||
-                  (inputfiles[0] == UNITXT("-stdin") && argc < 4 + flags_exist) || (inputfiles[0] != UNITXT("-stdin") && argc < 3 + flags_exist),
-              UNITXT("Syntax error in source or destination. ") FULL_BACKUP);
+        abort(inputfiles[0] == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdin") || (inputfiles[0] == UNITXT("-stdin") && argc < 4 + flags_exist) ||
+                  (inputfiles[0] != UNITXT("-stdin") && argc < 3 + flags_exist),
+              UNITXT("Syntax error in source or destination. "));
     } else if (compress_flag && diff_flag) {
         for (int i = flags_exist + 1; i < argc - 2; i++) {
             add_item(argv[i]);
         }
 
-        abort(argc - 1 < flags_exist + 3, UNITXT("Missing arguments. ") DIFFERENTIAL_BACKUP);
+        abort(argc - 1 < flags_exist + 3, UNITXT("Missing arguments. "));
         full = argv.at(argc - 2);
         diff = argv.at(argc - 1);
         if (inputfiles[0] == UNITXT("-stdin")) {
-            abort(argc - 1 < flags_exist + 4, UNITXT("Missing arguments. ") DIFFERENTIAL_BACKUP);
+            abort(argc - 1 < flags_exist + 4, UNITXT("Missing arguments. "));
             name = argv.at(flags_exist + 2);
         }
-        abort(inputfiles[0] == UNITXT("-stdin") && argc < 5 + flags_exist, UNITXT(".full file from -stdin not supported. ") DIFFERENTIAL_BACKUP);
+        abort(inputfiles[0] == UNITXT("-stdin") && argc < 5 + flags_exist, UNITXT(".full file from -stdin not supported. "));
 
-        abort(full == UNITXT("-stdin"), UNITXT(".full file from -stdin not supported. ") DIFFERENTIAL_BACKUP);
+        abort(full == UNITXT("-stdin"), UNITXT(".full file from -stdin not supported. "));
 
-        abort(inputfiles[0] == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdout") ||
-                  (inputfiles[0] == UNITXT("-stdin") && argc < 4 + flags_exist) || (inputfiles[0] != UNITXT("-stdin") && argc < 3 + flags_exist),
-              UNITXT("Syntax error in source or destination. ") DIFFERENTIAL_BACKUP);
+        abort(inputfiles[0] == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdout") || (inputfiles[0] == UNITXT("-stdin") && argc < 4 + flags_exist) ||
+                  (inputfiles[0] != UNITXT("-stdin") && argc < 3 + flags_exist),
+              UNITXT("Syntax error in source or destination. "));
     } else if (!compress_flag && !diff_flag && !list_flag) {
-        abort(argc - 1 < flags_exist + 2, UNITXT("Missing arguments. ") RESTORE_FULL_BACKUP);
+        abort(argc - 1 < flags_exist + 2, UNITXT("Missing arguments. "));
         full = argv.at(1 + flags_exist);
         directory = argv.at(2 + flags_exist);
 
-        abort(full == UNITXT("-stdin") && argc - 1 > flags_exist + 2, UNITXT("Too many arguments. ") RESTORE_FULL_BACKUP);
+        abort(full == UNITXT("-stdin") && argc - 1 > flags_exist + 2, UNITXT("Too many arguments. "));
 
         for (int i = 0; i < argc - 3 - flags_exist; i++) {
             restorelist.push_back(argv.at(i + 3 + flags_exist));
         }
 
-        abort(directory == UNITXT("-stdout") && full == UNITXT("-stdin"),
-              UNITXT("Restore with both -stdin and -stdout is not supported. One must be a seekable device. ") RESTORE_FULL_BACKUP);
-        abort(full == UNITXT("-stdout") || directory == UNITXT("-stdin") || argc < 3 + flags_exist,
-              UNITXT("Syntax error in source or destination. ") RESTORE_FULL_BACKUP);
+        abort(directory == UNITXT("-stdout") && full == UNITXT("-stdin"), UNITXT("Restore with both -stdin and -stdout is not supported. One must be a seekable device. "));
+        abort(full == UNITXT("-stdout") || directory == UNITXT("-stdin") || argc < 3 + flags_exist, UNITXT("Syntax error in source or destination. "));
     } else if (!compress_flag && diff_flag) {
-        abort(argc - 1 < flags_exist + 3, UNITXT("Missing arguments. ") RESTORE_DIFFERENTIAL_BACKUP);
+        abort(argc - 1 < flags_exist + 3, UNITXT("Missing arguments. "));
         full = argv.at(1 + flags_exist);
         diff = argv.at(2 + flags_exist);
         directory = argv.at(3 + flags_exist);
 
-        abort(full == UNITXT("-stdin") || diff == UNITXT("-stdin"), UNITXT("-stdin is not supported for restoring differential backup. ") RESTORE_FULL_BACKUP);
+        abort(full == UNITXT("-stdin") || diff == UNITXT("-stdin"), UNITXT("-stdin is not supported for restoring differential backup. "));
 
         for (int i = 0; i < argc - 4 - flags_exist; i++) {
             restorelist.push_back(argv.at(i + 4 + flags_exist));
@@ -961,8 +925,7 @@ void parse_files(void) {
         //	abort(directory == UNITXT("-stdout"), UNITXT("Restore to stdout
         // or non-seekable drive not supported"));
 
-        abort(full == UNITXT("-stdout") || diff == UNITXT("-stdout") || (full == UNITXT("-stdin") && diff == UNITXT("-stdin")) || (argc < 4 + flags_exist),
-              UNITXT("Syntax error in source or destination. ") RESTORE_DIFFERENTIAL_BACKUP);
+        abort(full == UNITXT("-stdout") || diff == UNITXT("-stdout") || (full == UNITXT("-stdin") && diff == UNITXT("-stdin")) || (argc < 4 + flags_exist), UNITXT("Syntax error in source or destination. "));
     } else if (list_flag) {
         full = argv[1 + flags_exist];
     }
@@ -989,72 +952,103 @@ void parse_files(void) {
     }
 }
 
-// clang-format off
-void print_usage()
-{
-    statusbar.print(0, (
-	UNITXT("eXdupe ") + str(VERSION_MAJOR) + UNITXT(".") + str(VERSION_MINOR) + UNITXT(".") + str(VERSION_REVISION) + UNITXT(".dev") + str(VERSION_BETA) + UNITXT(" file archiver. GPLv2 or later. Copyright 2010 - 2024\n\n")
-
-	FULL_BACKUP UNITXT("\n\n")
-	DIFFERENTIAL_BACKUP UNITXT("\n\n")
-	RESTORE_FULL_BACKUP UNITXT("\n\n")
-	RESTORE_DIFFERENTIAL_BACKUP UNITXT("\n\n")
-	OTHER UNITXT("\n\n")
-	UNITXT("Flags:\n")
-	UNITXT("     -r Do not include sub directories\n")
-	UNITXT("     -o Overwrite existing files (default is to abort)\n"  )
-    UNITXT("     -c Continue if a source file cannot be read or does not exist (default is\n")
-    UNITXT("        to abort)\n")
-	UNITXT("    -xn Use compression level n for traditional data compression applied after\n")
-	UNITXT("        deduplication. 0 = none (lets you apply your own), 1 = zstd-1 (default)\n")
-    UNITXT("        2 = zstd-10, 3 = zstd-19\n")
-	UNITXT("     -p Include named pipes\n")
-	UNITXT("     -l On *nix: Follow symlinks (default is to store link only). On Windows:\n")
-	UNITXT("        Symlinks are not supported and are always skipped\n")
-	UNITXT("     -a Store absolute and complete paths (default is to remove the common\n")
-	UNITXT("        parent path of items passed on the command line)\n")
-	UNITXT(" -s\"x:\" Use Volume Shadow Copy Service for local drive x: (Windows only)\n")
-	UNITXT("  -f\"s\" Filter files using a script, s, written in the Lua language\n")
-	UNITXT("    -gn Use n GB memory for a hash table (default = 2). Use -mn to specify\n")
-	UNITXT("        number of MB instead. Use 2 to 8 GB per TB of input data for best\n")
-    UNITXT("        compression ratio. Differential backups will use the same memory as the\n")
-    UNITXT("        full backup.\n")
-    UNITXT("    -tn Use n threads (default = ") + str(threads) + UNITXT(")\n")
-	UNITXT("    -vn Verbose level 0 = quiet, 1 = status bar, 2 = skipped files, 3 = verbose\n")
-	UNITXT("    -h  Use slower cryptographic hash BLAKE3. Default is xxHash128\n")
-	UNITXT("     -- Prefix items in the <sources> list with \"--\" to exclude them\n\n")  
-	UNITXT("Quick example of backup, differential backups and a restore:\n")
-#ifdef WINDOWS
-    UNITXT("   eXdupe z:\\database\\ database.full\n")
-	UNITXT("   eXdupe -D z:\\database\\ database.full database.diff1\n")
-	UNITXT("   eXdupe -D z:\\database\\ database.full database.diff2\n")
-	UNITXT("   eXdupe -RD database.full database.diff2 z:\\database\\restored\\\n\n"	)	
-#else
-    UNITXT("   eXdupe /database/ database.full\n")
-	UNITXT("   eXdupe -D /database/ database.full database.diff1\n")
-	UNITXT("   eXdupe -D /database/ database.full database.diff2\n")
-	UNITXT("   eXdupe -RD database.full database.diff2 /database/restored/\n\n"		)
-#endif
-	UNITXT("More examples:\n")
-#ifdef WINDOWS
-	UNITXT("   eXdupe -stdin database.mdf -stdout < database.mdf > database.full\n")
-	UNITXT("   eXdupe -m256t2 z:\\vmdk\\win\\ z:\\vmdk\\mac\\ z:\\vmdk\\hpux\\ servers.full\n")
-	UNITXT("   eXdupe -RD servers.full servers.diff z:\\restored mac win\n")
-	UNITXT("   eXdupe -c -f\"return(dir or size < 1000000)\" z:\\stuff stuff.full\n")
-	UNITXT("   eXdupe -s\"c:\" c:\\ --c:\\pagefile.sys system.full\n")
-#else
-	UNITXT("   eXdupe -stdin database.mdf -stdout < database.mdf > database.full\n")
-	UNITXT("   eXdupe -g16 /mail/ -stdout > mail.full\n")
-	UNITXT("   eXdupe -m256t2 /vmdk/win/ /vmdk/mac/ /vmdk/hpux/ servers.full\n")
-	UNITXT("   eXdupe -RD servers.full servers.diff /vmdk/restored mac win\n")
-	UNITXT("   eXdupe /stuff -f\"return(dir or size < 1000000)\" stuff.full\n")
-#endif
-	UNITXT("   eXdupe -R data.full -stdout > data.xml\n\n")
-	UNITXT("UNSTABLE DEV UNSTABLE DEV UNSTABLE DEV UNSTABLE DEV UNSTABLE DEV UNSTABLE DEV")
-		).c_str());
-	exit(1);
+STRING tostring(std::string s) {
+    return STRING(s.begin(), s.end());
 }
-// clang-format on
+
+void print_usage(bool show_long) {
+    std::string long_help = R"(eXdupe %v file archiver. GPLv2 or later. Copyright 2010 - 2024
+
+Full backup:
+  [flags] <sources> <dest file | -stdout>
+  [flags] <-stdin> <filename to assign> <dest file>
+
+Restore full backup:
+  [flags] -R <full backup file> <dest dir | -stdout> [items]
+  [flags] -R <-stdin> <dest dir> [items]
+
+Differential backup:
+  [flags] -D <sources> <full backup file> <dest file | -stdout>
+  [flags] -D <-stdin> <filename to assign> <full backup file> <dest file>
+  
+Restore differential backup:
+  [flags] -RD <full backup file> <diff backup file> <dest dir | -stdout> [items]
+
+List contents: -L <full or diff backup file>
+
+Show build info: -B
+
+<sources> is a list of files, directories or drives to backup. [items] is a list
+of files, directories or drives to restore, written as printed by the -L flag.
+
+Flags:
+   -f Overwrite existing files (default is abort)
+   -c Continue if a source file cannot be read (default is abort)
+  -xn Use compression level n for traditional data compression applied after
+      deduplication. 0 = none, 1 = zstd-1 (default), 2 = zstd-10, 3 = zstd-19
+  -tn Use n threads (default = 8)
+  -gn Use n GB memory (default = 2). Use -mn to specify number of MB instead. Use
+      2 to 8 GB per TB of input data for best compression ratio.
+   -- Prefix items in the <sources> list with "--" to exclude them
+   -p Include named pipes
+   -l On *nix: Follow symlinks (default is to store link only). On Windows:
+      Symlinks are not supported and are always skipped
+   -a Store absolute and complete paths (default is to remove the common
+      parent path of items passed on the command line)
+-s"x" Use Volume Shadow Copy Service for local drive x: (Windows only)
+-u"s" Filter files using a script, s, written in the Lua language
+  -h  Use slower cryptographic hash BLAKE3. Default is xxHash128  
+
+Example of backup, differential backups and restore:
+  exdupe my_dir backup.full
+  exdupe -D my_dir backup.full backup1.diff
+  exdupe -D my_dir backup.full backup2.diff
+  exdupe -RD backup.full backup2.diff restore_dir
+
+More examples:
+  exdupe -t12 -g8 file1 file2 dir1 dir2 backup.full
+  exdupe -R backup.full restore_dir dir2%/file.txt
+  exdupe file.txt -stdout | exdupe -R -o -stdin restore_dir)";
+
+    std::string short_help = R"(Full backup:
+  [flags] <sources> <dest file | -stdout>
+  [flags] <-stdin> <filename to assign> <dest file>
+
+Restore full backup:
+  [flags] -R <full backup file> <dest dir | -stdout>
+  [flags] -R <-stdin> <dest dir>
+
+Differential backup:
+  [flags] -D <sources> <full backup file> <dest file | -stdout>
+  [flags] -D <-stdin> <filename to assign> <full backup file> <dest file>
+  
+Restore differential backup:
+  [flags] -RD <full backup file> <diff backup file> <dest dir | -stdout>
+
+List contents: -L <full or diff backup file>
+
+Most common flags:
+   -f Overwrite existing files (default is abort)
+   -c Continue if a source file cannot be read (default is abort)
+  -xn Use compression level n for traditional data compression applied after
+      deduplication. Set to 0 (none), 1 (default), 2 or 3
+  -tn Use n threads (default = 8)
+  -gn Use n GB memory (default = 2) for dedulication
+   -- Prefix items in the <sources> list with "--" to exclude them
+
+Example:
+  exdupe my_files_dir backup.full
+  exdupe -R backup.full restore_dir
+
+Show complete help: -?)";
+
+    for(auto &a : {&long_help, &short_help}) {
+        *a = std::regex_replace(*a, std::regex("%/"), WIN ? "\\" : "/");
+        *a = std::regex_replace(*a, std::regex("%v"), VER);
+    }
+        
+    statusbar.print(0, show_long ? tostring(long_help).c_str() : tostring(short_help).c_str());
+}
 
 FILE *try_open(STRING file2, char mode, bool abortfail) {
     auto file = file2;
@@ -1163,14 +1157,11 @@ void verify_restorelist(vector<STRING> restorelist, const vector<contents_t> &co
     }
 
     for (uint32_t i = 0; i < restorelist.size(); i++) {
-        abort(restorelist[i] != UNITXT(":"), UNITXT("'%s' does not exist in archive or is included multiple times by your [files] list"),
-              restorelist[i].c_str());
+        abort(restorelist[i] != UNITXT(":"), UNITXT("'%s' does not exist in archive or is included multiple times by your [files] list"), restorelist[i].c_str());
     }
 }
 
-void already_exists(const STRING &file) {
-    abort(file != UNITXT("-stdout") && exists(file) && !overwrite_flag, UNITXT("Destination file '%s' already exists"), slashify(file).c_str());
-}
+void already_exists(const STRING &file) { abort(file != UNITXT("-stdout") && exists(file) && !force_flag, UNITXT("Destination file '%s' already exists"), slashify(file).c_str()); }
 
 FILE *open_destination(const STRING &file) {
     already_exists(file);
@@ -1195,8 +1186,7 @@ FILE *open_destination(const STRING &file) {
 }
 
 void ensure_relative(const STRING &path) {
-    STRING s = STRING(UNITXT("Archive contains absolute paths. Add a [files] argument. ")) +
-               STRING(diff_flag ? STRING(RESTORE_DIFFERENTIAL_BACKUP) : STRING(RESTORE_FULL_BACKUP));
+    STRING s = STRING(UNITXT("Archive contains absolute paths. Add a [files] argument. ")) + STRING(diff_flag ? STRING() : STRING());
     abort((path.size() >= 2 && path.substr(0, 2) == UNITXT("\\\\")) || path.find_last_of(UNITXT(":")) != string::npos, s.c_str());
 }
 
@@ -1388,8 +1378,7 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
                         ifile2 = try_open(infiles[fo].filename, 'r', true);
                         infiles[fo].handle = ifile2;
                         int j = io.seek(ifile2, payload + resolved - infiles[fo].offset, SEEK_SET);
-                        abort(j != 0, UNITXT("Internal error 9 or destination is a non-seekable device: seek(%s, %p, %p)"), infiles[fo].filename.c_str(),
-                              payload, infiles[fo].offset);
+                        abort(j != 0, UNITXT("Internal error 9 or destination is a non-seekable device: seek(%s, %p, %p)"), infiles[fo].filename.c_str(), payload, infiles[fo].offset);
                     }
                     len2 = io.read(out + resolved, len - resolved, ifile2);
                     resolved += len2;
@@ -1449,8 +1438,9 @@ void compress_symlink(const STRING &link, const STRING &target) {
 
     tm file_date;
     get_date(link, &file_date);
-    memset(tmp, 0, MAX_PATH_LEN);
-    int t = readlink(link.c_str(), tmp, MAX_PATH_LEN);
+    char tmp[PATH_MAX];
+    memset(tmp, 0, PATH_MAX );
+    int t = readlink(link.c_str(), tmp, PATH_MAX );
     if (t == -1) {
         if (continue_flag) {
             statusbar.print(2, UNITXT("Skipped, error by readlink(): %s"), link.c_str());
@@ -1955,9 +1945,9 @@ void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t
         abort(true, UNITXT("Internal error 25"));
     }
 
-    io.write_ui<uint8_t>(VERSION_MAJOR, file);
-    io.write_ui<uint8_t>(VERSION_MINOR, file);
-    io.write_ui<uint8_t>(VERSION_REVISION, file);
+    io.write_ui<uint8_t>(VER_MAJOR, file);
+    io.write_ui<uint8_t>(VER_MINOR, file);
+    io.write_ui<uint8_t>(VER_REVISION, file);
 
     io.write_ui<uint64_t>(DEDUPE_SMALL, file);
     io.write_ui<uint64_t>(DEDUPE_LARGE, file);
@@ -1985,8 +1975,7 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-    abort(major != VERSION_MAJOR, UNITXT("'%s' was created with eXdupe version %d.%d.%d, please use %d.x.x on it"), filename.c_str(), major, minor, revision,
-          major);
+    abort(major != VER_MAJOR, UNITXT("'%s' was created with eXdupe version %d.%d.%d, please use %d.x.x on it"), filename.c_str(), major, minor, revision, major);
 
     hash_flag = io.read_ui<uint8_t>(file) == 1;
     hash_salt = io.read_ui<uint64_t>(file);
@@ -2013,15 +2002,20 @@ int wmain(int argc2, CHR *argv2[])
 int main(int argc2, char *argv2[])
 #endif
 {
-    if (argc2 == 1) {
-        print_usage();
-    }
-
     tidy_args(argc2, argv2);
 
     parse_flags();
 
-    if(build_info_flag) {
+    if (argc2 == 1) {
+        print_usage(false);
+        return 2;
+    }
+    if (argc2 == 2 && show_long_help) {
+        print_usage(true);
+        return 0;
+    }
+
+    if (build_info_flag) {
         print_build_info();
         return 0;
     }
@@ -2071,8 +2065,8 @@ int main(int argc2, char *argv2[])
         wrote_message(dup_counter_payload(), files);
 
         // read remainder of file like content section, etc, to avoid error from OS
-        vector<std::byte> tmp(32*1024, {});
-        while (ifile == stdin && io.read(tmp.data(), 32*1024, stdin)) {
+        vector<std::byte> tmp(32 * 1024, {});
+        while (ifile == stdin && io.read(tmp.data(), 32 * 1024, stdin)) {
         }
     }
 
@@ -2138,15 +2132,14 @@ int main(int argc2, char *argv2[])
         auto speed = s2w(format_size(dup_counter_payload() / (GetTickCount() - start_time) * 1000));
         auto sratio = ((float(io.write_count) / float(dup_counter_payload() + 0.01)) * 100.);
         sratio = sratio > 999.9 ? 999.9 : sratio;
-        statusbar.print(1, UNITXT("Compressed %s B in %s files into %s (%.1f%%) at %s/s"), del(dup_counter_payload()).c_str(), del(files).c_str(),
-                        s2w(format_size(io.write_count)).c_str(), sratio, speed.c_str());
+        statusbar.print(1, UNITXT("Compressed %s B in %s files into %s (%.1f%%) at %s/s"), del(dup_counter_payload()).c_str(), del(files).c_str(), s2w(format_size(io.write_count)).c_str(), sratio, speed.c_str());
 
         //		cerr << format_size(large_hits()) << " " <<
         // format_size(small_hits())"\n";
 
         io.close(ofile);
     } else {
-        print_usage();
+        print_usage(false);
     }
 
 #ifdef WINDOWS

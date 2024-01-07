@@ -123,7 +123,7 @@ void checksum_init(checksum_t *t);
 STRING abs_path(STRING source);
 bool exists(STRING file);
 bool is_dir(STRING path);
-STRING str(uint64_t l);
+std::string s(uint64_t l);
 
 #ifndef WINDOWS
 unsigned int GetTickCount();

@@ -59,12 +59,12 @@ bool execute(STRING script2, STRING dir2, STRING file2, STRING name2, uint64_t s
     date->tm_yday = 0;
     date->tm_isdst = -1;
 
-    string s =
+    string str =
         "dir = " + (dir == "" ? "ni" : "\"" + dir + "\"") + "\n" + "file = " + (file == "" ? "ni" : "\"" + file + "\"") + "\n" +
-        "name = " + (name == "" ? "ni" : "\"" + name + "\"") + "\n" + "size = " + wstring2string(str(size)) + "\n" +
-        "ext = " + (file == "" ? "ni" : "\"" + ext + "\"") + "\n" + "date = os.time{year=" + wstring2string(str(date->tm_year)) +
-        ", month=" + wstring2string(str(date->tm_mon)) + ", day=" + wstring2string(str(date->tm_mday)) + ", hour=" + wstring2string(str(date->tm_hour)) +
-        ", min=" + wstring2string(str(date->tm_min)) + ", sec=" + wstring2string(str(date->tm_min)) + "}" + "\n\n" +
+        "name = " + (name == "" ? "ni" : "\"" + name + "\"") + "\n" + "size = " + s(size) + "\n" +
+        "ext = " + (file == "" ? "ni" : "\"" + ext + "\"") + "\n" + "date = os.time{year=" + s(date->tm_year) +
+        ", month=" + s(date->tm_mon) + ", day=" + s(date->tm_mday) + ", hour=" + s(date->tm_hour) +
+        ", min=" + s(date->tm_min) + ", sec=" + s(date->tm_min) + "}" + "\n\n" +
 
 #ifdef WINDOWS
         "ARCHIVE = " + (attrib & FILE_ATTRIBUTE_ARCHIVE ? "true" : "false") + "\n" + "COMPRESSED = " + (attrib & FILE_ATTRIBUTE_COMPRESSED ? "true" : "false") +
@@ -83,7 +83,7 @@ bool execute(STRING script2, STRING dir2, STRING file2, STRING name2, uint64_t s
         "function contains(items, item)\n" + "for _,v in pairs(items) do\n" + "  if v == item then\n" + "    return true\n" + "  end\n" + "end\n" +
         "return false\n" + "end\n\n" + script;
 
-    luaMF.text = s.c_str();
+    luaMF.text = str.c_str();
     luaMF.size = strlen(luaMF.text);
 
     int i = lua_load(L, readMemFile, &luaMF, "Lua filter program", NULL);
@@ -94,7 +94,7 @@ bool execute(STRING script2, STRING dir2, STRING file2, STRING name2, uint64_t s
         abort(i != 0,
               UNITXT("%s\n--------------------------\n%s\n---------------------"
                      "-----\n"),
-              string2wstring(string(err)).c_str(), string2wstring(s).c_str());
+              string2wstring(string(err)).c_str(), str.c_str());
     }
 
     lua_call(L, 0, 1);

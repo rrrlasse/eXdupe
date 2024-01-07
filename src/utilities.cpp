@@ -546,14 +546,8 @@ bool set_attributes(STRING path, int attributes) {
 
 bool is_dir(STRING path) { return ISDIR(get_attributes(path, false)); }
 
-STRING str(uint64_t l) {
-    CHR myBuff[20] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-#ifdef WINDOWS
-    SPRINTF(myBuff, UNITXT("%I64d"), l);
-#else
-    SPRINTF(myBuff, UNITXT("%llu"), static_cast<unsigned long long>(l));
-#endif
-    return ((STRING)myBuff);
+std::string s(uint64_t l) {
+    return std::to_string(l);
 }
 
 void *tmalloc(size_t size) {
