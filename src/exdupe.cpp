@@ -185,7 +185,6 @@ vector<STRING> argv;
 int argc;
 STRING flags;
 
-unsigned char extract_concatenate[RESTORE_CHUNKSIZE + 1000000];
 unsigned char *extract_in;
 unsigned char *extract_out;
 
@@ -1204,6 +1203,7 @@ void create_symlink(STRING path, contents_t c) {
 void decompress_individuals(FILE *ffull, FILE *fdiff) {
     FILE *archive_file;
     bool pipe_out = directory == UNITXT("-stdout");
+    std::vector<unsigned char> restore_buffer(RESTORE_CHUNKSIZE, 'c');
 
     if (diff_flag) {
         archive_file = fdiff;
@@ -1298,11 +1298,9 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
 
                     while (resolved < c.size) {
                         size_t process = minimum(c.size - resolved, RESTORE_CHUNKSIZE);
-
-                        resolve(c.payload + resolved, process, extract_concatenate, ffull, fdiff, basepay);
-
-                        checksum(extract_concatenate, process, &t);
-                        io.write(extract_concatenate, process, ofile);
+                        resolve(c.payload + resolved, process, restore_buffer.data(), ffull, fdiff, basepay);
+                        checksum(restore_buffer.data(), process, &t);
+                        io.write(restore_buffer.data(), process, ofile);
                         tot_res += process;
                         statusbar.update(RESTORE, 0, tot_res, outfile);
                         resolved += process;
