@@ -12,8 +12,6 @@
 // When compressing the hashtable, worst case is that all entries are in use, in which case it ends up
 // growing COMPRESSED_HASHTABLE_OVERHEAD bytes in size. Tighter upper bound is probably 16 or so.
 #define COMPRESSED_HASHTABLE_OVERHEAD 100
-
-#define DUP_MAX_INPUT (32 * 1024 * 1024)
 #define DUP_MATCH "MM"
 #define DUP_LITERAL "TT"
 
@@ -203,8 +201,11 @@ static uint64_t str2ll(const void *src, int bytes) {
 typedef struct {
     pthread_t thread;
     int status;
-    unsigned char source[DUP_MAX_INPUT];
-    unsigned char destination[DUP_MAX_INPUT + 1024 * 1024];
+
+    unsigned char* source;
+    unsigned char* destination;
+    size_t source_capacity;
+
     uint64_t payload;
     size_t size_source;
     size_t size_destination;
@@ -869,6 +870,10 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
         jobs[i].zstd = zstd_init();
 
         jobs[i].busy = false;
+
+        jobs[i].source = 0;
+        jobs[i].destination = 0;
+        jobs[i].source_capacity = 0;
     }
 
     for (int i = 0; i < THREADS; i++) {
@@ -1018,9 +1023,9 @@ void dup_add(bool add) { add_data = add; }
 
 uint64_t dup_get_flushed() { return flushed; }
 
-size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payloadreturned) {
+size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_returned) {
     char *dst_orig = dst;
-    *payloadreturned = 0;
+    *payload_returned = 0;
 
 #if 0 // single threaded naive for debugging
 	if (size > 0)
@@ -1040,7 +1045,7 @@ size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payloadre
         int f = -1;
         pthread_mutex_lock_wrapper(&jobdone_mutex);
         do {
-            dst += flush_pend(dst, payloadreturned);
+            dst += flush_pend(dst, payload_returned);
             f = get_free();
 
             assert(!(dst != dst_orig && f == -1));
@@ -1050,6 +1055,13 @@ size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payloadre
             }
         } while (f == -1);
 
+        size_t req = size + 3 * LARGE_BLOCK;
+        if(jobs[f].source_capacity < req) {
+            free(jobs[f].source);
+            free(jobs[f].destination);
+            jobs[f].source = (unsigned char*)malloc(size_t(1.5 * req));
+            jobs[f].destination = (unsigned char*)malloc(size_t(1.5 * req));
+        }
         memcpy(jobs[f].source, src, size);
         jobs[f].payload = global_payload;
         global_payload += size;
