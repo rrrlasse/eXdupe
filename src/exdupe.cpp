@@ -1034,7 +1034,7 @@ Most common flags:
   -xn Use compression level n for traditional data compression applied after
       deduplication. Set to 0 (none), 1 (default), 2 or 3
   -tn Use n threads (default = 8)
-  -gn Use n GB memory (default = 2) for dedulication
+  -gn Use n GB memory (default = 2) for deduplication
    -- Prefix items in the <sources> list with "--" to exclude them
 
 Example:
