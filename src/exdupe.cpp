@@ -1486,7 +1486,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
     auto empty_q = [&]() {
         if (payload_queue.size() > 0) {
             uint64_t pay;
-            size_t cc = dup_compress(payload_queue.c_str(), out, payload_queue.size(), &pay);
+            size_t cc = dup_compress(payload_queue.c_str(), (char*)out, payload_queue.size(), &pay);
             payload_compressed += pay;
             if (cc > 0) {
                 io.try_write("A", 1, ofile);

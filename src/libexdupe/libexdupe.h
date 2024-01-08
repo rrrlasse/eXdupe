@@ -13,7 +13,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
 	     int max_threadcount, void *memory, int compression_level,
 	     bool crypto_hash, uint64_t hash_seed);
 
-size_t dup_compress(const void *src, unsigned char *dst, size_t size,
+size_t dup_compress(const void *src, char *dst, size_t size,
 		    uint64_t *payloadreturned);
 int dup_decompress(const unsigned char *src, unsigned char *dst, size_t *length,
 		   uint64_t *payload);

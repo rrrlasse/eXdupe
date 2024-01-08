@@ -9,14 +9,6 @@
 #include <intrin.h>
 #endif
 
-#if defined(_WIN32)
-#define INLINE __forceinline
-#else
-#define INLINE __attribute__((always_inline)) inline
-#endif
-
-#define OUT_BLOCK_SIZE 1024 * 1024
-
 // When compressing the hashtable, worst case is that all entries are in use, in which case it ends up
 // growing COMPRESSED_HASHTABLE_OVERHEAD bytes in size. Tighter upper bound is probably 16 or so.
 #define COMPRESSED_HASHTABLE_OVERHEAD 100
@@ -177,7 +169,7 @@ template <class T, class U> const uint64_t minimum(const T a, const U b) {
     return (static_cast<uint64_t>(a) > static_cast<uint64_t>(b)) ? static_cast<uint64_t>(b) : static_cast<uint64_t>(a);
 }
 
-INLINE static bool dd_equal(const void *src1, const void *src2, size_t len) {
+static bool dd_equal(const void *src1, const void *src2, size_t len) {
     char *s1 = (char *)src1;
     char *s2 = (char *)src2;
     for (size_t i = 0; i < len; i++) {
@@ -188,7 +180,7 @@ INLINE static bool dd_equal(const void *src1, const void *src2, size_t len) {
     return true;
 }
 
-INLINE static void ll2str(uint64_t l, char *dst, int bytes) {
+static void ll2str(uint64_t l, char *dst, int bytes) {
     while (bytes > 0) {
         *dst = (l & 0xff);
         dst++;
@@ -197,7 +189,7 @@ INLINE static void ll2str(uint64_t l, char *dst, int bytes) {
     }
 }
 
-INLINE static uint64_t str2ll(const void *src, int bytes) {
+static uint64_t str2ll(const void *src, int bytes) {
     unsigned char *src2 = (unsigned char *)src;
     uint64_t l = 0;
     while (bytes > 0) {
@@ -262,7 +254,7 @@ int64_t zstd_decompress(char *inbuf, size_t insize, char *outbuf, size_t outsize
     return ZSTD_decompressDCtx(zstd_params->dctx, outbuf, outsize, inbuf, insize);
 }
 
-INLINE static void sha(const unsigned char *src, size_t len, unsigned char *dst) {
+static void sha(const unsigned char *src, size_t len, unsigned char *dst) {
     if (g_crypto_hash) {
         char salt[sizeof(g_hash_salt)];
         ll2str(g_hash_salt, salt, sizeof(g_hash_salt));
@@ -280,7 +272,7 @@ INLINE static void sha(const unsigned char *src, size_t len, unsigned char *dst)
     }
 }
 
-INLINE static uint64_t shall(const void *src, size_t len) {
+static uint64_t shall(const void *src, size_t len) {
     char *src2 = (char *)src;
     uint64_t l = 0;
     uint64_t a_val = 0xd20f9a8b761b7e4cULL;
@@ -428,9 +420,9 @@ int dup_decompress_hashtable(size_t len) {
     return 0;
 }
 
-INLINE static uint64_t entry(uint64_t window) { return window % HASH_ENTRIES; }
+static uint64_t entry(uint64_t window) { return window % HASH_ENTRIES; }
 
-INLINE static uint32_t quick(const unsigned char *src, size_t len) {
+static uint32_t quick(const unsigned char *src, size_t len) {
     uint32_t r1 = *reinterpret_cast<const uint8_t *>(src);
     r1 ^= *reinterpret_cast<const uint8_t *>(src + len - 4);
     r1 ^= *reinterpret_cast<const uint8_t *>(src + len / 8 * 1);
@@ -446,7 +438,7 @@ INLINE static uint32_t quick(const unsigned char *src, size_t len) {
     return r1 ^ (r2 << 8) ^ (r3 << 16);
 }
 
-INLINE static uint32_t window(const unsigned char *src, size_t len, const unsigned char **pos) {
+static uint32_t window(const unsigned char *src, size_t len, const unsigned char **pos) {
     size_t i = 0;
     size_t slide = len / 8; // slide must be able to fit in hash_t.O. Todo, static assert
     size_t percent = (len - slide) / 100;
@@ -521,7 +513,7 @@ INLINE static uint32_t window(const unsigned char *src, size_t len, const unsign
 }
 
 // there must be LARGE_BLOCK more valid data after src + len
-INLINE const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t len, size_t block, int no, uint64_t *payload_ref) {
+const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t len, size_t block, int no, uint64_t *payload_ref) {
     const unsigned char *w_pos;
     const unsigned char *orig_src = src;
     const unsigned char *last_src = src + len - 1;
@@ -598,7 +590,7 @@ INLINE const static unsigned char *dub(const unsigned char *src, uint64_t pay, s
     return 0;
 }
 
-INLINE static void hashat(const unsigned char *src, uint64_t pay, size_t len, int no, unsigned char *hash, int overwrite) {
+static void hashat(const unsigned char *src, uint64_t pay, size_t len, int no, unsigned char *hash, int overwrite) {
     const unsigned char *o;
     uint64_t w = window(src, len, &o);
     uint64_t j = entry(w);
@@ -637,7 +629,7 @@ static size_t write_match(size_t length, uint64_t payload, unsigned char *dst) {
     return 0;
 }
 
-INLINE static size_t write_literals(const unsigned char *src, size_t length, unsigned char *dst, int thread_id) {
+static size_t write_literals(const unsigned char *src, size_t length, unsigned char *dst, int thread_id) {
     if (length > 0) {
         size_t r;
         if (LEVEL == 0) {
@@ -672,59 +664,7 @@ INLINE static size_t write_literals(const unsigned char *src, size_t length, uns
     return 0;
 }
 
-// #define NAIVE
-
-INLINE static size_t cons_flush(unsigned char *dst, uint64_t *q_pay, uint64_t *q_len, uint64_t *q_com) {
-#ifdef NAIVE
-    return 0;
-#endif
-
-    unsigned char *orig_dst = dst;
-    if (*q_len > 0) {
-        dst += write_match(*q_len, *q_pay, dst);
-        *q_com += *q_len;
-        *q_len = 0;
-    }
-    return dst - orig_dst;
-}
-
-INLINE static size_t cons_match(size_t length, uint64_t payload, unsigned char *dst, uint64_t *q_pay, uint64_t *q_len, uint64_t *q_com) {
-#ifdef NAIVE
-    return write_match(length, payload, dst);
-#endif
-
-    if (*q_len > 0 && payload == *q_pay + *q_len && (payload + length < *q_com || !add_data) && *q_len + length <= OUT_BLOCK_SIZE) {
-        *q_len += length;
-        return 0;
-    } else {
-        size_t r = cons_flush(dst, q_pay, q_len, q_com);
-        *q_len = length;
-        *q_pay = payload;
-        return r;
-    }
-}
-
-INLINE static size_t cons_literals(const unsigned char *src, size_t length, unsigned char *dst, int thread_id, uint64_t *q_pay, uint64_t *q_len,
-                                   uint64_t *q_com) {
-
-#ifdef NAIVE
-    return write_literals(src, length, dst, thread_id);
-#endif
-    unsigned char *orig_dst = dst;
-    size_t original_length = length;
-    dst += cons_flush(dst, q_pay, q_len, q_com);
-
-    while (length > 0) {
-        size_t process = minimum(OUT_BLOCK_SIZE, length);
-        dst += write_literals(src, process, dst, thread_id);
-        length -= process;
-        src += process;
-    }
-    *q_com += original_length;
-    return dst - orig_dst;
-}
-
-INLINE static void hash_chunk(const unsigned char *src, uint64_t pay, size_t length, int policy) {
+static void hash_chunk(const unsigned char *src, uint64_t pay, size_t length, int policy) {
     char tmp[512 * SHA_SIZE];
     assert(sizeof(tmp) >= SHA_SIZE * LARGE_BLOCK / SMALL_BLOCK);
 
@@ -757,17 +697,13 @@ INLINE static void hash_chunk(const unsigned char *src, uint64_t pay, size_t len
     return;
 }
 
-INLINE static size_t process_chunk(const unsigned char *src, uint64_t pay, size_t length, unsigned char *dst, int thread_id) {
+static size_t process_chunk(const unsigned char *src, uint64_t pay, size_t length, unsigned char *dst, int thread_id) {
     size_t buffer = length;
     const unsigned char *last_valid = src + buffer - 1;
     const unsigned char *upto;
     const unsigned char *src_orig = src;
     unsigned char *dst_orig = dst;
     const unsigned char *last = src + length - 1;
-
-    uint64_t q_pay = 0;
-    uint64_t q_len = 0;
-    uint64_t q_com = pay;
 
     while (src <= last) {
         uint64_t ref = 0;
@@ -789,45 +725,39 @@ INLINE static size_t process_chunk(const unsigned char *src, uint64_t pay, size_
             }
 
             if (match_s == 0) {
-                dst += cons_literals(src, upto - src + 1, dst, thread_id, &q_pay, &q_len, &q_com);
+                dst += write_literals(src, upto - src + 1, dst, thread_id);
                 break;
             } else {
                 if (match_s - src > 0) {
-                    dst += cons_literals(src, match_s - src, dst, thread_id, &q_pay, &q_len, &q_com);
+                    dst += write_literals(src, match_s - src, dst, thread_id);
                 }
-                dst += cons_match(minimum(SMALL_BLOCK, upto - match_s + 1), ref_s, dst, &q_pay, &q_len, &q_com);
+                dst += write_match(minimum(SMALL_BLOCK, upto - match_s + 1), ref_s, dst);
                 src = match_s + SMALL_BLOCK;
             }
         }
 
         if (match == 0) {
-            dst += cons_flush(dst, &q_pay, &q_len, &q_com);
             return dst - dst_orig;
         } else {
-            dst += cons_match(minimum(LARGE_BLOCK, last - match + 1), ref, dst, &q_pay, &q_len, &q_com);
+            dst += write_match(minimum(LARGE_BLOCK, last - match + 1), ref, dst);
             src = match + LARGE_BLOCK;
         }
     }
 
-    dst += cons_flush(dst, &q_pay, &q_len, &q_com);
     return dst - dst_orig;
 }
-
-vector<uint64_t> ins;
-vector<uint64_t> outs;
 
 // Public interface
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-char inlined[DUP_MAX_INPUT];
 uint64_t flushed;
 uint64_t global_payload;
 uint64_t count_payload;
 uint64_t count_compressed;
 
-INLINE static int get_free(void) {
+static int get_free(void) {
     int i;
     for (i = 0; i < THREADS; i++) {
         pthread_mutex_lock_wrapper(&jobs[i].jobmutex);
@@ -839,7 +769,7 @@ INLINE static int get_free(void) {
     return -1;
 }
 
-INLINE static void *compress_thread(void *arg) {
+static void *compress_thread(void *arg) {
     job_t *me = (job_t *)arg;
 
     for(;;) {
@@ -989,7 +919,7 @@ void dup_counters_reset(void) {
     count_compressed = 0;
 }
 
-INLINE static uint64_t packet_payload(const unsigned char *src) {
+static uint64_t packet_payload(const unsigned char *src) {
     uint64_t t = str2ll(src + 24 - (6 + 8), 8);
     return t;
 }
@@ -1088,7 +1018,7 @@ void dup_add(bool add) { add_data = add; }
 
 uint64_t dup_get_flushed() { return flushed; }
 
-INLINE size_t dup_compress2(const void *src, char *dst, size_t size, uint64_t *payloadreturned) {
+size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payloadreturned) {
     char *dst_orig = dst;
     *payloadreturned = 0;
 
@@ -1133,18 +1063,4 @@ INLINE size_t dup_compress2(const void *src, char *dst, size_t size, uint64_t *p
     }
 
     return dst - dst_orig;
-}
-
-size_t dup_compress(const void *src, unsigned char *dst, size_t size, uint64_t *payloadreturned) {
-    ins.push_back(size);
-    size_t len, s = 0, d = 0;
-    do {
-        len = (size > DUP_MAX_INPUT ? DUP_MAX_INPUT : size);
-        d += dup_compress2(static_cast<const char *>(src) + s, reinterpret_cast<char *>(dst) + d, len, payloadreturned);
-        s += len;
-    } while (s < size);
-
-    outs.push_back(*payloadreturned);
-
-    return d;
 }
