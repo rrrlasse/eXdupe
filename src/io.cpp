@@ -172,9 +172,9 @@ void Cio::writestr(STRING str, FILE *_File) {
     size_t req = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, nullptr, 0, nullptr, nullptr);
     abort(req > std::numeric_limits<uint16_t>::max(), UNITXT("Internal error, attempted to write a string longer than 65535"));
     std::vector<char> v(req, L'c');
-    WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, &v[0], req, 0, 0);
+    WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, &v[0], static_cast<int>(req), 0, 0);
     req--; // WideCharToMultiByte() adds trailing zero
-    write_ui<uint16_t>(req, _File); // todo, gsl::narrow
+    write_ui<uint16_t>(static_cast<uint16_t>(req), _File); // todo, gsl::narrow
     try_write(&v[0], req, _File);
 #else
     write_ui<uint16_t>(str.size(), _File);

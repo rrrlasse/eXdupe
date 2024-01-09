@@ -37,7 +37,7 @@ void print_profiling(void);
 uint64_t dup_get_flushed(void);
 size_t flush_pend(char *dst, uint64_t *payloadreturned);
 
-uint64_t larges();
-uint64_t smalls();
+uint64_t large_hits();
+uint64_t small_hits();
 
 #endif

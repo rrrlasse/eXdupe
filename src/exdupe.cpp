@@ -981,19 +981,19 @@ Show build info: -B
 paths to restore, written as printed by the -L flag.
 
 Flags:
-   -f Overwrite existing files (default is abort)
-   -c Continue if a source file cannot be read (default is abort)
-  -xn Use compression level n for traditional data compression applied after
-      deduplication. 0 = none, 1 = zstd-1 (default), 2 = zstd-10, 3 = zstd-19
+   -f Overwrite existing files (default is to abort)
+   -c Continue if a source file cannot be read (default is to abort)
   -tn Use n threads (default = 8)
-  -gn Use n GB memory (default = 2). Use -mn to specify number of MB instead. Use
-      2 to 8 GB per TB of input data for best compression ratio.
+  -gn Use n GB memory (default = 2) for deduplication. Use -mn to specify MB
+      instead. Use 2 to 8 GB per TB of input data for best compression ratio.
+  -xn Use compression level n after deduplication (0 = none, 1 = zstd-1
+      (default), 2 = zstd-10, 3 = zstd-19
    -- Prefix items in the <sources> list with "--" to exclude them
    -p Include named pipes
    -l On *nix: Follow symlinks (default is to store link only). On Windows:
       Symlinks are not supported and are always skipped
-   -a Store absolute and complete paths (default is to remove the common
-      parent path of items passed on the command line)
+   -a Store absolute and complete paths (default is to identify and remove
+      any common parent path of the items passed on the command line).
 -s"x" Use Volume Shadow Copy Service for local drive x: (Windows only)
 -u"s" Filter files using a script, s, written in the Lua language
   -h  Use slower cryptographic hash BLAKE3. Default is xxHash128  
@@ -1029,12 +1029,11 @@ List contents: -L <full or diff backup file>
 Show complete help: -?
 
 Most common flags:
-   -f Overwrite existing files (default is abort)
-   -c Continue if a source file cannot be read (default is abort)
-  -xn Use compression level n for traditional data compression applied after
-      deduplication. Set to 0 (none), 1 (default), 2 or 3
+   -f Overwrite existing files (default is to abort)
+   -c Continue if a source file cannot be read (default is to abort)
+  -gn Use n GB memory for deduplication (default = 2)
+  -xn Use compression level n after deduplication (0 = none, 1 = default, 2, 3)
   -tn Use n threads (default = 8)
-  -gn Use n GB memory (default = 2) for deduplication
    -- Prefix items in the <sources> list with "--" to exclude them
 
 Example:
@@ -2133,8 +2132,7 @@ int main(int argc2, char *argv2[])
         sratio = sratio > 999.9 ? 999.9 : sratio;
         statusbar.print(1, UNITXT("Compressed %s B in %s files into %s (%.1f%%) at %s/s"), del(dup_counter_payload()).c_str(), del(files).c_str(), s2w(format_size(io.write_count)).c_str(), sratio, speed.c_str());
 
-        //		cerr << format_size(large_hits()) << " " <<
-        // format_size(small_hits())"\n";
+        // wcerr << s2w(format_size(large_hits())) << ", " << s2w(format_size(small_hits())) << L"\n";
 
         io.close(ofile);
     } else {
