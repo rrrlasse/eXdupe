@@ -226,7 +226,14 @@ void get_date(STRING file, tm *tm_date) {
 #else
     struct tm *clock;
     struct stat attrib;
-    stat(file.c_str(), &attrib);
+
+    if(is_symlink(file)) {
+        lstat(file.c_str(), &attrib);
+    }
+    else {
+        stat(file.c_str(), &attrib);
+    }
+
     clock = gmtime(&(attrib.st_mtime));
     clock->tm_year += 1900;
     memcpy(tm_date, clock, sizeof(tm));
@@ -382,63 +389,37 @@ void checksum(unsigned char *data, size_t len, checksum_t *t) {
     return;
 }
 
+// No error handling other than returning 0, be aware of where you use this function
 uint64_t filesize(STRING file, bool followlinks = false) {
-#ifndef WINDOWS
-    struct stat buf;
-    int i;
-
-    if (followlinks) {
-        i = stat(file.c_str(), &buf);
-    } else {
-        i = lstat(file.c_str(), &buf);
+    try {
+        if(fs::is_symlink(file)) {
+            if(followlinks) {
+                return fs::file_size(fs::read_symlink(file));
+            }
+            else {
+                return 0;
+            }
+        }
+        return fs::file_size(file);
     }
-
-    if (i == 0) {
-        return buf.st_size;
-    } else {
+    catch(exception& e) {
         return 0;
     }
-#else
-    HANDLE hFind;
-    WIN32_FIND_DATAW FindData;
-    (void)followlinks;
-    hFind = FindFirstFileW(file.c_str(), &FindData);
-    if (hFind == INVALID_HANDLE_VALUE) {
-        return (uint64_t)-1;
-    } else {
-        FindClose(hFind);
-        return (FindData.nFileSizeHigh * (static_cast<uint64_t>(MAXDWORD) + 1)) + FindData.nFileSizeLow;
-    }
-#endif
+
 }
+
 
 bool exists(STRING file) {
 #ifndef WINDOWS
     struct stat buf;
-    int i = stat(file.c_str(), &buf);
-    if (i == 0) {
-        return true;
-    } else {
-        return false;
-    }
+    int ret = lstat(file.c_str(), &buf);
+    return ret == 0 || (ret != 0 && errno != ENOENT);
 #else
+    // FIXME test if works for network drives without subdir ('\\localhost\D')
     return PathFileExists(file.c_str());
-/*
-        // Works for normal drive letter without subdir ('D:') but fails for
-   network drives without subdir ('\\localhost\D') HANDLE hFind;
-    WIN32_FIND_DATAW FindData;
-
-        hFind = FindFirstFileW(file.c_str(), &FindData);
-        if(hFind == INVALID_HANDLE_VALUE)
-                return false;
-        else
-        {
-                FindClose(hFind);
-                return true;
-        }
-*/
 #endif
 }
+
 
 STRING remove_leading_curdir(STRING path) {
     if ((path.length() >= 2 && (path.substr(0, 2) == UNITXT(".\\"))) || path.substr(0, 2) == UNITXT("./")) {

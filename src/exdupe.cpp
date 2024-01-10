@@ -35,6 +35,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <filesystem>
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
 #define WINDOWS
@@ -755,7 +756,7 @@ void parse_flags(void) {
             abort(true, UNITXT("-s flag not supported in *nix"));
 #endif
         } else {
-            size_t e = flags.find_first_not_of(UNITXT("-fhuRrxcDpilLatgmv0123456789B?"));
+            size_t e = flags.find_first_not_of(UNITXT("-fhuRrxqcDpiLzatgmv0123456789B?"));
             if (e != string::npos) {
                 abort(true, UNITXT("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
@@ -779,10 +780,10 @@ void parse_flags(void) {
             set_bool_flag(continue_flag, "c");
             set_bool_flag(diff_flag, "D");
             set_bool_flag(named_pipes, "p");
-            set_bool_flag(follow_symlinks, "l");
+            set_bool_flag(follow_symlinks, "h");
             set_bool_flag(list_flag, "L");
             set_bool_flag(absolute_path, "a");
-            set_bool_flag(hash_flag, "h");
+            set_bool_flag(hash_flag, "z");
             set_bool_flag(build_info_flag, "B");
             set_bool_flag(show_long_help, "\\?");
 
@@ -951,9 +952,7 @@ void parse_files(void) {
     }
 }
 
-STRING tostring(std::string s) {
-    return STRING(s.begin(), s.end());
-}
+STRING tostring(std::string s) { return STRING(s.begin(), s.end()); }
 
 void print_usage(bool show_long) {
     std::string long_help = R"(eXdupe %v file archiver. GPLv2 or later. Copyright 2010 - 2024
@@ -990,13 +989,12 @@ Flags:
       (default), 2 = zstd-10, 3 = zstd-19
    -- Prefix items in the <sources> list with "--" to exclude them
    -p Include named pipes
-   -l On *nix: Follow symlinks (default is to store link only). On Windows:
-      Symlinks are not supported and are always skipped
+   -h Follow symlinks (default is to store symlink only)
    -a Store absolute and complete paths (default is to identify and remove
       any common parent path of the items passed on the command line).
 -s"x" Use Volume Shadow Copy Service for local drive x: (Windows only)
 -u"s" Filter files using a script, s, written in the Lua language
-  -h  Use slower cryptographic hash BLAKE3. Default is xxHash128  
+  -z  Use slower cryptographic hash BLAKE3. Default is xxHash128  
 
 Example of backup, differential backups and restore:
   exdupe my_dir backup.full
@@ -1040,11 +1038,11 @@ Example:
   exdupe my_files_dir backup.full
   exdupe -R backup.full restore_dir)";
 
-    for(auto &a : {&long_help, &short_help}) {
+    for (auto &a : {&long_help, &short_help}) {
         *a = std::regex_replace(*a, std::regex("%/"), WIN ? "\\" : "/");
         *a = std::regex_replace(*a, std::regex("%v"), VER);
     }
-        
+
     statusbar.print(0, show_long ? tostring(long_help).c_str() : tostring(short_help).c_str());
 }
 
@@ -1064,8 +1062,8 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
         f = stdout;
     } else {
         f = io.open(file.c_str(), mode);
-        abort(!f && abortfail && mode == 'w', UNITXT("Error creating file '%s'"), slashify(file2).c_str());
-        abort(!f && abortfail && mode == 'r', UNITXT("Error opening file '%s' for reading"), slashify(file2).c_str());
+        abort(!f && abortfail && mode == 'w', UNITXT("Error creating file: %s"), slashify(file2).c_str());
+        abort(!f && abortfail && mode == 'r', UNITXT("Error opening file for reading: %s"), slashify(file2).c_str());
     }
 
     return f;
@@ -1159,45 +1157,44 @@ void verify_restorelist(vector<STRING> restorelist, const vector<contents_t> &co
     }
 }
 
-void already_exists(const STRING &file) { abort(file != UNITXT("-stdout") && exists(file) && !force_flag, UNITXT("Destination file '%s' already exists"), slashify(file).c_str()); }
 
-FILE *open_destination(const STRING &file) {
-    already_exists(file);
-    FILE *ret;
-
-#ifdef WINDOWS
-    ret = try_open(file.c_str(), 'w', false);
-    if (!ret) {
-        int attr = get_attributes(file.c_str(), follow_symlinks);
-        if (attr & FILE_ATTRIBUTE_READONLY) {
-            set_attributes(file.c_str(), attr ^ FILE_ATTRIBUTE_READONLY);
-        }
-        DeleteFile(file.c_str());
-        ret = try_open(file.c_str(), 'w', true);
+void force_overwrite(const STRING &file) {
+    if(file != UNITXT("-stdout") && exists(file)) {
+        abort(!force_flag, UNITXT("Destination file '%s' already exists"), slashify(file).c_str());
+        std::filesystem::remove(file);
     }
+}
 
-#else
-    ret = try_open(file.c_str(), 'w', true);
-#endif
 
+FILE *create_file(const STRING &file) {
+    force_overwrite(file);
+    FILE *ret = try_open(file.c_str(), 'w', true);
     return ret;
 }
+
+void create_symlink(STRING path, contents_t c) {
+    force_overwrite(path);
+#ifdef WINDOWS
+    int ret = CreateSymbolicLink(path.c_str(), c.link.c_str(), SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE | (c.directory ? SYMBOLIC_LINK_FLAG_DIRECTORY : 0));
+    if(ret == 0) {
+        int e = GetLastError();
+        abort(GetLastError() == ERROR_PRIVILEGE_NOT_HELD, UNITXT("Plase run eXdupe as administrator to restore symlinks: %s -> %s"), path.c_str(), c.link.c_str());
+        abort(true, UNITXT("Unknown error (GetLastError() = %d) restoring symlink: %s -> %s"), e, path.c_str(), c.link.c_str());
+    }
+    ret = 0;
+
+#else
+    int ret = symlink(c.link.c_str(), path.c_str());
+#endif 
+    abort(ret != 0, UNITXT("Error creating symlink: %s -> %s"), path.c_str(), c.link.c_str());
+}
+
 
 void ensure_relative(const STRING &path) {
     STRING s = STRING(UNITXT("Archive contains absolute paths. Add a [files] argument. ")) + STRING(diff_flag ? STRING() : STRING());
     abort((path.size() >= 2 && path.substr(0, 2) == UNITXT("\\\\")) || path.find_last_of(UNITXT(":")) != string::npos, s.c_str());
 }
 
-#ifndef WINDOWS
-void create_symlink(STRING path, contents_t c) {
-    // print_file(c.name + UNITXT(" -> ") + c.link, -1, &c.file_date,
-    // c.attributes);
-    already_exists(path);
-    int r = symlink(c.link.c_str(), path.c_str());
-    abort(r != 0, "Error creating symlink '%s'", path.c_str());
-    files++;
-}
-#endif
 
 void decompress_individuals(FILE *ffull, FILE *fdiff) {
     FILE *archive_file;
@@ -1248,7 +1245,7 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
             c.payload += basepay;
         }
 
-        if (c.directory) {
+        if (c.directory && !c.symlink) {
             curdir = remove_delimitor(c.name);
         }
 
@@ -1275,44 +1272,38 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
                 save_directory(UNITXT(""), abs_path(dstdir));
             }
 
-            if (!c.directory) {
+            if (c.symlink) {
+                    statusbar.update(RESTORE, 0, tot_res, c.name + UNITXT(" -> ") + c.link);
+                    create_symlink(dstdir  + c.name, c);
+            }
+            else if (!c.directory) {
                 checksum_t t;
                 checksum_init(&t);
 
-                if (c.symlink) {
-#ifdef WINDOWS
-                    statusbar.print(1, UNITXT("*nix symlink %s -> %s cannot be restored on Windows"), c.name.c_str(), c.link.c_str());
-                    // todo, symlink windows
-#else
-                    statusbar.update(RESTORE, 0, tot_res, c.name + " -> " + c.link);
-                    create_symlink(dstdir + DELIM_STR + c.name, c);
-#endif
-                } else {
-                    STRING outfile = remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
+                STRING outfile = remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
+                statusbar.update(RESTORE, 0, tot_res, outfile);
+
+                ofile = pipe_out ? stdout : create_file(outfile);
+
+                resolved = 0;
+
+                while (resolved < c.size) {
+                    size_t process = minimum(c.size - resolved, RESTORE_CHUNKSIZE);
+                    resolve(c.payload + resolved, process, restore_buffer.data(), ffull, fdiff, basepay);
+                    checksum(restore_buffer.data(), process, &t);
+                    io.write(restore_buffer.data(), process, ofile);
+                    tot_res += process;
                     statusbar.update(RESTORE, 0, tot_res, outfile);
-
-                    ofile = pipe_out ? stdout : open_destination(outfile);
-
-                    resolved = 0;
-
-                    while (resolved < c.size) {
-                        size_t process = minimum(c.size - resolved, RESTORE_CHUNKSIZE);
-                        resolve(c.payload + resolved, process, restore_buffer.data(), ffull, fdiff, basepay);
-                        checksum(restore_buffer.data(), process, &t);
-                        io.write(restore_buffer.data(), process, ofile);
-                        tot_res += process;
-                        statusbar.update(RESTORE, 0, tot_res, outfile);
-                        resolved += process;
-                        payload += c.size;
-                    }
-                    if (!pipe_out) {
-                        fclose(ofile);
-                        set_date(dstdir + DELIM_STR + c.name, &c.file_date);
-                        set_attributes(dstdir + DELIM_STR + c.name, c.attributes);
-                    }
-                    abort(c.checksum != t.result, UNITXT("File checksum error"));
-                    files++;
+                    resolved += process;
+                    payload += c.size;
                 }
+                if (!pipe_out) {
+                    fclose(ofile);
+                    set_date(dstdir + DELIM_STR + c.name, &c.file_date);
+                    set_attributes(dstdir + DELIM_STR + c.name, c.attributes);
+                }
+                abort(c.checksum != t.result, UNITXT("File checksum error"));
+                files++;
             }
         }
     }
@@ -1390,7 +1381,7 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
 
         while (c.size() > 0 && src_consumed < len) {
             if (ofile == 0) {
-                ofile = open_destination(c[0].extra);
+                ofile = create_file(c[0].extra);
                 destfile = c[0].extra;
                 files++;
                 checksum_init(&decompress_checksum);
@@ -1429,15 +1420,46 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
     }
 }
 
-#ifndef WINDOWS
-void compress_symlink(const STRING &link, const STRING &target) {
-    (void)target;
 
+bool symlink_target(const CHR* symbolicLinkPath, STRING& targetPath, bool& fileType) {
+#ifdef _WIN32
+    WIN32_FIND_DATA findFileData;
+    HANDLE hFind = FindFirstFile(symbolicLinkPath, &findFileData);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        FindClose(hFind);
+    } else {
+        return false;
+    }
+    fileType = findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY; 
+    targetPath = std::filesystem::read_symlink(symbolicLinkPath);
+    return true;
+#else
+#if 1
+    // std does not work on Windows if the symlink points to a non-existant directory
+    targetPath = std::filesystem::read_symlink(symbolicLinkPath);
+    fileType = std::filesystem::is_directory(symbolicLinkPath);
+    return true;    
+#else
+    struct stat fileStat;
+    if (lstat(symbolicLinkPath, &fileStat) == -1) {
+        return false;
+    }
+    fileType ft = S_ISLNK(fileStat.st_mode) && S_ISDIR(fileStat.st_mode);
+    return true;
+#endif
+#endif
+
+}
+
+
+void compress_symlink(const STRING &link, const STRING &target) {
     tm file_date;
     get_date(link, &file_date);
-    char tmp[PATH_MAX];
-    memset(tmp, 0, PATH_MAX );
-    int t = readlink(link.c_str(), tmp, PATH_MAX );
+    bool is_dir;
+
+    STRING tmp;
+    int t = symlink_target(link.c_str(), tmp, is_dir) ? 0 : -1;
+
     if (t == -1) {
         if (continue_flag) {
             statusbar.print(2, UNITXT("Skipped, error by readlink(): %s"), link.c_str());
@@ -1448,12 +1470,11 @@ void compress_symlink(const STRING &link, const STRING &target) {
     }
 
     statusbar.update(BACKUP, dup_counter_payload(), io.write_count, link + UNITXT(" -> ") + STRING(abs_path(tmp)));
-    // print_file(STRING(target + UNITXT(" -> ") + STRING(tmp)).c_str(), -1,
-    // &file_date);
     io.try_write("L", 1, ofile); // todo
 
     contents_t c;
-    c.directory = false;
+
+    c.directory = is_dir;
     c.symlink = true;
     c.link = STRING(tmp);
     c.name = target;
@@ -1462,14 +1483,10 @@ void compress_symlink(const STRING &link, const STRING &target) {
     c.checksum = 0;
     c.file_date = file_date;
     write_contents_item(ofile, &c);
-
-    io.try_write("ENDSENDS", 8, ofile);
-
     contents.push_back(c);
     files++;
     return;
 }
-#endif
 
 uint64_t payload_compressed = 0; // Total payload returned by dup_compress() and flush_pend()
 uint64_t payload_read = 0;       // Total payload read from disk
@@ -1528,7 +1545,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
             statusbar.print(2, UNITXT("Skipped, error opening source file: %s"), input_file.c_str());
             return;
         } else {
-            abort(true, UNITXT("Aborted, error opening source file: '%s'"), input_file.c_str());
+            abort(true, UNITXT("Aborted, error opening source file: %s"), input_file.c_str());
         }
     }
 
@@ -1676,8 +1693,7 @@ bool include(const STRING &name) {
     for (uint32_t j = 0; j < excludelist.size(); j++) {
         STRING e = excludelist[j];
         if (n == e) {
-            // statusbar.print(9, UNITXT("Skipped, in -- exclude list: %s"),
-            // name.c_str());
+            // statusbar.print(9, UNITXT("Skipped, in -- exclude list: %s"), name.c_str());
             return false;
         }
     }
@@ -1759,16 +1775,11 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items) {
         STRING sub = base_dir + items[j];
 
         if (ISLINK(attributes[j]) && !follow_symlinks && include(sub)) {
-
             // we must avoid including destination file when compressing. Note
             // that *nix is case sensitive.
             if (output_file == UNITXT("-stdout") || (CASESENSE(abs_path(sub)) != CASESENSE(abs_path(output_file)))) {
-#ifdef WINDOWS
-                statusbar.print(2, UNITXT("Skipped, symlinks not supported on Windows: %s"), sub.c_str());
-#else
                 save_directory(base_dir, left(items[j]) + (left(items[j]) == UNITXT("") ? UNITXT("") : DELIM_STR), true);
                 compress_symlink(sub, right(items[j]) == UNITXT("") ? items[j] : right(items[j]));
-#endif
             }
         }
     }
@@ -1890,7 +1901,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
 
             if (c.size == 0) {
                 // May not have a corrosponding data block ('A' block) to trigger decompress_files()
-                FILE *h = open_destination(buf2);
+                FILE *h = create_file(buf2);
                 files++;
                 io.close(h);
             } else {
@@ -1908,13 +1919,8 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
         } else if (w == 'L') { // symlink
             contents_t c;
             read_content_item(ifile, &c);
-#ifdef WINDOWS
-            // FIXME
-#else
             STRING buf2 = curdir + DELIM_CHAR + c.name;
             create_symlink(buf2, c);
-#endif
-            abort(io.try_read(8, ifile) != "ENDSENDS", UNITXT("Source file corrupted (missing END tag)"));
         }
 
         else if (w == 'X') {
@@ -1999,6 +2005,7 @@ int wmain(int argc2, CHR *argv2[])
 int main(int argc2, char *argv2[])
 #endif
 {
+
     tidy_args(argc2, argv2);
 
     parse_flags();
@@ -2073,7 +2080,7 @@ int main(int argc2, char *argv2[])
     else if (compress_flag) {
         if (diff_flag) {
             output_file = diff;
-            ofile = open_destination(output_file);
+            ofile = create_file(output_file);
             ifile = try_open(full, 'r', true);
             memory_usage = read_header(ifile, full, BACKUP); // also inits hash_salt
             hashtable = malloc(memory_usage);
@@ -2088,7 +2095,7 @@ int main(int argc2, char *argv2[])
 
         } else {
             output_file = full;
-            ofile = open_destination(output_file);
+            ofile = create_file(output_file);
             hash_salt = rnd64();
             hashtable = tmalloc(memory_usage);
             abort(!hashtable, UNITXT("Out of memory. Reduce -m, -g or -t flag"));
@@ -2127,11 +2134,12 @@ int main(int argc2, char *argv2[])
 
         io.try_write("END", 3, ofile);
 
-        auto speed = s2w(format_size(dup_counter_payload() / (GetTickCount() - start_time) * 1000));
-        auto sratio = ((float(io.write_count) / float(dup_counter_payload() + 0.01)) * 100.);
+        uint64_t t = (GetTickCount() - start_time);
+        t = t == 0 ? 1 : t;
+        auto speed = s2w(format_size(dup_counter_payload() / t * 1000));
+        auto sratio = ((float(io.write_count) / float(dup_counter_payload() + 1)) * 100.);
         sratio = sratio > 999.9 ? 999.9 : sratio;
         statusbar.print(1, UNITXT("Compressed %s B in %s files into %s (%.1f%%) at %s/s"), del(dup_counter_payload()).c_str(), del(files).c_str(), s2w(format_size(io.write_count)).c_str(), sratio, speed.c_str());
-
         // wcerr << s2w(format_size(large_hits())) << ", " << s2w(format_size(small_hits())) << L"\n";
 
         io.close(ofile);
