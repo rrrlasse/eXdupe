@@ -39,9 +39,11 @@ add_executable(exdupe ${SOURCES})
 set(BUILD_SHARED_LIBS OFF)
 
 add_subdirectory(libexdupe)
+add_subdirectory(lua)
 add_subdirectory(test)
 
 target_link_libraries(exdupe PRIVATE libexdupe)
+target_link_libraries(exdupe PRIVATE lua_static)
 
 execute_process(
     COMMAND git rev-parse --abbrev-ref HEAD
@@ -63,5 +65,3 @@ ADD_CUSTOM_TARGET (
 ADD_DEPENDENCIES (exdupe timestamp)
 target_include_directories(exdupe PRIVATE ${CMAKE_BINARY_DIR})
 target_compile_definitions(${PROJECT_NAME} PRIVATE "-DGIT_COMMIT_HASH=\"${GIT_COMMIT_HASH}\"")
-
-	

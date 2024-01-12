@@ -34,8 +34,8 @@
 #if defined(hpux) || defined(__hpux)
 #include <unistd.h>
 #endif
-
 #include <algorithm>
+#include <ctime>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -61,6 +61,8 @@ using namespace std; // fixme, remove
 enum { FILE_TYPE, DIR_TYPE, SYMLINK_TYPE, ERROR_TYPE };
 enum status_t { BACKUP, DIFF_BACKUP, RESTORE, DIFF_RESTORE };
 
+std::tm local_time_tm(const time_t &t);
+
 std::string format_size(uint64_t size);
 void clear_line();
 
@@ -68,16 +70,16 @@ uint64_t rnd64();
 
 STRING string2wstring(string str);
 string wstring2string(STRING wstr);
-
-void myReplaceSTR(std::string &str, const std::string &oldStr, const std::string &newStr);
-void myReplace(std::STRING &str, const std::STRING &oldStr, const std::STRING &newStr);
+void replace_stdstr(std::string &str, const std::string &oldStr, const std::string &newStr);
+void replace_str(std::STRING &str, const std::STRING &oldStr, const std::STRING &newStr);
 STRING replace2(STRING orig, STRING src, STRING dst);
 void cur_date(tm *tm_date);
 bool is_symlink(STRING file);
+bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir);
 bool is_named_pipe(STRING file);
 void print_date(tm *file_date);
 void set_date(STRING file, tm *tm_date);
-void get_date(STRING file, tm *tm_date);
+time_t get_date(STRING file);
 STRING slashify(STRING path);
 STRING slashify(STRING path);
 vector<STRING> split_string(STRING str, STRING delim);

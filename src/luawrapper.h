@@ -11,4 +11,4 @@
 #include <string>
 
 using std::wstring;
-bool execute(STRING script2, STRING dir2, STRING file2, STRING name2, uint64_t size, STRING ext2, uint32_t attrib, tm *date);
+bool execute(STRING script2, STRING path2, int type, STRING name2, uint64_t size, STRING ext2, uint32_t attrib, time_t date);

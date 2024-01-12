@@ -148,7 +148,6 @@ bool shadow_copy = false;
 bool absolute_path = false;
 bool hash_flag = false;
 bool build_info_flag = false;
-bool show_long_help = false;
 
 uint32_t verbose_level = 1;
 uint32_t megabyte_flag = 0;
@@ -756,7 +755,7 @@ void parse_flags(void) {
             abort(true, UNITXT("-s flag not supported in *nix"));
 #endif
         } else {
-            size_t e = flags.find_first_not_of(UNITXT("-fhuRrxqcDpiLzatgmv0123456789B?"));
+            size_t e = flags.find_first_not_of(UNITXT("-fhuRrxqcDpiLzatgmv0123456789B"));
             if (e != string::npos) {
                 abort(true, UNITXT("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
@@ -768,24 +767,23 @@ void parse_flags(void) {
                 abort(true, UNITXT("Numeric values must be preceded by m, g, t, v, or x"));
             }
 
-            auto set_bool_flag = [&](bool &flag_ref, const string letter) {
-                if (regx(flagsS, letter) != "") {
-                    flag_ref = true;
+            for (auto t : std::vector<pair<bool &, std::string>>{
+                     {restore_flag, "R"},
+                     {no_recursion_flag, "r"},
+                     {force_flag, "f"},
+                     {continue_flag, "c"},
+                     {diff_flag, "D"},
+                     {named_pipes, "p"},
+                     {follow_symlinks, "h"},
+                     {list_flag, "L"},
+                     {absolute_path, "a"},
+                     {hash_flag, "z"},
+                     {build_info_flag, "B"},
+                 }) {
+                if (regx(flagsS, t.second) != "") {
+                    t.first = true;
                 }
-            };
-
-            set_bool_flag(restore_flag, "R");
-            set_bool_flag(no_recursion_flag, "r");
-            set_bool_flag(force_flag, "f");
-            set_bool_flag(continue_flag, "c");
-            set_bool_flag(diff_flag, "D");
-            set_bool_flag(named_pipes, "p");
-            set_bool_flag(follow_symlinks, "h");
-            set_bool_flag(list_flag, "L");
-            set_bool_flag(absolute_path, "a");
-            set_bool_flag(hash_flag, "z");
-            set_bool_flag(build_info_flag, "B");
-            set_bool_flag(show_long_help, "\\?");
+            }
 
             auto set_int_flag = [&](uint32_t &flag_ref, const string letter) {
                 if (regx(flagsS, letter) == "") {
@@ -993,7 +991,8 @@ Flags:
    -a Store absolute and complete paths (default is to identify and remove
       any common parent path of the items passed on the command line).
 -s"x" Use Volume Shadow Copy Service for local drive x: (Windows only)
--u"s" Filter files using a script, s, written in the Lua language
+-u"s" Filter files using a script, s, written in the Lua language. See more
+      with -u? flag.
   -z  Use slower cryptographic hash BLAKE3. Default is xxHash128  
 
 Example of backup, differential backups and restore:
@@ -1032,7 +1031,7 @@ Most common flags:
   -gn Use n GB memory for deduplication (default = 2)
   -xn Use compression level n after deduplication (0 = none, 1 = default, 2, 3)
   -tn Use n threads (default = 8)
-   -- Prefix items in the <sources> list with "--" to exclude them
+   -- Prefix items in the <sources> list with "--" to skip them
 
 Example:
   exdupe my_files_dir backup.full
@@ -1044,6 +1043,35 @@ Example:
     }
 
     statusbar.print(0, show_long ? tostring(long_help).c_str() : tostring(short_help).c_str());
+}
+
+void print_lua_help() {
+    std::string lua_help = R"del(You can provide a LUA script that gets called for each item during backup:
+  exdupe -u"return true" . backup.full
+
+If the script returns true the item will be added, else it will be skipped.
+
+You can reference following variables:
+  path:    Absolute path
+  is_*:    Boolean variables is_dir, is_file, is_link
+  name:    Name without path
+  ext:     Extension or empty if no period exists
+  size:    Size
+  attrib:  Result of chmod on Linux. On Windows you can reference the booleans
+           FILE_ATTRIBUTE_READONLY, FILE_ATTRIBUTE_HIDDEN, etc.
+  time:    Last modified time as os.date object. You can also reference these
+           integer variables: year, month, day, time, hour, min, sec
+
+For string operations you must use "utf8." and not "string.". Warning:
+utf8.upper() and utf8.lower() will only change ASCII characters. Also note
+that string and path comparing is case sensitive.
+
+Examples:
+  -v0 -u"print('added ' .. path .. ': ' .. size); return true"
+  -v3 -u"return ext ~= 'tmp' and not FILE_ATTRIBUTE_TEMPORARY"
+  -v3 -u"return year > 2023"
+  -v3 -u"return utf8.lower(ext) == 'cpp'")del";
+    statusbar.print(0, tostring(lua_help).c_str());
 }
 
 FILE *try_open(STRING file2, char mode, bool abortfail) {
@@ -1157,11 +1185,15 @@ void verify_restorelist(vector<STRING> restorelist, const vector<contents_t> &co
     }
 }
 
-
 void force_overwrite(const STRING &file) {
-    if(file != UNITXT("-stdout") && exists(file)) {
+    if (file != UNITXT("-stdout") && exists(file)) {
         abort(!force_flag, UNITXT("Destination file '%s' already exists"), slashify(file).c_str());
-        std::filesystem::remove(file);
+        try {
+            std::filesystem::remove(file);
+        } 
+        catch(exception& e) {
+            abort(true, UNITXT("Failed to overwrite file: %s"), slashify(file).c_str());        
+        }
     }
 }
 
@@ -1273,10 +1305,9 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
             }
 
             if (c.symlink) {
-                    statusbar.update(RESTORE, 0, tot_res, c.name + UNITXT(" -> ") + c.link);
-                    create_symlink(dstdir  + c.name, c);
-            }
-            else if (!c.directory) {
+                statusbar.update(RESTORE, 0, tot_res, c.name + UNITXT(" -> ") + c.link);
+                create_symlink(dstdir + c.name, c);
+            } else if (!c.directory) {
                 checksum_t t;
                 checksum_init(&t);
 
@@ -1420,44 +1451,12 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
     }
 }
 
-
-bool symlink_target(const CHR* symbolicLinkPath, STRING& targetPath, bool& fileType) {
-#ifdef _WIN32
-    WIN32_FIND_DATA findFileData;
-    HANDLE hFind = FindFirstFile(symbolicLinkPath, &findFileData);
-    if (hFind != INVALID_HANDLE_VALUE) {
-        FindClose(hFind);
-    } else {
-        return false;
-    }
-    fileType = findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY; 
-    targetPath = std::filesystem::read_symlink(symbolicLinkPath);
-    return true;
-#else
-#if 1
-    // std does not work on Windows if the symlink points to a non-existant directory
-    targetPath = std::filesystem::read_symlink(symbolicLinkPath);
-    fileType = std::filesystem::is_directory(symbolicLinkPath);
-    return true;    
-#else
-    struct stat fileStat;
-    if (lstat(symbolicLinkPath, &fileStat) == -1) {
-        return false;
-    }
-    fileType ft = S_ISLNK(fileStat.st_mode) && S_ISDIR(fileStat.st_mode);
-    return true;
-#endif
-#endif
-
-}
-
-
 void compress_symlink(const STRING &link, const STRING &target) {
-    tm file_date;
-    get_date(link, &file_date);
     bool is_dir;
-
     STRING tmp;
+
+    time_t tt = get_date(link);
+    tm file_date = local_time_tm(tt);
     int t = symlink_target(link.c_str(), tmp, is_dir) ? 0 : -1;
 
     if (t == -1) {
@@ -1562,7 +1561,10 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
     if (input_file != UNITXT("-stdin")) {
         io.seek(ifile, 0, SEEK_END);
         file_size = io.tell(ifile);
-        get_date(input_file, &file_date);
+
+        time_t t = get_date(input_file);
+        file_date = local_time_tm(t);
+
         attributes = get_attributes(input_file, follow_symlinks);
         io.seek(ifile, 0, SEEK_SET);
     } else {
@@ -1652,7 +1654,8 @@ bool lua_test(STRING path, const STRING &script) {
     STRING ext;
     STRING name;
     uint32_t attrib = 0;
-    tm date;
+    time_t date;
+    int type;
 
 #ifdef WINDOWS
     HANDLE hFind;
@@ -1666,25 +1669,19 @@ bool lua_test(STRING path, const STRING &script) {
 
 #endif
 
-    get_date(path, &date);
-
+    type = is_symlink(path) ? SYMLINK_TYPE : is_dir(path) ? DIR_TYPE : FILE_TYPE;
+    date = get_date(path);
     path = remove_delimitor(path);
     name = right(remove_delimitor(path)) == UNITXT("") ? path : right(remove_delimitor(path));
+    size = filesize(path, false);
 
-    if (is_dir(path)) {
-        dir = path;
+    size_t t = name.find_last_of(UNITXT("."));
+    if (t != string::npos) {
+        ext = name.substr(t + 1);
     } else {
-        size_t t = name.find_last_of(UNITXT("."));
-        if (t != string::npos) {
-            ext = name.substr(t + 1);
-        } else {
-            ext = UNITXT("");
-        }
-
-        file = path;
-        size = filesize(path, follow_symlinks);
+        ext = UNITXT("");
     }
-    return execute(script, dir, file, name, size, ext, attrib, &date);
+    return execute(script, path, type, name, size, ext, attrib, date);
 }
 
 bool include(const STRING &name) {
@@ -1713,7 +1710,7 @@ void fail_list_dir(const STRING &dir) {
     }
 }
 
-void compress_recursive(const STRING &base_dir, vector<STRING> items) {
+void compress_recursive(const STRING &base_dir, vector<STRING> items, bool first_call) {
     // Todo, simplify this function by initially creating three distinct lists
     // for files, dirs and symlinks. Instead of iterating through the same list
     // with each their if-conditions
@@ -1759,10 +1756,13 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items) {
     items.clear();
     items.insert(items.end(), items2.begin(), items2.end());
 
+    // Todo, rewrite to iterate through the list just once, and place items in each their new list. Then process
+    // these new lists.
+
     // first process files
     for (uint32_t j = 0; j < items.size(); j++) {
         STRING sub = base_dir + items[j];
-        if (!ISDIR(attributes[j]) && !(ISLINK(attributes[j]) && !follow_symlinks) && include(sub)) {
+        if (!ISDIR(attributes[j]) && !(ISLINK(attributes[j]) && !follow_symlinks) && (first_call || include(sub))) {
             save_directory(base_dir, left(items[j]) + (left(items[j]) == UNITXT("") ? UNITXT("") : DELIM_STR), true);
             STRING u = items[j];
             STRING s = right(u) == UNITXT("") ? u : right(u);
@@ -1774,7 +1774,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items) {
     for (uint32_t j = 0; j < items.size(); j++) {
         STRING sub = base_dir + items[j];
 
-        if (ISLINK(attributes[j]) && !follow_symlinks && include(sub)) {
+        if (ISLINK(attributes[j]) && !follow_symlinks && (first_call || include(sub))) {
             // we must avoid including destination file when compressing. Note
             // that *nix is case sensitive.
             if (output_file == UNITXT("-stdout") || (CASESENSE(abs_path(sub)) != CASESENSE(abs_path(output_file)))) {
@@ -1787,7 +1787,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items) {
     // finally process directories
     for (uint32_t j = 0; j < items.size(); j++) {
         STRING sub = base_dir + items[j];
-        if (ISDIR(attributes[j]) && !no_recursion_flag && include(sub)) {
+        if (ISDIR(attributes[j]) && (!no_recursion_flag || first_call) && (first_call || include(sub))) {
             if (items[j] != UNITXT("")) {
                 items[j] = remove_delimitor(items[j]) + DELIM_STR;
             }
@@ -1836,13 +1836,13 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items) {
                 dirs++;
             }
             save_directory(base_dir, items[j], true);
-            compress_recursive(base_dir, newdirs);
+            compress_recursive(base_dir, newdirs, false);
         }
     }
 }
 
 void compress(const STRING &base_dir, vector<STRING> items) {
-    compress_recursive(base_dir, items);         // calls compress_file() with flush parameter = false
+    compress_recursive(base_dir, items, true);   // calls compress_file() with flush parameter = false
     compress_file(UNITXT(""), UNITXT(""), true); // flush at the end - VERY important!
 }
 
@@ -2005,19 +2005,23 @@ int wmain(int argc2, CHR *argv2[])
 int main(int argc2, char *argv2[])
 #endif
 {
-
     tidy_args(argc2, argv2);
-
-    parse_flags();
 
     if (argc2 == 1) {
         print_usage(false);
         return 2;
     }
-    if (argc2 == 2 && show_long_help) {
+    if (argc2 == 2 && argv[1] == UNITXT("-u?")) {
+        print_lua_help();
+        return 0;
+    }
+
+    if (argc2 == 2 && argv[1] == UNITXT("-?")) {
         print_usage(true);
         return 0;
     }
+
+    parse_flags();
 
     if (build_info_flag) {
         print_build_info();

@@ -5,14 +5,14 @@
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
 
+#include <cfenv>
+#include <cmath>
 #include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <random>
 #include <time.h>
-#include <iomanip>
-#include <cmath>
-#include <cfenv>
-
+#include <assert.h>
 #include "unicode.h"
 #include "utilities.hpp"
 
@@ -122,7 +122,7 @@ STRING string2wstring(string str) {
     return wstr;
 }
 
-void myReplace(std::STRING &str, const std::STRING &oldStr, const std::STRING &newStr) {
+void replace_str(std::STRING &str, const std::STRING &oldStr, const std::STRING &newStr) {
     size_t pos = 0;
     while ((pos = str.find(oldStr, pos)) != std::STRING::npos) {
         str.replace(pos, oldStr.length(), newStr);
@@ -130,7 +130,7 @@ void myReplace(std::STRING &str, const std::STRING &oldStr, const std::STRING &n
     }
 }
 
-void myReplaceSTR(std::string &str, const std::string &oldStr, const std::string &newStr) {
+void replace_stdstr(std::string &str, const std::string &oldStr, const std::string &newStr) {
     size_t pos = 0;
     while ((pos = str.find(oldStr, pos)) != std::STRING::npos) {
         str.replace(pos, oldStr.length(), newStr);
@@ -171,6 +171,36 @@ bool is_symlink(STRING file) { return ISLINK(get_attributes(file, false)); }
 
 bool is_named_pipe(STRING file) { return ISNAMEDPIPE(get_attributes(file, false)); }
 
+bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir) {
+#ifdef _WIN32
+    WIN32_FIND_DATA findFileData;
+    HANDLE hFind = FindFirstFile(symbolicLinkPath, &findFileData);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        FindClose(hFind);
+    } else {
+        return false;
+    }
+    is_dir = findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+    targetPath = std::filesystem::read_symlink(symbolicLinkPath);
+    return true;
+#else
+#if 1
+    // std does not work on Windows if the symlink points to a non-existant directory
+    targetPath = std::filesystem::read_symlink(symbolicLinkPath);
+    is_dir = std::filesystem::is_directory(symbolicLinkPath);
+    return true;
+#else
+    // posix way
+    struct stat fileStat;
+    if (lstat(symbolicLinkPath, &fileStat) == -1) {
+        return false;
+    }
+    is_dir ft = S_ISLNK(fileStat.st_mode) && S_ISDIR(fileStat.st_mode);
+    return true;
+#endif
+#endif
+}
+
 void cur_date(tm *tm_date) {
 #ifdef WINDOWS
     SYSTEMTIME myTime;
@@ -194,50 +224,47 @@ void cur_date(tm *tm_date) {
 #endif
 }
 
-void get_date(STRING file, tm *tm_date) {
-#ifdef WINDOWS
-    SYSTEMTIME myTime;
-
-    HANDLE hFind;
-    WIN32_FIND_DATAW FindData;
-
-    hFind = FindFirstFileW(file.c_str(), &FindData);
-
-    if (hFind != INVALID_HANDLE_VALUE) {
-        FileTimeToSystemTime(&FindData.ftLastWriteTime, &myTime);
-        FindClose(hFind);
-        tm_date->tm_hour = myTime.wHour;
-        tm_date->tm_min = myTime.wMinute;
-        tm_date->tm_mday = myTime.wDay;
-        tm_date->tm_mon = myTime.wMonth;
-        tm_date->tm_sec = myTime.wSecond;
-        tm_date->tm_year = myTime.wYear;
-        tm_date->tm_wday = myTime.wDayOfWeek;
-    } else {
-        tm_date->tm_hour = 0;
-        tm_date->tm_min = 0;
-        tm_date->tm_mday = 1;
-        tm_date->tm_mon = 1;
-        tm_date->tm_sec = 0;
-        tm_date->tm_year = 1970;
-        tm_date->tm_wday = 0;
-    }
-
+std::tm local_time_tm(const time_t &t) {
+    std::tm localTime;
+#if defined(_MSC_VER) || defined(__MINGW32__)
+    localtime_s(&localTime, &t);
 #else
-    struct tm *clock;
+    std::tm *tmp = localtime(&t);
+    if (tmp)
+        localTime = *tmp;
+#endif
+
+    return localTime;
+}
+
+time_t get_date(STRING file) {
+#ifdef WINDOWS
+    FILETIME fileTime;
+
+    HANDLE hFile = CreateFile(file.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT , NULL);
+    if (hFile != INVALID_HANDLE_VALUE) {
+        if (GetFileTime(hFile, nullptr, nullptr, &fileTime)) {
+            ULARGE_INTEGER uli;
+            uli.LowPart = fileTime.dwLowDateTime;
+            uli.HighPart = fileTime.dwHighDateTime;
+            CloseHandle(hFile);
+            return static_cast<time_t>((uli.QuadPart - 116444736000000000ull) / 10000000ull);
+        } else {
+            return 0;
+        }
+        CloseHandle(hFile);
+    } else {
+        return 0;
+    }
+#else
     struct stat attrib;
 
-    if(is_symlink(file)) {
+    if (is_symlink(file)) {
         lstat(file.c_str(), &attrib);
-    }
-    else {
+    } else {
         stat(file.c_str(), &attrib);
     }
-
-    clock = gmtime(&(attrib.st_mtime));
-    clock->tm_year += 1900;
-    memcpy(tm_date, clock, sizeof(tm));
-
+    return attrib.st_mtime;
 #endif
 }
 
@@ -287,7 +314,7 @@ STRING lcase(STRING str) {
     // change each element of the STRING to lower case
     STRING s = str;
     for (unsigned int i = 0; i < s.length(); i++) {
-        s[i] = (char)tolower(s[i]);
+        // s[i] = (char)tolower(s[i]);
     }
     return s;
 }
@@ -391,23 +418,24 @@ void checksum(unsigned char *data, size_t len, checksum_t *t) {
 
 // No error handling other than returning 0, be aware of where you use this function
 uint64_t filesize(STRING file, bool followlinks = false) {
+    // If the user has set followlinks then the directory-traversal, which happens *early*,
+    // will resolve linksand treat them as files from that point. So a requirement to have
+    // knowlege about the flag should not propagate down to here
+    assert(followlinks == false);
+
     try {
-        if(fs::is_symlink(file)) {
-            if(followlinks) {
+        if (fs::is_symlink(file)) {
+            if (followlinks) {
                 return fs::file_size(fs::read_symlink(file));
-            }
-            else {
+            } else {
                 return 0;
             }
         }
         return fs::file_size(file);
-    }
-    catch(exception& e) {
+    } catch (exception &e) {
         return 0;
     }
-
 }
-
 
 bool exists(STRING file) {
 #ifndef WINDOWS
@@ -516,8 +544,7 @@ int get_attributes(STRING path, bool follow) {
 
 bool set_attributes(STRING path, int attributes) {
 #ifdef WINDOWS
-    attributes =
-        attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM);
+    attributes = attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM);
     BOOL b = SetFileAttributesW(path.c_str(), attributes);
     return b;
 #else
@@ -527,9 +554,7 @@ bool set_attributes(STRING path, int attributes) {
 
 bool is_dir(STRING path) { return ISDIR(get_attributes(path, false)); }
 
-std::string s(uint64_t l) {
-    return std::to_string(l);
-}
+std::string s(uint64_t l) { return std::to_string(l); }
 
 void *tmalloc(size_t size) {
     void *p = malloc(size);
@@ -649,9 +674,7 @@ bool create_directory(STRING path) {
 }
 
 // todo fixme: this function is not implemented very generic
-bool create_directories(STRING path) {
-    return std::filesystem::create_directories(path);
-}
+bool create_directories(STRING path) { return std::filesystem::create_directories(path); }
 
 bool equal2(const void *src1, const void *src2, size_t len) {
     char *s1 = (char *)src1;
