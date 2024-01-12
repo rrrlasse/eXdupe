@@ -674,7 +674,12 @@ void print_build_info() {
     // "2024-01-04T09:27:05+0100"
     STRING td = UNITXT(_TIMEZ_);
     td = td.substr(0, 10) + UNITXT(" ") + td.substr(11, 8) + UNITXT(" ") + td.substr(19, 5);
-    STRING b = STRING(UNITXT("ver " VER ", built ")) + td + UNITXT(", sha ") + UNITXT(GIT_COMMIT_HASH);
+    STRING b = STRING(UNITXT("ver " VER ", built ")) + td + UNITXT(", sha ") + UNITXT(GIT_COMMIT_HASH) + UNITXT(", ");
+#ifdef NDEBUG
+    b += UNITXT("RELEASE");
+#else    
+    b += UNITXT("DEBUG");
+#endif
     statusbar.print(0, b.c_str());
 }
 
