@@ -117,7 +117,7 @@ typedef struct {
     uint64_t remainder_len;
     uint64_t b_val;
     uint64_t a_val;
-    uint64_t result;
+    uint32_t result;
 } checksum_t;
 
 void checksum(unsigned char *data, size_t len, checksum_t *t);

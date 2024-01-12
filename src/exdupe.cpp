@@ -209,7 +209,7 @@ typedef struct {
     STRING link;
     uint64_t size;
     uint64_t payload;
-    uint64_t checksum;
+    uint32_t checksum;
     tm file_date;
     int attributes;
     bool directory;
@@ -274,7 +274,7 @@ void write_contents_item(FILE *file, contents_t *c) {
     io.writestr(c->link, file);
     io.write_ui<uint64_t>(c->size, file);
     io.write_ui<uint64_t>(c->payload, file);
-    io.write_ui<uint64_t>(c->checksum, file);
+    io.write_ui<uint32_t>(c->checksum, file);
     io.write_date(&c->file_date, file);
     io.write_ui<uint32_t>(c->attributes, file);
     io.write_ui<uint8_t>(c->directory ? 1 : 0, file);
@@ -617,7 +617,7 @@ void read_content_item(FILE *file, contents_t *c) {
     c->link = slashify(io.readstr(file));
     c->size = io.read_ui<uint64_t>(file);
     c->payload = io.read_ui<uint64_t>(file);
-    c->checksum = io.read_ui<uint64_t>(file);
+    c->checksum = io.read_ui<uint32_t>(file);
     io.read_date(&c->file_date, file);
     c->attributes = io.read_ui<uint32_t>(file);
     c->directory = io.read_ui<uint8_t>(file) == 0 ? false : true;
@@ -1610,7 +1610,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
                 // No CRC block for 0-sized files
                 io.try_write("C", 1, ofile);
                 file_meta.checksum = file_meta.ct.result;
-                io.write_ui<uint64_t>(file_meta.ct.result, ofile);
+                io.write_ui<uint32_t>(file_meta.ct.result, ofile);
             }
             empty_q();
         }
@@ -1626,7 +1626,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
             // No CRC block for 0-sized files
             io.try_write("C", 1, ofile);
             file_meta.checksum = file_meta.ct.result;
-            io.write_ui<uint64_t>(file_meta.ct.result, ofile);
+            io.write_ui<uint32_t>(file_meta.ct.result, ofile);
         }
         payload_queue += string((char *)in, r);
     }
@@ -1919,7 +1919,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
         } else if (w == 'A') {
             decompress_files(file_queue, add_files);
         } else if (w == 'C') { // crc
-            uint64_t crc = io.read_ui<uint64_t>(ifile);
+            uint32_t crc = io.read_ui<uint32_t>(ifile);
             file_queue[file_queue.size() - 1].checksum = crc;
         } else if (w == 'L') { // symlink
             contents_t c;
