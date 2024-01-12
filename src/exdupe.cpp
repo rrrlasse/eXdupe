@@ -676,9 +676,9 @@ void print_build_info() {
     td = td.substr(0, 10) + UNITXT(" ") + td.substr(11, 8) + UNITXT(" ") + td.substr(19, 5);
     STRING b = STRING(UNITXT("ver " VER ", built ")) + td + UNITXT(", sha ") + UNITXT(GIT_COMMIT_HASH) + UNITXT(", ");
 #ifdef NDEBUG
-    b += UNITXT("RELEASE");
+    b += UNITXT("release mode");
 #else    
-    b += UNITXT("DEBUG");
+    b += UNITXT("debug mode");
 #endif
     statusbar.print(0, b.c_str());
 }

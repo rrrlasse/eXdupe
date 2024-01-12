@@ -148,8 +148,8 @@ bool add_data = true;
 
 #pragma pack(push, 1)
 struct hash_t {
-    uint64_t offset;
-    uint16_t hash;
+    uint64_t offset : 48;
+    uint64_t hash : 16;
     uint16_t slide;
     unsigned char sha[SHA_SIZE];
 };
@@ -339,11 +339,11 @@ size_t dup_compress_hashtable(void) {
             for (uint64_t k = 0; k < count; k++) {
                 hash_t h;
                 memcpy(&h, &table[i / 2][i % 2], sizeof(hash_t));
-                ll2str(h.offset, dst, 8);
-                ll2str(h.hash, dst + 8, 2);
-                ll2str(h.slide, dst + 8 + 2, 2);
-                memcpy(dst + 8 + 2 + 2, h.sha, SHA_SIZE);
-                dst += 8 + 2 + 2 + SHA_SIZE;
+                ll2str(h.offset, dst, 6);
+                ll2str(h.hash, dst + 6, 2);
+                ll2str(h.slide, dst + 6 + 2, 2);
+                memcpy(dst + 6 + 2 + 2, h.sha, SHA_SIZE);
+                dst += 6 + 2 + 2 + SHA_SIZE;
                 i++;
             }
         } else {
@@ -398,12 +398,12 @@ int dup_decompress_hashtable(size_t len) {
         for (uint64_t k = 0; k < count2; k++) {
             if (used2) {
                 unsigned char temp[100];
-                src -= (8 + 2 + 2 + SHA_SIZE);
-                memcpy(temp, src, 8 + 2 + 2 + SHA_SIZE);
+                src -= (6 + 2 + 2 + SHA_SIZE);
+                memcpy(temp, src, 6 + 2 + 2 + SHA_SIZE);
                 table[i / 2][i % 2].offset = str2ll(temp, 8);
-                table[i / 2][i % 2].hash = static_cast<uint16_t>(str2ll(temp + 8, 2));
-                table[i / 2][i % 2].slide = static_cast<uint16_t>(str2ll(temp + 8 + 2, 2));
-                memcpy(table[i / 2][i % 2].sha, temp + 8 + 2 + 2, SHA_SIZE);
+                table[i / 2][i % 2].hash = static_cast<uint16_t>(str2ll(temp + 6, 2));
+                table[i / 2][i % 2].slide = static_cast<uint16_t>(str2ll(temp + 6 + 2, 2));
+                memcpy(table[i / 2][i % 2].sha, temp + 6 + 2 + 2, SHA_SIZE);
             } else {
                 memset(&table[i / 2][i % 2], 0, sizeof(hash_t));
             }
