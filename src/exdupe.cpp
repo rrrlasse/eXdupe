@@ -1958,6 +1958,7 @@ uint32_t max_bits(uint64_t max_memory) {
     return n - 1;
 }
 
+
 void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt) {
     if (s == BACKUP) {
         io.try_write("EXDUPE F", 8, file);
@@ -1970,6 +1971,7 @@ void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t
     io.write_ui<uint8_t>(VER_MAJOR, file);
     io.write_ui<uint8_t>(VER_MINOR, file);
     io.write_ui<uint8_t>(VER_REVISION, file);
+    io.write_ui<uint8_t>(VER_DEV, file);
 
     io.write_ui<uint64_t>(DEDUPE_SMALL, file);
     io.write_ui<uint64_t>(DEDUPE_LARGE, file);
@@ -1993,16 +1995,22 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
     char major = io.read_ui<uint8_t>(file);
     char minor = io.read_ui<uint8_t>(file);
     char revision = io.read_ui<uint8_t>(file);
+    char dev = io.read_ui<uint8_t>(file);
+
+    if(major == 1 && minor == 1 && revision == 0 && dev == 0) {
+        abort(true, UNITXT("This file was created with eXdupe version 1.1.0.dev-23 or earlier. Please use the exact same dev-version to restore it"));
+    }
 
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-    abort(major != VER_MAJOR, UNITXT("'%s' was created with eXdupe version %d.%d.%d, please use %d.x.x on it"), filename.c_str(), major, minor, revision, major);
+    abort(dev != VER_DEV, UNITXT("This file was created with eXdupe version %d.%d.%d.dev-%d. Please use the exact same version to restore it"), filename.c_str(), major, minor, revision, dev);
 
     hash_flag = io.read_ui<uint8_t>(file) == 1;
     hash_salt = io.read_ui<uint64_t>(file);
     return io.read_ui<uint64_t>(file); // mem usage
 }
+
 
 void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, UNITXT("Wrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
 
