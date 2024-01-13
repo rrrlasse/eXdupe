@@ -1256,6 +1256,10 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
         archive_file = ffull;
     }
 
+    if(!exists(directory)) {
+        create_directories(directory, 0);
+    }
+   
     uint64_t orig = seek_to_header(archive_file, "CONTENTS");
     uint64_t payload = 0;
     contents_t c;
@@ -1863,7 +1867,7 @@ void compress_args(vector<STRING> args) {
     uint32_t i = 0;
     for (i = 0; i < args.size(); i++) {
         args[i] = remove_leading_curdir(args[i]);
-        if (is_dir(args[i])) {
+        if (is_dir(args[i]) && !is_symlink(args[i])) {
             args[i] = remove_delimitor(args[i]) + DELIM_STR;
         }
     }
