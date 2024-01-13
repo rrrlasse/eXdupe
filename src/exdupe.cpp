@@ -210,7 +210,7 @@ typedef struct {
     uint64_t size;
     uint64_t payload;
     uint32_t checksum;
-    tm file_date;
+    time_t file_date;
     int attributes;
     bool directory;
     bool symlink;
@@ -259,13 +259,14 @@ void abort(bool b, const CHR *fmt, ...) {
     }
 }
 
-STRING date2str(tm *date) {
+STRING date2str(time_t date) {
     if (date == 0) {
-        return UNITXT("");
+        return UNITXT("                ");
     }
 
     CHR dst[1000];
-    SPRINTF(dst, UNITXT("%04u-%02u-%02u %02u:%02u"), date->tm_year, date->tm_mon, date->tm_mday, date->tm_hour, date->tm_min);
+    tm date2 = local_time_tm(date);
+    SPRINTF(dst, UNITXT("%04u-%02u-%02u %02u:%02u"), date2.tm_year + 1900, date2.tm_mon + 1, date2.tm_mday, date2.tm_hour, date2.tm_min);
     return STRING(dst);
 }
 
@@ -275,7 +276,7 @@ void write_contents_item(FILE *file, contents_t *c) {
     io.write_ui<uint64_t>(c->size, file);
     io.write_ui<uint64_t>(c->payload, file);
     io.write_ui<uint32_t>(c->checksum, file);
-    io.write_date(&c->file_date, file);
+    io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_date), file);
     io.write_ui<uint32_t>(c->attributes, file);
     io.write_ui<uint8_t>(c->directory ? 1 : 0, file);
     io.write_ui<uint8_t>(c->symlink ? 1 : 0, file);
@@ -502,15 +503,24 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
 
     return false;
 }
-
-void print_file(STRING filename, uint64_t size, tm *file_date = 0, int attributes = 0) {
+// clang-format off
+void print_file(STRING filename, uint64_t size, time_t file_date = 0, int attributes = 0) {
 #ifdef WINDOWS
-    statusbar.print(0, UNITXT("%s  %c%c%c%c%c  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 22).c_str(), attributes & FILE_ATTRIBUTE_ARCHIVE ? 'A' : ' ', attributes & FILE_ATTRIBUTE_SYSTEM ? 'S' : ' ',
-                    attributes & FILE_ATTRIBUTE_HIDDEN ? 'H' : ' ', attributes & FILE_ATTRIBUTE_READONLY ? 'R' : ' ', attributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED ? 'I' : ' ', date2str(file_date).c_str(), filename.c_str());
+    statusbar.print(0, UNITXT("%s  %s  %s"), 
+        size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 19).c_str(),
+/*
+        attributes & FILE_ATTRIBUTE_ARCHIVE ? 'A' : ' ', 
+        attributes & FILE_ATTRIBUTE_SYSTEM ? 'S' : ' ',
+        attributes & FILE_ATTRIBUTE_HIDDEN ? 'H' : ' ',
+        attributes & FILE_ATTRIBUTE_READONLY ? 'R' : ' ',
+        attributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED ? 'I' : ' ',
+*/
+        date2str(file_date).c_str(), filename.c_str());
 #else
-    statusbar.print(0, UNITXT("%s  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 22).c_str(), date2str(file_date).c_str(), filename.c_str());
+    statusbar.print(0, UNITXT("%s  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 19).c_str(), date2str(file_date).c_str(), filename.c_str());
 #endif
 }
+// clang-format on
 
 bool save_directory(STRING base_dir, STRING path, bool write = false) {
     static STRING last_full = UNITXT("");
@@ -618,7 +628,7 @@ void read_content_item(FILE *file, contents_t *c) {
     c->size = io.read_ui<uint64_t>(file);
     c->payload = io.read_ui<uint64_t>(file);
     c->checksum = io.read_ui<uint32_t>(file);
-    io.read_date(&c->file_date, file);
+    c->file_date = io.read_ui<uint32_t>(file);
     c->attributes = io.read_ui<uint32_t>(file);
     c->directory = io.read_ui<uint8_t>(file) == 0 ? false : true;
     c->symlink = io.read_ui<uint8_t>(file) == 0 ? false : true;
@@ -641,18 +651,19 @@ uint64_t dump_contents(FILE *file) {
         read_content_item(file, &c);
 
         if (c.symlink) {
-            print_file(STRING(c.name + UNITXT(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), &c.file_date, c.attributes);
+            print_file(STRING(c.name + UNITXT(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_date, c.attributes);
+            files++;
         } else if (c.directory) {
             if (c.name != UNITXT(".\\") && c.name != UNITXT("./") && c.name != UNITXT("")) {
                 static STRING last_full = UNITXT("");
                 static bool first_time = true;
 
                 STRING full = c.name;
-                full = remove_delimitor(full) + DELIM_STR;
+                full = remove_delimitor(full);
                 STRING full_orig = full;
 
                 if (full != last_full || first_time) {
-                    statusbar.print(0, UNITXT("   %s%s"), STRING(full_orig != full ? UNITXT("*") : UNITXT("")).c_str(), full.c_str());
+                    statusbar.print(0, UNITXT("%s%s"), STRING(full_orig != full ? UNITXT("*") : UNITXT("")).c_str(), full.c_str());
                     last_full = full;
                     first_time = false;
                 }
@@ -660,7 +671,7 @@ uint64_t dump_contents(FILE *file) {
         } else {
             payload += c.size;
             files++;
-            print_file(c.name, c.size, &c.file_date, c.attributes);
+            print_file(c.name, c.size, c.file_date, c.attributes);
         }
     }
 
@@ -1196,7 +1207,7 @@ void force_overwrite(const STRING &file) {
         try {
             std::filesystem::remove(file);
         } 
-        catch(exception& e) {
+        catch(exception&) {
             abort(true, UNITXT("Failed to overwrite file: %s"), slashify(file).c_str());        
         }
     }
@@ -1222,7 +1233,8 @@ void create_symlink(STRING path, contents_t c) {
 
 #else
     int ret = symlink(c.link.c_str(), path.c_str());
-#endif 
+#endif
+    set_date(path, c.file_date);
     abort(ret != 0, UNITXT("Error creating symlink: %s -> %s"), path.c_str(), c.link.c_str());
 }
 
@@ -1302,7 +1314,9 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
             }
 
             if (!pipe_out) {
-                create_directories(dstdir);
+                //statusbar.print(0, STRING   (STRING() + UNITXT("\nCreating:") + dstdir + UNITXT("\n")).c_str()  );
+                create_directories(dstdir, c.file_date);
+                //cerr << "\nDone" << "\n";
             }
 
             if (!pipe_out) {
@@ -1310,17 +1324,16 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
             }
 
             if (c.symlink) {
+                files++;
                 statusbar.update(RESTORE, 0, tot_res, c.name + UNITXT(" -> ") + c.link);
                 create_symlink(dstdir + c.name, c);
             } else if (!c.directory) {
+                files++;
                 checksum_t t;
                 checksum_init(&t);
-
                 STRING outfile = remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
                 statusbar.update(RESTORE, 0, tot_res, outfile);
-
                 ofile = pipe_out ? stdout : create_file(outfile);
-
                 resolved = 0;
 
                 while (resolved < c.size) {
@@ -1335,11 +1348,10 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
                 }
                 if (!pipe_out) {
                     fclose(ofile);
-                    set_date(dstdir + DELIM_STR + c.name, &c.file_date);
+                    set_date(dstdir + DELIM_STR + c.name, c.file_date);
                     set_attributes(dstdir + DELIM_STR + c.name, c.attributes);
                 }
                 abort(c.checksum != t.result, UNITXT("File checksum error"));
-                files++;
             }
         }
     }
@@ -1419,7 +1431,6 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
             if (ofile == 0) {
                 ofile = create_file(c[0].extra);
                 destfile = c[0].extra;
-                files++;
                 checksum_init(&decompress_checksum);
 
                 if (add_files) {
@@ -1460,8 +1471,7 @@ void compress_symlink(const STRING &link, const STRING &target) {
     bool is_dir;
     STRING tmp;
 
-    time_t tt = get_date(link);
-    tm file_date = local_time_tm(tt);
+    time_t file_date = get_date(link);
     int t = symlink_target(link.c_str(), tmp, is_dir) ? 0 : -1;
 
     if (t == -1) {
@@ -1474,7 +1484,9 @@ void compress_symlink(const STRING &link, const STRING &target) {
     }
 
     statusbar.update(BACKUP, dup_counter_payload(), io.write_count, link + UNITXT(" -> ") + STRING(abs_path(tmp)));
-    io.try_write("L", 1, ofile); // todo
+    io.try_write("L", 1, ofile);
+    
+    files++;
 
     contents_t c;
 
@@ -1488,7 +1500,6 @@ void compress_symlink(const STRING &link, const STRING &target) {
     c.file_date = file_date;
     write_contents_item(ofile, &c);
     contents.push_back(c);
-    files++;
     return;
 }
 
@@ -1553,7 +1564,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
         }
     }
 
-    tm file_date;
+    time_t file_date;
     int attributes = 0;
     checksum_t file_checksum;
     checksum_init(&file_checksum);
@@ -1566,14 +1577,11 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
     if (input_file != UNITXT("-stdin")) {
         io.seek(ifile, 0, SEEK_END);
         file_size = io.tell(ifile);
-
-        time_t t = get_date(input_file);
-        file_date = local_time_tm(t);
-
+        file_date = get_date(input_file);
         attributes = get_attributes(input_file, follow_symlinks);
         io.seek(ifile, 0, SEEK_SET);
     } else {
-        cur_date(&file_date);
+        file_date = cur_date();
         file_size = std::numeric_limits<uint64_t>::max();
     }
 
@@ -1898,9 +1906,10 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
             ensure_relative(c.name);
             curdir = extract_dir + DELIM_STR + c.name;
             save_directory(UNITXT(""), curdir);
-            create_directories(curdir);
+            create_directories(curdir, c.file_date);
         } else if (w == 'F') {
             contents_t c;
+            files++;
             read_content_item(ifile, &c);
             STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
 
@@ -1923,6 +1932,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
             file_queue[file_queue.size() - 1].checksum = crc;
         } else if (w == 'L') { // symlink
             contents_t c;
+            files++;
             read_content_item(ifile, &c);
             STRING buf2 = curdir + DELIM_CHAR + c.name;
             create_symlink(buf2, c);

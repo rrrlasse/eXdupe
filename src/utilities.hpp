@@ -73,12 +73,11 @@ string wstring2string(STRING wstr);
 void replace_stdstr(std::string &str, const std::string &oldStr, const std::string &newStr);
 void replace_str(std::STRING &str, const std::STRING &oldStr, const std::STRING &newStr);
 STRING replace2(STRING orig, STRING src, STRING dst);
-void cur_date(tm *tm_date);
+time_t cur_date();
 bool is_symlink(STRING file);
 bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir);
 bool is_named_pipe(STRING file);
-void print_date(tm *file_date);
-void set_date(STRING file, tm *tm_date);
+void set_date(STRING file, time_t date);
 time_t get_date(STRING file);
 STRING slashify(STRING path);
 STRING slashify(STRING path);
@@ -105,7 +104,7 @@ int get_attributes(STRING path, bool follow);
 bool set_attributes(STRING path, int attributes);
 
 bool create_directory(STRING path);
-bool create_directories(STRING path);
+bool create_directories(STRING path, time_t t);
 size_t longest_common_prefix(vector<STRING> strings, bool case_sensitive);
 
 template <class T, class U> const uint64_t minimum(const T a, const U b) {

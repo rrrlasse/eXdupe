@@ -24,6 +24,12 @@ unsigned int GetTickCount() {
     gettimeofday(&tv, NULL);
     return (unsigned int)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
 }
+
+#include <ctime>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #endif
 
 namespace fs = std::filesystem;
@@ -138,32 +144,44 @@ void replace_stdstr(std::string &str, const std::string &oldStr, const std::stri
     }
 }
 
-void set_date(STRING file, tm *tm_date) {
+void set_date(STRING file, time_t date) {
+    tm *timeInfo = gmtime(&date);
 #ifdef WINDOWS
-    SYSTEMTIME myTime;
     FILETIME ft;
 
-    myTime.wYear = (WORD)tm_date->tm_year;
-    myTime.wMonth = (WORD)tm_date->tm_mon;
-    myTime.wSecond = (WORD)tm_date->tm_sec;
-    myTime.wHour = (WORD)tm_date->tm_hour;
-    myTime.wMinute = (WORD)tm_date->tm_min;
-    myTime.wDay = (WORD)tm_date->tm_mday;
-    myTime.wDayOfWeek = (WORD)tm_date->tm_wday;
-    myTime.wMilliseconds = 0;
+    // Fill SYSTEMTIME structure
+    SYSTEMTIME systemTime;
+    systemTime.wYear = timeInfo->tm_year + 1900;
+    systemTime.wMonth = timeInfo->tm_mon + 1;
+    systemTime.wDayOfWeek = timeInfo->tm_wday;
+    systemTime.wDay = timeInfo->tm_mday;
+    systemTime.wHour = timeInfo->tm_hour;
+    systemTime.wMinute = timeInfo->tm_min;
+    systemTime.wSecond = timeInfo->tm_sec;
+    systemTime.wMilliseconds = 0;
 
-    bool b = (bool)SystemTimeToFileTime(&myTime, &ft);
+    bool b = (bool)SystemTimeToFileTime(&systemTime, &ft);
     HANDLE hFile;
-    hFile = CreateFileW(file.c_str(), FILE_GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    auto abspath = abs_path(file);
+    hFile = CreateFileW(abspath.c_str(), FILE_GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
     b = (bool)SetFileTime(hFile, &ft, &ft, &ft);
     CloseHandle(hFile);
 #else
     struct utimbuf Time;
-    tm_date->tm_year -= 1900;
-    time_t t = mktime(tm_date);
-    Time.actime = t;
-    Time.modtime = t;
-    utime(file.c_str(), &Time);
+    timeInfo->tm_year -= 1900;
+    Time.actime = date;
+    Time.modtime = date;
+
+    if(fs::is_symlink(file)) {
+        struct timespec times[2];
+        times[0].tv_sec = times[1].tv_sec = date;
+        times[0].tv_nsec = times[1].tv_nsec = 0;
+        utimensat(AT_FDCWD, file.c_str(), times, AT_SYMLINK_NOFOLLOW);
+    }
+    else {
+        utime(file.c_str(), &Time);
+    }
+
 #endif
 }
 
@@ -201,27 +219,10 @@ bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_di
 #endif
 }
 
-void cur_date(tm *tm_date) {
-#ifdef WINDOWS
-    SYSTEMTIME myTime;
-    GetSystemTime(&myTime);
-    tm_date->tm_hour = myTime.wHour;
-    tm_date->tm_min = myTime.wMinute;
-    tm_date->tm_mday = myTime.wDay;
-    tm_date->tm_mon = myTime.wMonth;
-    tm_date->tm_sec = myTime.wSecond;
-    tm_date->tm_year = myTime.wYear;
-    tm_date->tm_wday = myTime.wDayOfWeek;
-#else
-    time_t rawtime;
-    struct tm *timeinfo;
-
-    time(&rawtime);
-    timeinfo = localtime(&rawtime);
-
-    timeinfo->tm_year += 1900;
-    memcpy(tm_date, timeinfo, sizeof(tm));
-#endif
+time_t cur_date() {
+    auto current = std::chrono::system_clock::now();
+    auto since_epoch = std::chrono::time_point_cast<std::chrono::seconds>(current).time_since_epoch();
+    return since_epoch.count();
 }
 
 std::tm local_time_tm(const time_t &t) {
@@ -432,7 +433,7 @@ uint64_t filesize(STRING file, bool followlinks = false) {
             }
         }
         return fs::file_size(file);
-    } catch (exception &e) {
+    } catch (exception &) {
         return 0;
     }
 }
@@ -673,8 +674,14 @@ bool create_directory(STRING path) {
 #endif
 }
 
-// todo fixme: this function is not implemented very generic
-bool create_directories(STRING path) { return std::filesystem::create_directories(path); }
+bool create_directories(STRING path, time_t t) {
+    bool b = std::filesystem::create_directories(path);
+    if(t != 0) {
+        set_date(path, t);
+    }
+    return b;
+
+}
 
 bool equal2(const void *src1, const void *src2, size_t len) {
     char *s1 = (char *)src1;
