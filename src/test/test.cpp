@@ -1,11 +1,9 @@
-#define BOOST_UT_DISABLE_MODULE
-#include "ut.hpp"
-using namespace boost::ut;
-#define SUITE ::boost::ut::suite _ = []
-#define TEST(name) ::boost::ut::detail::test{"test", name} = [=]() mutable
-
 #include <chrono>
 #include <thread>
+
+#define CATCH_CONFIG_RUNNER
+#define CATCH_CONFIG_MAIN
+#include "catch.hpp"
 
 #include "../utilities.hpp"
 #include "../ui.hpp"
@@ -42,9 +40,8 @@ std::wstring term(const std::wstring& source) {
     return destination;
 }
 
-int main() {
 
-TEST("checksum") {
+TEST_CASE("checksum") {
     {   
         // Basic
         checksum_t t;
@@ -55,9 +52,9 @@ TEST("checksum") {
         checksum((unsigned char *)"123456789", 9, &t);
         auto result3 = t.result;
 
-        expect(result1 != result2);
-        expect(result1 != result3);
-        expect(result2 != result3);
+        REQUIRE(result1 != result2);
+        REQUIRE(result1 != result3);
+        REQUIRE(result2 != result3);
     }
 
     {
@@ -71,14 +68,14 @@ TEST("checksum") {
         checksum((unsigned char *)"123", 3, &t2);
         checksum((unsigned char *)"456789 123456789 ", 17, &t2);
 
-        expect(t1.result == t2.result);
+        REQUIRE(t1.result == t2.result);
 
         checksum_t t3;
         checksum_init(&t3);
         checksum((unsigned char *)"123456789 ", 10, &t3);
         checksum((unsigned char *)"123456789 ", 10, &t3);
 
-        expect(t1.result == t3.result);
+        REQUIRE(t1.result == t3.result);
     }
 
     {
@@ -87,49 +84,47 @@ TEST("checksum") {
         checksum_init(&t);
         auto result = t.result;
         checksum((unsigned char *)"", 0, &t);
-        expect(result == t.result);
+        REQUIRE(result == t.result);
 
         checksum_init(&t);
         checksum((unsigned char *)"123456789", 9, &t);
         result = t.result;
         checksum((unsigned char *)"", 0, &t);
-        expect(result == t.result);
+        REQUIRE(result == t.result);
     }
-};
+}
 
-TEST("format_size") {
-    expect(format_size(0) == "0 B");
-    expect(format_size(1) == "1 B");
-    expect(format_size(99) == "99 B");
-    expect(format_size(100) == "100 B");
-    expect(format_size(101) == "101 B");
-    expect(format_size(999) == "999 B");
-    expect(format_size(1000) == "0.97 KB");
-    expect(format_size(1001) == "0.97 KB");
+TEST_CASE("format_size") {
+    REQUIRE(format_size(0) == "0 B");
+    REQUIRE(format_size(1) == "1 B");
+    REQUIRE(format_size(99) == "99 B");
+    REQUIRE(format_size(100) == "100 B");
+    REQUIRE(format_size(101) == "101 B");
+    REQUIRE(format_size(999) == "999 B");
+    REQUIRE(format_size(1000) == "0.97 KB");
+    REQUIRE(format_size(1001) == "0.97 KB");
 
-    expect(format_size(1023) == "0.99 KB");
-    expect(format_size(1024) == "1.00 KB");
-    expect(format_size(1025) == "1.00 KB");
+    REQUIRE(format_size(1023) == "0.99 KB");
+    REQUIRE(format_size(1024) == "1.00 KB");
+    REQUIRE(format_size(1025) == "1.00 KB");
 
-    expect(format_size(999'999) == "976 KB");
-    expect(format_size(1'000'000) == "976 KB");
-    expect(format_size(1'000'001) == "976 KB");
+    REQUIRE(format_size(999'999) == "976 KB");
+    REQUIRE(format_size(1'000'000) == "976 KB");
+    REQUIRE(format_size(1'000'001) == "976 KB");
 
-    expect(format_size(1024 * 1024 - 1) == "0.99 MB");
-    expect(format_size(1024 * 1024) == "1.00 MB");
-    expect(format_size(1024 * 1024 + 1) == "1.00 MB");
+    REQUIRE(format_size(1024 * 1024 - 1) == "0.99 MB");
+    REQUIRE(format_size(1024 * 1024) == "1.00 MB");
+    REQUIRE(format_size(1024 * 1024 + 1) == "1.00 MB");
 
-    expect(format_size(1024 * 1024 * 1024) == "1.00 GB");
-    expect(format_size(1024ull * 1024 * 1024 * 1024) == "1.00 TB");
-    expect(format_size(1024ull * 1024 * 1024 * 1024 * 1024) == "1.00 PB");
-};
+    REQUIRE(format_size(1024 * 1024 * 1024) == "1.00 GB");
+    REQUIRE(format_size(1024ull * 1024 * 1024 * 1024) == "1.00 TB");
+    REQUIRE(format_size(1024ull * 1024 * 1024 * 1024 * 1024) == "1.00 PB");
+}
 
-// Todo, switch to Catch2 that has fixtures
-// Todo, write many more tests!
 
 #ifdef _WIN32 // because of paths
 
-TEST("ui") {
+TEST_CASE("ui") {
     std::wostringstream oss;
 
     auto create = [&]() {
@@ -147,7 +142,7 @@ TEST("ui") {
         auto s = create();
         s.update(BACKUP, 0, 0, UNITXT("d:\\12345678901234567890123"));
         STRING res = term(oss.str());
-        expect(res == UNITXT("0 B, 0 B, 123456789012345678.."));
+        REQUIRE(res == UNITXT("0 B, 0 B, 123456789012345678.."));
     }
 
     {
@@ -155,7 +150,7 @@ TEST("ui") {
         auto s = create();
         s.update(BACKUP, 0, 0, UNITXT("d:\\12345678901234567890"));
         STRING res = term(oss.str());
-        expect(res == UNITXT("0 B, 0 B, 12345678901234567890"));
+        REQUIRE(res == UNITXT("0 B, 0 B, 12345678901234567890"));
     }
 
     {
@@ -163,7 +158,7 @@ TEST("ui") {
         auto s = create();
         s.update(BACKUP, 0, 0, UNITXT("d:\\123"));
         STRING res = term(oss.str());
-        expect(res == UNITXT("0 B, 0 B, 123"));
+        REQUIRE(res == UNITXT("0 B, 0 B, 123"));
     }
 
     {
@@ -171,7 +166,7 @@ TEST("ui") {
         auto s = create();
         s.update(BACKUP, 1024, 2048, UNITXT("d:\\123"));
         STRING res = term(oss.str());
-        expect(res == UNITXT("1.00 KB, 2.00 KB, 123"));
+        REQUIRE(res == UNITXT("1.00 KB, 2.00 KB, 123"));
     }
 
     {
@@ -179,7 +174,7 @@ TEST("ui") {
         auto s = create();
         s.update(RESTORE, 0, 1024, UNITXT("d:\\123"));
         STRING res = term(oss.str());
-        expect(res == UNITXT("1.00 KB, 123"));
+        REQUIRE(res == UNITXT("1.00 KB, 123"));
     }
 
     {
@@ -188,7 +183,7 @@ TEST("ui") {
         s.update(BACKUP, 0, 0, UNITXT("d:\\1234567890"));
         s.update(BACKUP, 0, 0, UNITXT("d:\\1"), true);
         auto res = term(oss.str());
-        expect(res == UNITXT("0 B, 0 B, 1"));
+        REQUIRE(res == UNITXT("0 B, 0 B, 1"));
     }
 
     {
@@ -197,7 +192,7 @@ TEST("ui") {
         s.m_base_dir = UNITXT("");
         s.update(BACKUP, 0, 0, UNITXT("d:\\123"));
         STRING res = term(oss.str());
-        expect(res == UNITXT("0 B, 0 B, d:\\123"));
+        REQUIRE(res == UNITXT("0 B, 0 B, d:\\123"));
     }
 
     {
@@ -206,7 +201,7 @@ TEST("ui") {
         s.m_verbose_level = 0;
         s.update(BACKUP, 0, 0, UNITXT("d:\\123"));
         STRING res = term(oss.str());
-        expect(res == UNITXT(""));
+        REQUIRE(res == UNITXT(""));
     }
 
     {
@@ -216,10 +211,8 @@ TEST("ui") {
         s.update(BACKUP, 0, 0, UNITXT("d:\\1234567890123456789012345678901234567890"));
         s.update(BACKUP, 0, 0, UNITXT("d:\\456"));
         STRING res = term(oss.str());
-        expect(res == UNITXT("  d:\\1234567890123456789012345678901234567890\n  d:\\456\n"));
+        REQUIRE(res == UNITXT("  d:\\1234567890123456789012345678901234567890\n  d:\\456\n"));
     }
-};
+}
 
 #endif
-
-}
