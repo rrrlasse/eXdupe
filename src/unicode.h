@@ -31,7 +31,7 @@ using std::string;
 #define CERR std::wcerr
 #else
 #define SPRINTF sprintf
-#define VSPRINTF vsprintf
+#define VSPRINTF vsnprintf
 #define VFPRINTF vfprintf
 #define FPRINTF fprintf
 #define UNITXT(s) s

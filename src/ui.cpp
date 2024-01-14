@@ -74,6 +74,7 @@ void Statusbar::print(int verbosity, const CHR *fmt, ...) {
         va_list argv;
         va_start(argv, fmt);
         int printed = VSPRINTF(m_tmp.data(), m_tmp.size(), fmt, argv);
+        static_cast<void>(printed);
         assert(printed < m_tmp.size() - 1);
         STRING s = STRING(m_tmp.data());
         va_end(argv);
