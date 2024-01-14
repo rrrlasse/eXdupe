@@ -1,9 +1,21 @@
-
-
 #ifndef DEDUPE_HEADER
 #define DEDUPE_HEADER
 
-#define DUP_BLOCK 'D'
+/*
+A packet of compressed data can either be a "match" (header starts with "MM") or a "literal" header starts with "TT":
+
+MM cccc dddd pppppppp
+  c: 32-bit, size of this packet
+  p: 64-bit pointer into user payload, always points backwards from current position
+  d: 32-bit, number of bytes to copy from p
+
+TT cccc dddd pppppppp <data compressed with some traditional data compression>
+ c = 32-bit, size of this packet
+ d = Size in bytes of the *decompressed* data that follows this header
+ p = Offset into the user payload that this package represents
+*/
+
+#define DUP_HEADER_LEN 18
 
 #include <stdint.h>
 #include <string.h>

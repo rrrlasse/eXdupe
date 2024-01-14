@@ -652,7 +652,7 @@ static size_t write_literals(const unsigned char *src, size_t length, unsigned c
             exit(-1);
         }
 
-        memcpy(dst, DUP_LITERAL, 8 - 6);
+        memcpy(dst, DUP_LITERAL, 2);
         dst += 8 - 6;
         ll2str(r + 32 - (6 + 8), (char *)dst, 4);
         dst += 4;
@@ -756,7 +756,6 @@ static size_t process_chunk(const unsigned char *src, uint64_t pay, size_t lengt
 uint64_t flushed;
 uint64_t global_payload;
 uint64_t count_payload;
-uint64_t count_compressed;
 
 static int get_free(void) {
     int i;
@@ -859,7 +858,6 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
     global_payload = 0;
     flushed = 0;
     count_payload = 0;
-    count_compressed = 0;
 
     for (int i = 0; i < THREADS; i++) {
         pthread_mutex_init(&jobs[i].jobmutex, NULL);
@@ -917,11 +915,8 @@ size_t dup_size_decompressed(const unsigned char *src) {
 
 uint64_t dup_counter_payload(void) { return count_payload; }
 
-uint64_t dup_counter_compressed(void) { return count_compressed; }
-
 void dup_counters_reset(void) {
     count_payload = 0;
-    count_compressed = 0;
 }
 
 static uint64_t packet_payload(const unsigned char *src) {
@@ -934,7 +929,7 @@ int dup_decompress(const unsigned char *src, unsigned char *dst, size_t *length,
         zstd_decompress_state = zstd_init();
     }
 
-    if (dd_equal(src, DUP_LITERAL, 8 - 6)) {
+    if (dd_equal(src, DUP_LITERAL, 2)) {
         size_t t;
         src += 32 - (6 + 8);
 
@@ -955,16 +950,14 @@ int dup_decompress(const unsigned char *src, unsigned char *dst, size_t *length,
 
         *length = t;
         count_payload += *length;
-        count_compressed += dup_size_compressed(src - 32 + (6 + 8));
         return 0;
     }
-    if (dd_equal(src, DUP_MATCH, 8 - 6)) {
+    if (dd_equal(src, DUP_MATCH, 2)) {
         uint64_t pay = packet_payload(src);
         size_t len = dup_size_decompressed(src);
         *payload = pay;
         *length = len;
         count_payload += *length;
-        count_compressed += dup_size_compressed(src - 32 + (6 + 8));
         return 1;
     } else {
         return -2;
@@ -973,11 +966,11 @@ int dup_decompress(const unsigned char *src, unsigned char *dst, size_t *length,
 
 // todo rename
 int dup_decompress_simulate(const unsigned char *src, size_t *length, uint64_t *payload) {
-    if (dd_equal(src, DUP_LITERAL, 8 - 6)) {
+    if (dd_equal(src, DUP_LITERAL, 2)) {
         size_t t;
 
-        src += 8 - 6;
-        src += 8 - 4;
+        src += 2;
+        src += 4;
         t = str2ll(src, 4);
 
         *length = t;
@@ -987,7 +980,7 @@ int dup_decompress_simulate(const unsigned char *src, size_t *length, uint64_t *
 
         return 0;
     }
-    if (dd_equal(src, DUP_MATCH, 8 - 6)) {
+    if (dd_equal(src, DUP_MATCH, 2)) {
         uint64_t pay = packet_payload(src);
         size_t len = dup_size_decompressed(src);
         *payload = pay;

@@ -184,10 +184,6 @@ uint64_t bits;
 vector<STRING> argv;
 int argc;
 STRING flags;
-
-unsigned char *extract_in;
-unsigned char *extract_out;
-
 STRING output_file;
 bool output_file_mine = false;
 void *hashtable;
@@ -450,7 +446,11 @@ uint64_t find_reference(uint64_t payload) {
     }
 }
 
+
 bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FILE *fdiff, uint64_t splitpay) {
+    std::vector<unsigned char> vin;
+    std::vector<unsigned char> vout;
+
     size_t bytes_resolved = 0;
 
     while (bytes_resolved < size) {
@@ -477,25 +477,29 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
                     f = ifile;
                 }
 
-                // seek and read and decompress raw data
+                // seek and read and decompress literal packet
                 uint64_t orig = io.tell(f);
                 uint64_t ao = references[rr].archive_offset;
                 io.seek(f, ao, SEEK_SET);
-                io.try_read_buf(extract_in, (32 - 6 - 8), f);
-                size_t len = dup_size_compressed(extract_in);
-                io.try_read_buf(extract_in + (32 - 6 - 8), len - (32 - 6 - 8), f);
+                vin.resize(DUP_HEADER_LEN, 'c');
+                io.try_read_buf(vin.data(), DUP_HEADER_LEN, f);
+                size_t lenc = dup_size_compressed(vin.data());
+                size_t lend = dup_size_decompressed(vin.data());
+                vin.resize(lenc + M - DUP_HEADER_LEN, 'c');
+                vout.resize(lend + M, 'c');
+                io.try_read_buf(vin.data() + DUP_HEADER_LEN, lenc - DUP_HEADER_LEN, f);
                 uint64_t p;
-                int r = dup_decompress(extract_in, extract_out, &len, &p);
-                total_decompressed += len;
+                int r = dup_decompress(vin.data(), vout.data(), &lenc, &p);
+                total_decompressed += lenc;
 
                 if (r != 0 && r != 1) {
                     abort(true, UNITXT("Internal error, dup_decompress() = %d"), r);
                 }
 
-                bytebuffer.buffer_add(extract_out, references[rr].payload, references[rr].length);
+                bytebuffer.buffer_add(vout.data(), references[rr].payload, references[rr].length);
 
                 io.seek(f, orig, SEEK_SET);
-                memcpy(dst + bytes_resolved, extract_out + prior, ref_has);
+                memcpy(dst + bytes_resolved, vout.data() + prior, ref_has);
             }
         }
         bytes_resolved += ref_has;
@@ -1388,9 +1392,9 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
         io.try_read_buf(in + 1, 7, ifile);
         assert((in[0] == 'T' && in[1] == 'T') || (in[0] == 'M' && in[1] == 'M'));
 
-        io.try_read_buf(in + 8, (32 - 6 - 8) - 8, ifile);
+        io.try_read_buf(in + 8, DUP_HEADER_LEN - 8, ifile);
         len = dup_size_compressed(in);
-        io.try_read_buf(in + (32 - 6 - 8), len - (32 - 6 - 8), ifile);
+        io.try_read_buf(in + DUP_HEADER_LEN, len - DUP_HEADER_LEN, ifile);
         int r = dup_decompress(in, out, &len, &payload);
         abort(r == -1 || r == -2, UNITXT("Internal error, dup_decompress() = %p"), r);
 
@@ -2055,8 +2059,6 @@ int main(int argc2, char *argv2[])
         return 0;
     }
 
-    extract_in = static_cast<unsigned char *>(malloc(DEDUPE_LARGE + 1000000));
-    extract_out = static_cast<unsigned char *>(malloc(DEDUPE_LARGE + 1000000));
     bits = max_bits(memory_usage);
     create_shadows();
     parse_files(); // sets "directory"
