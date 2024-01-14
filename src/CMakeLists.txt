@@ -23,7 +23,7 @@ if(MSVC)
 	list (APPEND EXDUPE ${SHADOW})
 	source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${LUA})
 	# Make VS not use Debug and Release sub dirs
-	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}>)
+	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/..>)
 	
 else()
 	set(flags_to_apply -Wall -Wextra -pedantic)
