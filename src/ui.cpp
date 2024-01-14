@@ -5,9 +5,10 @@
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
 
+#include <assert.h>
 #include "ui.hpp"
 
-Statusbar::Statusbar(OSTREAM &os) : m_os(os) {}
+Statusbar::Statusbar(OSTREAM &os) : m_os(os), m_tmp(10000, CHR('c')) {}
 
 void Statusbar::clear_line() {
     STRING blank_line(m_term_width, ' ');
@@ -67,16 +68,16 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
     }
 }
 
-
+// FIXME rewrite to just taking std::string as parameter
 void Statusbar::print(int verbosity, const CHR *fmt, ...) {
-    if (verbosity > m_verbose_level) {
-        return;
+    if (verbosity <= m_verbose_level) {
+        va_list argv;
+        va_start(argv, fmt);
+        int printed = VSPRINTF(m_tmp.data(), m_tmp.size(), fmt, argv);
+        assert(printed < m_tmp.size() - 1);
+        STRING s = STRING(m_tmp.data());
+        va_end(argv);
+        clear_line();
+        m_os << s << UNITXT("\n");
     }
-    va_list argv;
-    va_start(argv, fmt);
-    VSPRINTF(m_wtmp, fmt, argv);
-    STRING s = STRING(m_wtmp);
-    va_end(argv);
-    clear_line();
-    m_os << s << UNITXT("\n");
 }

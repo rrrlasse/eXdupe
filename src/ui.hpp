@@ -7,6 +7,7 @@
 
 #include <iostream>
 #include <optional>
+#include <string>
 
 #include "utilities.hpp"
 
@@ -25,5 +26,5 @@ private:
     STRING m_lastpath;
     uint64_t m_last_file_print{};
     OSTREAM& m_os;
-    CHR m_wtmp[100000];
+    std::vector<CHR> m_tmp;
 };
