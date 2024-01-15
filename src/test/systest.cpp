@@ -34,9 +34,9 @@ string nul = "2>/dev/null";
 #endif
 
 // Please customize
-string test = win ? "e:\\exdupe\\test" : "/mnt/hgfs/E/eXdupe/test";
-string work = win ? "e:\\exdupe\\tmp" : "~/out/tmp";
-string diff_tool = win ? test + "diffexe\\diff.exe" : "diff";
+string root = win ? "e:\\exdupe" : "/mnt/hgfs/E/eXdupe"; // the dir that contains README.md
+string work = win ? "e:\\exdupe\\tmp" : "~/out/tmp"; // tests will read and write here, it must support symlinks
+string diff_tool = win ? root + "test\\diffexe\\diff.exe" : "diff";
 string bin = win ? "e:\\exdupe\\exdupe.exe" : "~/out/exdupe";
 
 // No need to edit
@@ -45,7 +45,7 @@ string in = p(tmp + "/in");
 string out = p(tmp + "/out");
 string full = p(tmp + "/full");
 string diff = p(tmp + "/diff");
-string testfiles = p(test + "/testfiles");
+string testfiles = p(root + "/test/testfiles");
 
 template<typename... Args> std::string conc(const Args&... args) {
     std::ostringstream oss;
