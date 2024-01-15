@@ -396,7 +396,7 @@ uint64_t seek_to_header(FILE *file, const string &header) {
     return orig;
 }
 
-uint64_t read_references(FILE *file, uint64_t base_payload) {
+uint64_t read_references(FILE *file) {
     uint64_t orig = seek_to_header(file, "REFERENC");
     uint64_t n = io.read_ui<uint64_t>(file);
     uint64_t added_payload = 0;
@@ -410,7 +410,7 @@ uint64_t read_references(FILE *file, uint64_t base_payload) {
         } else {
             ref.archive_offset = io.read_ui<uint64_t>(file);
         }
-        ref.payload = io.read_ui<uint64_t>(file) + base_payload;
+        ref.payload = io.read_ui<uint64_t>(file);
         ref.length = io.read_ui<uint32_t>(file);
 
         added_payload += ref.length;
@@ -1282,10 +1282,10 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
     }
 
     if (diff_flag) {
-        basepay = read_references(ffull, 0);
-        read_references(fdiff, basepay);
+        basepay = read_references(ffull);
+        read_references(fdiff);
     } else {
-        basepay = read_references(ffull, 0);
+        basepay = read_references(ffull);
     }
 
     uint64_t n = io.read_ui<uint64_t>(archive_file);
@@ -2100,7 +2100,7 @@ int main(int argc2, char *argv2[])
         read_header(ifile, full, BACKUP);
         decompress_sequential(s, true);
         assert(!diff_flag);
-        wrote_message(dup_counter_payload(), files);
+        wrote_message(io.write_count, files);
 
         // read remainder of file like content section, etc, to avoid error from OS
         vector<std::byte> tmp(32 * 1024, {});
@@ -2119,12 +2119,17 @@ int main(int argc2, char *argv2[])
             hashtable = malloc(memory_usage);
             memset(hashtable, 0, memory_usage);
             abort(!hashtable, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), dup_memory(bits) >> 20);
-            int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt);
+
+            // read size in bytes of user payload in .full file
+            pay_count = read_references(ifile);            
+
+            int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
             abort(r == 1, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), dup_memory(bits) >> 20);
             abort(r == 2, UNITXT("Error creating threads. This differential backup requires %d MB memory. Try -t1 flag"), dup_memory(bits) >> 20);
             read_hashtable(ifile);
+
             io.close(ifile);
-            dup_add(false);
+            dup_add(true);
 
         } else {
             output_file = full;
@@ -2132,7 +2137,7 @@ int main(int argc2, char *argv2[])
             hash_salt = rnd64();
             hashtable = tmalloc(memory_usage);
             abort(!hashtable, UNITXT("Out of memory. Reduce -m, -g or -t flag"));
-            int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt);
+            int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
             abort(r == 1, UNITXT("Out of memory. Reduce -m, -g or -t flag"));
             abort(r == 2, UNITXT("Error creating threads. Reduce -m, -g or -t flag"));
             dup_add(true);
@@ -2154,17 +2159,15 @@ int main(int argc2, char *argv2[])
                 abort(true, UNITXT("0 source files or directories"));
             }
         }
-        io.try_write("X", 1, ofile);
 
+        io.try_write("X", 1, ofile);
         write_contents(ofile);
 
         if (!diff_flag) {
             write_hashtable(ofile);
-            write_references(ofile);
-        } else {
-            write_references(ofile);
         }
-
+        
+        write_references(ofile);
         io.try_write("END", 3, ofile);
 
         uint64_t t = (GetTickCount() - start_time);

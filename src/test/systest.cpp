@@ -149,9 +149,10 @@ void ld(string from, string to) {
     }
 }
 
-void pick(string file) {
+void pick(string file, string dir = "") {
     file = testfiles + "/" + file;
-    cp(file, in);
+    std::filesystem::create_directories(p(in + "/" + dir));
+    cp(file, in + "/" + dir);
 }
 
 template<typename... Args> void ex(const Args&... args) {
@@ -191,6 +192,10 @@ bool cmp() {
     }
 }
 
+size_t siz(string file) {
+    return filesystem::file_size(p(file));
+}
+
 }
 
 TEST_CASE("simple backup, diff backup and restore") {
@@ -219,6 +224,35 @@ TEST_CASE("simple backup, diff backup and restore, restore destination doesn't e
     ex("-RD", full, diff, out);
     cmp();
 }
+
+
+TEST_CASE("duplicated data detcted within full backup") {
+    clean();
+    pick("high_entropy_a", "dir1"); // 65811 bytes
+    pick("high_entropy_a", "dir2");
+    ex("-m1x0",in, full);
+    CHECK(((siz(full) > 65811) && siz(full) < 76000));
+}
+
+TEST_CASE("duplicated data detected between full backup and diff backup") {
+    clean();
+    pick("high_entropy_a", "dir1"); // 65811 bytes
+    ex("-m1x0",in, full);
+    pick("high_entropy_a", "dir2"); // 65811 bytes
+    ex("-D", in, full, diff);
+    CHECK(((siz(diff) > 100) && siz(diff) < 8000));
+}
+
+TEST_CASE("duplicated data detected within diff backup") {
+    clean();
+    pick("a");
+    ex("-m1x0",in, full);
+    pick("high_entropy_a", "dir1"); // 65811 bytes
+    pick("high_entropy_a", "dir2");
+    ex("-D", in, full, diff);
+    CHECK(((siz(diff) > 65811) && siz(diff) < 76000));
+}
+
 
 TEST_CASE("symlink to dir") {
     clean();

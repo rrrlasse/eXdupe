@@ -814,12 +814,16 @@ uint64_t dup_memory(uint64_t bits) {
     return 2 * t * ((uint64_t)1 << bits);
 }
 
-int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_count, void *space, int compression_level, bool crypto_hash, uint64_t hash_seed) {
+int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_count, void *space, int compression_level, bool crypto_hash, uint64_t hash_seed, uint64_t basepay) {
     // FIXME: The dup() function contains a stack allocated array ("tmp") of 8
     // KB that must be able to fit LARGE_BLOCK / SMALL_BLOCK * SHA_SIZE bytes.
     // Find a better solution. alloca() causes sporadic crash in VC for inlined
     // functions.
     assert(large_block <= 512 * 1024);
+
+    count_payload = 0;
+    global_payload = basepay;
+    flushed = global_payload;
 
     g_crypto_hash = crypto_hash;
     g_hash_salt = hash_seed;
@@ -854,10 +858,6 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
     table = (hash_t(*)[2])space;
 
     memset(space, 0, mem);
-
-    global_payload = 0;
-    flushed = 0;
-    count_payload = 0;
 
     for (int i = 0; i < THREADS; i++) {
         pthread_mutex_init(&jobs[i].jobmutex, NULL);
