@@ -23,5 +23,6 @@ Try the latest development version (backwards compatibility broken often) that *
 <br>&nbsp;&nbsp;[exdupe_1.1.0.dev24_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe_1.1.0.dev24_linux_amd64.tar.gz)
 
 Or get the stable version:
-<br>&nbsp;&nbsp;[1.0.0](https://github.com/rrrlasse/eXdupe/releases/tag/v1.0.0)
+
+&nbsp;&nbsp;[1.0.0](https://github.com/rrrlasse/eXdupe/releases/tag/v1.0.0)
 <br><img src="https://github.com/rrrlasse/exdupe/blob/stuff/cmd.webp" width="90%">
