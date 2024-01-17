@@ -1012,7 +1012,8 @@ Flags:
 -s"x" Use Volume Shadow Copy Service for local drive x: (Windows only)
 -u"s" Filter files using a script, s, written in the Lua language. See more
       with -u? flag.
-  -z  Use slower cryptographic hash BLAKE3. Default is xxHash128  
+  -z  Use slower cryptographic hash BLAKE3. Default is xxHash128
+ -vn  Verbosity n (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
 
 Example of backup, differential backups and restore:
   exdupe my_dir backup.full
@@ -1053,7 +1054,7 @@ Most common flags:
    -- Prefix items in the <sources> list with "--" to skip them
 
 Example:
-  exdupe my_files_dir backup.full
+  exdupe backup_dir backup.full
   exdupe -R backup.full restore_dir)";
 
     for (auto &a : {&long_help, &short_help}) {
@@ -1065,7 +1066,7 @@ Example:
 }
 
 void print_lua_help() {
-    std::string lua_help = R"del(You can provide a LUA script that gets called for each item during backup:
+    std::string lua_help = R"del(You can provide a Lua script that gets called for each item during backup:
   exdupe -u"return true" . backup.full
 
 If the script returns true the item will be added, else it will be skipped.
@@ -1088,8 +1089,8 @@ that string and path comparing is case sensitive.
 Examples:
   -v0 -u"print('added ' .. path .. ': ' .. size); return true"
   -v3 -u"return ext ~= 'tmp' and not FILE_ATTRIBUTE_TEMPORARY"
-  -v3 -u"return year > 2023"
-  -v3 -u"return utf8.lower(ext) == 'cpp'")del";
+  -v3 -u"return year >= 2024"
+  -v3 -u"return utf8.lower(ext) == 'txt'")del";
     statusbar.print(0, tostring(lua_help).c_str());
 }
 
