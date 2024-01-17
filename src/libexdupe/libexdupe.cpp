@@ -423,20 +423,25 @@ int dup_decompress_hashtable(size_t len) {
 
 static uint64_t entry(uint64_t window) { return window % HASH_ENTRIES; }
 
-static uint32_t quick(const unsigned char *src, size_t len) {
-    uint32_t r1 = *reinterpret_cast<const uint8_t *>(src);
-    r1 ^= *reinterpret_cast<const uint8_t *>(src + len - 4);
-    r1 ^= *reinterpret_cast<const uint8_t *>(src + len / 8 * 1);
+static uint32_t quick(unsigned char init1, unsigned char init2, unsigned char init3, unsigned char init4, const unsigned char *src, size_t len) {
+    uint32_t r1 = init1;
+    r1 += *reinterpret_cast<const uint8_t *>(src);
+    r1 += *reinterpret_cast<const uint8_t *>(src + len - 4);
 
-    uint32_t r2 = *reinterpret_cast<const uint8_t *>(src + len / 8 * 2);
-    r2 ^= *reinterpret_cast<const uint8_t *>(src + len / 8 * 3);
-    r2 ^= *reinterpret_cast<const uint8_t *>(src + len / 8 * 4);
+    uint32_t r2 = init2;
+    r2 += *reinterpret_cast<const uint8_t *>(src + len / 8 * 2);
+    r2 += *reinterpret_cast<const uint8_t *>(src + len / 8 * 3);
 
-    uint32_t r3 = *reinterpret_cast<const uint8_t *>(src + len / 8 * 5);
-    r3 ^= *reinterpret_cast<const uint8_t *>(src + len / 8 * 6);
-    r3 ^= *reinterpret_cast<const uint8_t *>(src + len / 8 * 7);
+    uint32_t r3 = init3;
+    r3 += *reinterpret_cast<const uint8_t *>(src + len / 8 * 4);
+    r3 += *reinterpret_cast<const uint8_t *>(src + len / 8 * 5);
 
-    return r1 ^ (r2 << 8) ^ (r3 << 16);
+    uint32_t r4 = init4;
+    r4 += *reinterpret_cast<const uint8_t *>(src + len / 8 * 6);
+    r4 += *reinterpret_cast<const uint8_t *>(src + len / 8 * 7);
+
+    // No need to mix upper bits because we modulo HASH_ENTRIES which is "odd"
+    return r1 ^ (r2 << 8) ^ (r3 << 16) ^ (r4 << 24);
 }
 
 static uint32_t window(const unsigned char *src, size_t len, const unsigned char **pos) {
@@ -446,8 +451,10 @@ static uint32_t window(const unsigned char *src, size_t len, const unsigned char
     int8_t b = static_cast<int8_t>(len > 8 * 1024 ? 1 : (8 * 1024) / len);
     // len  1k  2k  4k   8k  128k  256k
     //   b   8   4   2    1     1     1
+    size_t p20 = 20 * percent;
+    size_t p80 = 80 * percent;
 
-    uint64_t position = static_cast<size_t>(-1);
+    uint64_t match = static_cast<size_t>(-1);
     b = -128 + b;
 #if 0
 	for (i = 0; i + 32 < slide; i += 32) {
@@ -464,7 +471,7 @@ static uint32_t window(const unsigned char *src, size_t len, const unsigned char
 #else
 			auto off = __builtin_ctz(static_cast<unsigned>(~larger));
 #endif
-			position = i + off;
+			match = i + off;
 			break;
 		}
 	}
@@ -473,8 +480,8 @@ static uint32_t window(const unsigned char *src, size_t len, const unsigned char
 
     for (i = 0; i + 16 < slide; i += 16) {
         __m128i src1 = _mm_loadu_si128((__m128i *)(&src[i]));
-        __m128i src2 = _mm_loadu_si128((__m128i *)(&src[i + 20 * percent]));
-        __m128i src3 = _mm_loadu_si128((__m128i *)(&src[i + 80 * percent]));
+        __m128i src2 = _mm_loadu_si128((__m128i *)(&src[i + p20]));
+        __m128i src3 = _mm_loadu_si128((__m128i *)(&src[i + p80]));
         __m128i src4 = _mm_loadu_si128((__m128i *)(&src[i + len - slide - 4]));
         __m128i sum = _mm_add_epi8(_mm_add_epi8(src1, src2), _mm_add_epi8(src3, src4));
         __m128i comparison = _mm_cmpgt_epi8(sum, _mm_set1_epi8(b - 1));
@@ -485,32 +492,32 @@ static uint32_t window(const unsigned char *src, size_t len, const unsigned char
 #else
             auto off = __builtin_ctz(static_cast<unsigned>(~larger));
 #endif
-            position = i + off;
+            match = i + off;
             break;
         }
     }
 
 #endif
 
-    if (position == static_cast<uint64_t>(-1)) {
+    if (match == static_cast<uint64_t>(-1)) {
         for (; i < slide; i += 1) {
-            signed char h = static_cast<unsigned char>(src[i] + src[i + 20 * percent] + src[i + 80 * percent] + src[i + len - slide - 4]);
+            signed char h = static_cast<unsigned char>(src[i] + src[i + p20] + src[i + p80] + src[i + len - slide - 4]);
             if (h < b) {
-                position = i;
+                match = i;
                 break;
             }
         }
     }
 
-    if (position == static_cast<uint64_t>(-1)) {
-        position = slide;
+    if (match == static_cast<uint64_t>(-1)) {
+        match = slide;
     }
 
     if (pos != 0) {
-        *pos = (unsigned char *)src + position;
+        *pos = (unsigned char *)src + match;
     }
 
-    return quick((unsigned char *)src + position, len - slide - 8);
+    return quick(src[match], src[match + p20], src[match + p80], src[match + len - slide - 4], (unsigned char *)src + match, len - slide - 8);
 }
 
 // there must be LARGE_BLOCK more valid data after src + len
