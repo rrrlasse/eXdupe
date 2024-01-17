@@ -810,7 +810,7 @@ void parse_flags(void) {
                     return false;
                 }
                 string f = regx(flagsS, letter + "\\d+");
-                abort(f == "", UNITXT("Invalid value for -%s flag"), letter.c_str());
+                abort(f == "", UNITXT("-%s flag must be an integer"), letter.c_str());
                 int i = atoi(f.substr(1).c_str());
                 flag_ref = i;
                 return true;
@@ -825,24 +825,23 @@ void parse_flags(void) {
             }
 
             if (set_int_flag(gigabyte_flag, "g")) {
-                if ((gigabyte_flag & (gigabyte_flag - 1)) == 0) {
+                if (gigabyte_flag > 0) {
                     memory_usage = gigabyte_flag * G;
                 } else {
-                    // todo, this no longer has to be a requirement
-                    abort(true, UNITXT("-g flag value must be a power of 2 (-g1, -g2, -g4, -g8, -g16, ...)"));
+                    abort(true, UNITXT("Invalid -g flag value"));
                 }
             }
 
             if (set_int_flag(megabyte_flag, "m")) {
-                if ((megabyte_flag & (megabyte_flag - 1)) == 0) {
+                if (megabyte_flag > 0) {
                     memory_usage = megabyte_flag * M;
                 } else {
-                    abort(true, UNITXT("-m flag value must be a power of 2 (-m32, -m64, -m128, -m256, -m512, ...)"));
+                    abort(true, UNITXT("Invalid -m flag value"));
                 }
             }
 
             if (set_int_flag(verbose_level, "v")) {
-                abort(verbose_level < 0 || verbose_level > 9, UNITXT("-v flag value must be 0...9"));
+                abort(verbose_level < 0 || verbose_level > 9, UNITXT("-v flag value must be 0...3"));
             }
 
             if (set_int_flag(compression_level, "x")) {
@@ -1954,14 +1953,6 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
     }
 }
 
-uint32_t max_bits(uint64_t max_memory) {
-    int n = 0;
-    while (dup_memory(n) <= max_memory) {
-        n++;
-    }
-    return n - 1;
-}
-
 
 void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt) {
     if (s == BACKUP) {
@@ -2059,7 +2050,6 @@ int main(int argc2, char *argv2[])
         return 0;
     }
 
-    bits = max_bits(memory_usage);
     create_shadows();
     parse_files(); // sets "directory"
 
@@ -2117,17 +2107,15 @@ int main(int argc2, char *argv2[])
             ifile = try_open(full, 'r', true);
             memory_usage = read_header(ifile, full, BACKUP); // also inits hash_salt
             hashtable = malloc(memory_usage);
+            abort(!hashtable, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), memory_usage >> 20);
             memset(hashtable, 0, memory_usage);
-            abort(!hashtable, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), dup_memory(bits) >> 20);
-
-            // read size in bytes of user payload in .full file
-            pay_count = read_references(ifile);            
+            pay_count = read_references(ifile); // read size in bytes of user payload in .full file  
 
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
-            abort(r == 1, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), dup_memory(bits) >> 20);
-            abort(r == 2, UNITXT("Error creating threads. This differential backup requires %d MB memory. Try -t1 flag"), dup_memory(bits) >> 20);
-            read_hashtable(ifile);
+            abort(r == 1, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), memory_usage >> 20);
+            abort(r == 2, UNITXT("Error creating threads. This differential backup requires %d MB memory. Try -t1 flag"), memory_usage >> 20);
 
+            read_hashtable(ifile);
             io.close(ifile);
             dup_add(true);
 

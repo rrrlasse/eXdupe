@@ -809,10 +809,6 @@ static void *compress_thread(void *arg) {
     return 0;
 }
 
-uint64_t dup_memory(uint64_t bits) {
-    uint64_t t = sizeof(hash_t);
-    return 2 * t * ((uint64_t)1 << bits);
-}
 
 int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_count, void *space, int compression_level, bool crypto_hash, uint64_t hash_seed, uint64_t basepay) {
     // FIXME: The dup() function contains a stack allocated array ("tmp") of 8
