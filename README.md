@@ -19,10 +19,10 @@ Identical data blocks as small as 4 KB are being searched at byte grannularity p
 
 Try the latest development version (backwards compatibility broken often) that *doubles* the speed and improves compression ratio:
 
-&nbsp;&nbsp;[exdupe24.exe](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe24.exe)
-<br>&nbsp;&nbsp;[exdupe_1.1.0.dev24_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe_1.1.0.dev24_linux_amd64.tar.gz)
+&nbsp;&nbsp;&nbsp;[exdupe25.exe](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe25.exe)
+<br>&nbsp;&nbsp;&nbsp;[exdupe25_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe25_linux_amd64.tar.gz)
 
 Or get the stable version:
 
-&nbsp;&nbsp;[1.0.0](https://github.com/rrrlasse/eXdupe/releases/tag/v1.0.0)
+&nbsp;&nbsp;&nbsp;[1.0.0](https://github.com/rrrlasse/eXdupe/releases/tag/v1.0.0)
 <br><img src="https://github.com/rrrlasse/exdupe/blob/stuff/cmd.webp" width="90%">
