@@ -1,14 +1,12 @@
 New in version 1.1.0:
 ----------------------------------------------------------------------------------------------
  * Concatenates small files into 1 MB chunks to increase compression ratio (i.e. "solid archive")
- * Started using boost::ut
- * Now using clang format
- * Now using CMake
+ * Now also finds duplicated data within the same differential backup 
  * Added support for long (> 260 chars) file paths on Windows
  * Improved speed of the CRC check that is always performed on all user payload
  * Removed QuickLZ, zlib and bzip2. Added zstd.
  * Switched hash function from Skein to xxHash128 and (optionally) cryptographic BLAKE3
- * Reduced hash entries from 40 to 28 bytes each for better deduplication with same memory usage
+ * Reduced hash entries from 40 to 26 bytes each for better deduplication with same memory usage
  * New single-line status line that won't scroll the screen
  * Rewrote the inner loop for major speedup
  * Rewrote and simplified threading so that also files < 128 KB are processed in parallel
