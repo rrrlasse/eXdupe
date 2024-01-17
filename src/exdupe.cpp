@@ -386,11 +386,11 @@ uint64_t seek_to_header(FILE *file, const string &header) {
     io.seek(file, -3, SEEK_END);
 
     while (h != header) {
-        abort(io.seek(file, -8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), header.c_str());
+        abort(io.seek(file, -8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), s2w(header).c_str());
         s = io.read_ui<uint64_t>(file);
-        abort(io.seek(file, -8 - s - 8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), header.c_str());
+        abort(io.seek(file, -8 - s - 8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), s2w(header).c_str());
         h = io.try_read(8, file);
-        abort(io.seek(file, -8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), header.c_str());
+        abort(io.seek(file, -8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), s2w(header).c_str());
     }
     io.seek(file, 8, SEEK_CUR);
     return orig;
