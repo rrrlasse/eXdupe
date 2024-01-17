@@ -1082,8 +1082,8 @@ You can reference following variables:
   time:    Last modified time as os.date object. You can also reference these
            integer variables: year, month, day, time, hour, min, sec
 
-For string operations you must use "utf8." and not "string.". Warning:
-utf8.upper() and utf8.lower() will only change ASCII characters. Also note
+Warning: string.upper() and string.lower() will only change ASCII characters,
+and some characters like asian and symbols are not well supported. Also note
 that string and path comparing is case sensitive.
 
 Examples:

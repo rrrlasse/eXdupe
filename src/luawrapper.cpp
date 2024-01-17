@@ -1187,22 +1187,22 @@ local function utf8gsub(str, regex, repl, limit)
 end
 
 local utf8 = {}                                                                                             
-utf8.len = utf8len
-utf8.sub = utf8sub
-utf8.reverse = utf8reverse
-utf8.char = utf8char
-utf8.unicode = utf8unicode
-utf8.gensub = utf8gensub
-utf8.byte = utf8unicode
-utf8.find    = utf8find
-utf8.match   = utf8match
-utf8.gmatch  = utf8gmatch
-utf8.gsub    = utf8gsub  
-utf8.dump    = dump  
-utf8.format = format 
-utf8.lower = lower      
-utf8.upper = upper      
-utf8.rep     = rep
+string.len = utf8len
+string.sub = utf8sub
+string.reverse = utf8reverse
+string.char = utf8char
+string.unicode = utf8unicode
+string.gensub = utf8gensub
+string.byte = utf8unicode
+string.find    = utf8find
+string.match   = utf8match
+string.gmatch  = utf8gmatch
+string.gsub    = utf8gsub  
+string.dump    = dump  
+string.format = format 
+string.lower = lower      
+string.upper = upper      
+string.rep     = rep
 )delimiter");
 
     return str;
