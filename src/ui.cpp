@@ -15,7 +15,8 @@ void Statusbar::clear_line() {
     m_os << UNITXT("\r") << blank_line << UNITXT("\r"); 
 };
 
-void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING path, bool no_delay) {
+// If is_message, then treat path as a status message and don't prepend a path to it
+void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING path, bool no_delay, bool is_message) {
     if (m_verbose_level < 1 || path.size() == 0) {
         return;
     }
@@ -24,18 +25,19 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
     bool v3 = m_verbose_level == 3;
     size_t maxpath = size_t(-1);
 
-    bool can_resolve = abs_path(path).size() > 0;
+    if(!is_message) {
+        bool can_resolve = abs_path(path).size() > 0;
 
-    if (can_resolve && path != UNITXT("-stdin") && path != UNITXT("-stdout")) {
-        path = abs_path(path);
+        if (can_resolve && path != UNITXT("-stdin") && path != UNITXT("-stdout")) {
+            path = abs_path(path);
+        }
+
+        if (!v3 && can_resolve) {
+            path = path.substr(m_base_dir.size());
+            path = remove_delimitor(path);
+            path = remove_leading_delimitor(path);
+        }
     }
-
-    if (!v3 && can_resolve) {
-        path = path.substr(m_base_dir.size());
-        path = remove_delimitor(path);
-        path = remove_leading_delimitor(path);
-    }
-
     uint64_t f = GetTickCount() - m_last_file_print;
 
     if ((no_delay || f >= 1000) || v3) {
@@ -55,7 +57,7 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
             if (v3 && m_lastpath != path) {
                 m_lastpath = path;
                 line += path;
-                m_os << UNITXT("  ") << path << UNITXT("\n");
+                m_os << (is_message ? UNITXT("") : UNITXT("  ")) << path << UNITXT("\n");
             } else if (!v3) {
                 clear_line();
                 if (path.size() > maxpath) {

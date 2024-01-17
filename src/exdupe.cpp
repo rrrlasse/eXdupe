@@ -596,7 +596,7 @@ uint64_t read_hashtable(FILE *file) {
     uint64_t s = io.read_ui<uint64_t>(file);
     if (verbose_level > 0) {
         statusbar.clear_line();
-        statusbar.print(1, UNITXT("Reading %s MB of meta data from .full file...\r"), s2w(format_size(s)).c_str());
+        statusbar.update(BACKUP, 0, 0, (STRING() + UNITXT("Reading meta data from full backup...\r")).c_str(), false, true);
     }
     io.try_read_buf(hashtable, s, file);
     io.seek(file, orig, SEEK_SET);
