@@ -1,4 +1,7 @@
-﻿#include <chrono>
+﻿
+#pragma execution_character_set("utf-8")
+
+#include <chrono>
 #include <thread>
 #include <array>
 #include <iostream>
@@ -13,15 +16,28 @@
 #include <Windows.h>
 #include <shellapi.h>
 #include <shlobj_core.h>
+#else
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <wordexp.h>
 #endif
 
 #include "catch.hpp"
+
+#include <iostream>
+#include <locale>
+#include <codecvt>
+#include <string>
 
 using namespace std;
 
 namespace {
 
 string p(string path);
+
+#include <iostream>
+#include <filesystem>
 
 #ifdef _WIN32
 string nul = "2>NUL";
@@ -36,7 +52,6 @@ string nul = "2>/dev/null";
 // Please customize
 string root = win ? "e:\\exdupe" : "/mnt/hgfs/E/eXdupe"; // the dir that contains README.md
 string work = win ? "e:\\exdupe\\tmp" : "~/out/tmp"; // tests will read and write here, it must support symlinks
-string diff_tool = win ? root + "test\\diffexe\\diff.exe" : "diff";
 string bin = win ? "e:\\exdupe\\exdupe.exe" : "~/out/exdupe";
 
 // No need to edit
@@ -46,6 +61,7 @@ string out = p(tmp + "/out");
 string full = p(tmp + "/full");
 string diff = p(tmp + "/diff");
 string testfiles = p(root + "/test/testfiles");
+string diff_tool = win ? root + "test\\diffexe\\diff.exe" : "diff";
 
 template<typename... Args> std::string conc(const Args&... args) {
     std::ostringstream oss;
@@ -56,10 +72,28 @@ template<typename... Args> std::string conc(const Args&... args) {
 }
 
 template<typename... Args> std::string sys(const Args&... args) {
+#ifdef _WIN32
+    auto utf8w = [](std::string utf8str) {
+        std::locale utf8_locale(std::locale(), new std::codecvt_utf8<wchar_t>);
+        std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+        return converter.from_bytes(utf8str);
+    };
+    std::array<char, 128> buffer;
+    std::string result;
+    string cmd2 = conc(args...);
+    wstring cmd = utf8w(cmd2);
+    std::unique_ptr<FILE, decltype(&_pclose)> pipe(_wpopen(wstring(cmd.begin(), cmd.end()).c_str(), L"r"), _pclose);
+    if (!pipe) {
+        throw std::runtime_error("popen() failed!");
+    }
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return result;
+#else
     std::string result;
     char buffer[128];
     string cmd = conc(args...);
-     //   cerr << "[" << cmd << "]\n";
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) {
         throw "Error executing command (at popen())";
@@ -71,6 +105,7 @@ template<typename... Args> std::string sys(const Args&... args) {
         throw "Error executing command (at pclose())";
     }
     return result;
+#endif
 }
 
 string p(string path) {
@@ -80,15 +115,23 @@ string p(string path) {
     else {
         std::ranges::replace(path, '\\', '/');    
     }
+
+#ifndef _WIN32
+    // resolve ~
+    wordexp_t expResult;
+    wordexp(path.c_str(), &expResult, 0);
+    std::filesystem::path resolvedPath(expResult.we_wordv[0]);
+    wordfree(&expResult);
+    path = resolvedPath.string();
+#endif
     return path;
 }
 
 void rm(string path) {
+    REQUIRE(path.find("tmp") != string::npos);
     path = p(path);
     if(win) {
-        // filesystem::is_link() does not work for broken link to directory, so
-        // we cannot check what to delete and what command to use
-        sys("rmdir /q/s", path, nul);
+        sys("rmdir /q/s", path, nul); // fs::is_link() doesn't work for broken link to directory
         sys("del", path, nul);
     }
     else {
@@ -109,7 +152,7 @@ void clean() {
 }
 
 void md(string dir) {
-    sys("mkdir", p(dir));    
+    std::filesystem::create_directories(dir);
 }
 
 bool can_create_links() {
@@ -192,10 +235,18 @@ bool cmp() {
     }
 }
 
-size_t siz(string file) {
-    return filesystem::file_size(p(file));
+size_t siz(string file) {   
+    return filesystem::file_size(file);
 }
 
+void all_types() {
+    md(in + "/d"); // dir
+    pick("a"); // file
+    lf(in + "/link_to_a", in + "/a"); // link to file
+    ld(in + "/link_to_d", in + "/d"); // link to dir
+    lf(in + "/link_to_missing_file", in + "/missing_file"); // broken link to file  
+    ld(in + "/link_to_missing_dir", in + "/missing_dir"); // broken link to dir
+}
 }
 
 TEST_CASE("simple backup, diff backup and restore") {
@@ -211,17 +262,72 @@ TEST_CASE("simple backup, diff backup and restore") {
     cmp();
 }
 
-TEST_CASE("simple backup, diff backup and restore, restore destination doesn't exist") {
+TEST_CASE("destination dirctory doesn't exist") {
     clean();
     pick("a");
     ex("-m1",in, full);
     rm(out);
     ex("-R", full, out);
     cmp();
-
     ex("-D", in, full, diff);
     rm(out);
     ex("-RD", full, diff, out);
+    cmp();
+}
+
+TEST_CASE("unicode") {
+    clean();
+    
+    // todo, test many more unicode sections
+    SECTION("latin") {
+        pick("æøåäöüßéèáéíóúüñ");
+    }
+
+    SECTION("hanja") {
+        pick("운일암반계곡");
+    }
+
+    ex("-m1",in, full);
+    ex("-R", full, out);
+    cmp();
+}
+
+TEST_CASE("lua all or none") {
+    clean();
+    all_types();
+    pick("æøåäöüßéèáéíóúüñ");
+
+    SECTION("all") {
+        ex("-m1 -u\"return true\"", in, full);
+    }
+    SECTION("none") {
+        ex("-m1 -u\"return false\"", in, full);
+    }
+
+    ex("-R", full, out);
+    cmp();
+}
+
+TEST_CASE("lua types") {
+    clean();
+    all_types();
+    
+    SECTION("add only dir") {
+        rm(in);
+        md(in);
+        md(in + "/d");
+        ex("-m1 -u\"return is_dir\"", in, full);
+    }
+    SECTION("add only file") {
+        rm(in);
+        md(in);
+        pick("a");
+        ex("-m1 -u\"return is_file\"", in, full);
+    }
+
+    // todo, links
+
+    ex("-R", full, out);
     cmp();
 }
 
@@ -290,14 +396,11 @@ TEST_CASE("broken symlink to file") {
 
 TEST_CASE("timestamps") {
     clean();
-    // Must restore timestamp for various kinds of things:
-    md(in + "/d"); // dir
-    ld(in + "/link_to_d", in + "/d"); // link to dir
-    ld(in + "/link_to_missing_dir", in + "/missing_dir"); // broken link to dir
-    pick("a");
-    lf(in + "/link_to_a", in + "/a"); // link to file
-    lf(in + "/link_to_missing_file", in + "/missing_file"); // broken link to file
-    ex("-cv3", in, full);
+    all_types();
+    ex("-m1", in, full);
     ex("-R", full, out);
     cmp();
 }
+
+
+
