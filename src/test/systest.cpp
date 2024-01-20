@@ -49,19 +49,19 @@ bool win = false;
 string nul = "2>/dev/null";
 #endif
 
-// Please customize
-string root = win ? "e:\\exdupe" : "/mnt/hgfs/E/eXdupe"; // the dir that contains README.md
-string work = win ? "e:\\exdupe\\tmp" : "~/out/tmp"; // tests will read and write here, it must support symlinks
-string bin = win ? "e:\\exdupe\\exdupe.exe" : "~/out/exdupe";
+// Please customize, use "/" for path delimitors on Windows
+string root = win ? "e:/exdupe" : "/mnt/hgfs/E/eXdupe"; // the dir that contains README.md
+string work = win ? "e:/exdupe/tmp" : "~/out/tmp"; // tests will read and write here, it must support symlinks
+string bin = win ? "e:/exdupe/exdupe.exe" : "~/out/exdupe";
 
 // No need to edit
-string tmp = p(work + "/tmp");
-string in = p(tmp + "/in");
-string out = p(tmp + "/out");
-string full = p(tmp + "/full");
-string diff = p(tmp + "/diff");
-string testfiles = p(root + "/test/testfiles");
-string diff_tool = win ? root + "test\\diffexe\\diff.exe" : "diff";
+string tmp = work + "/tmp";
+string in = tmp + "/in";
+string out = tmp + "/out";
+string full = tmp + "/full";
+string diff = tmp + "/diff";
+string testfiles = root + "/test/testfiles";
+string diff_tool = win ? root + "/test/diffexe/diff.exe" : "diff";
 
 template<typename... Args> std::string conc(const Args&... args) {
     std::ostringstream oss;
@@ -112,10 +112,6 @@ string p(string path) {
     if(win) {
         std::ranges::replace(path, '/', '\\');
     }
-    else {
-        std::ranges::replace(path, '\\', '/');    
-    }
-
 #ifndef _WIN32
     // resolve ~
     wordexp_t expResult;
@@ -128,10 +124,12 @@ string p(string path) {
 }
 
 void rm(string path) {
-    REQUIRE(path.find("tmp") != string::npos);
+    REQUIRE(path.starts_with(work));
     path = p(path);
+    REQUIRE((path.find("/tmp/") != string::npos || path.find("\\tmp\\") != string::npos));
     if(win) {
-        sys("rmdir /q/s", path, nul); // fs::is_link() doesn't work for broken link to directory
+        // fs::is_link() doesn't work for broken link to directory
+        sys("rmdir /q/s", path, nul); 
         sys("del", path, nul);
     }
     else {
@@ -152,14 +150,14 @@ void clean() {
 }
 
 void md(string dir) {
-    std::filesystem::create_directories(dir);
+    std::filesystem::create_directories(p(dir));
 }
 
 bool can_create_links() {
 #ifdef _WIN32
     bool b = IsUserAnAdmin();
     if(!b) {
-        cerr << "Cannot create symlink. Please run Visual Studio or Command Prompt as Administrator\n";
+        cerr << "*** Cannot create symlink. Please run Visual Studio or Command Prompt as Administrator ***\n";
         CHECK(false);
     }
     return b;
@@ -199,7 +197,7 @@ void pick(string file, string dir = "") {
 }
 
 template<typename... Args> void ex(const Args&... args) {
-    sys(bin, conc(args...));
+    sys(p(bin), conc(args...));
 }
 
 bool cmp_diff() {
@@ -209,8 +207,8 @@ bool cmp_diff() {
 
 // On Windows: Tells <SYMLINK> vs <SYMLINKD> and timestamp, which "diff" does not look at
 bool cmp_ls() {
-    string ls_in = sys(win ? "dir /s" : "ls -l", in);
-    string ls_out = sys(win ? "dir /s" : "ls -l", out);
+    string ls_in = sys(win ? "dir /s" : "ls -l", p(in));
+    string ls_out = sys(win ? "dir /s" : "ls -l", p(out));
 
     if(win) {
         std::regex freeRegex(R"(.* Directory of.*)");
@@ -227,16 +225,19 @@ bool cmp_ls() {
 }
 
 bool cmp() {
+    bool ret;
     if(win) {
-        return cmp_diff() && cmp_ls();
+        ret = cmp_diff() && cmp_ls();
     }
     else {
-        return cmp_diff();    
+        ret = cmp_diff();
     }
+    CHECK(ret);
+    return ret;
 }
 
 size_t siz(string file) {   
-    return filesystem::file_size(file);
+    return filesystem::file_size(p(file));
 }
 
 void all_types() {
@@ -301,10 +302,12 @@ TEST_CASE("lua all or none") {
         ex("-m1 -u\"return true\"", in, full);
     }
     SECTION("none") {
+        // no full file created, so we expect restore to fail
         ex("-m1 -u\"return false\"", in, full);
+        rm(in);
     }
 
-    ex("-R", full, out);
+    ex("-R", full, out); 
     cmp();
 }
 
@@ -331,34 +334,34 @@ TEST_CASE("lua types") {
     cmp();
 }
 
-
-TEST_CASE("duplicated data detcted within full backup") {
+TEST_CASE("deduplication") {
     clean();
-    pick("high_entropy_a", "dir1"); // 65811 bytes
-    pick("high_entropy_a", "dir2");
-    ex("-m1x0",in, full);
-    CHECK(((siz(full) > 65811) && siz(full) < 76000));
-}
+    auto i = GENERATE("", "-h");
 
-TEST_CASE("duplicated data detected between full backup and diff backup") {
-    clean();
-    pick("high_entropy_a", "dir1"); // 65811 bytes
-    ex("-m1x0",in, full);
-    pick("high_entropy_a", "dir2"); // 65811 bytes
-    ex("-D", in, full, diff);
-    CHECK(((siz(diff) > 100) && siz(diff) < 8000));
-}
+    SECTION("duplicated data detcted within full backup") {
+        pick("high_entropy_a", "dir1"); // 65811 bytes
+        pick("high_entropy_a", "dir2");
+        ex("-m1x0", string(i), in, full);
+        CHECK(((siz(full) > 65811) && siz(full) < 76000));
+    }
 
-TEST_CASE("duplicated data detected within diff backup") {
-    clean();
-    pick("a");
-    ex("-m1x0",in, full);
-    pick("high_entropy_a", "dir1"); // 65811 bytes
-    pick("high_entropy_a", "dir2");
-    ex("-D", in, full, diff);
-    CHECK(((siz(diff) > 65811) && siz(diff) < 76000));
-}
+    SECTION("duplicated data detected between full backup and diff backup") {
+        pick("high_entropy_a", "dir1"); // 65811 bytes
+        ex("-m1x0",in, full);
+        pick("high_entropy_a", "dir2"); // 65811 bytes
+        ex("-D", in, full, diff);
+        CHECK(((siz(diff) > 100) && siz(diff) < 8000));
+    }
 
+    SECTION("duplicated data detected within diff backup") {
+        pick("a");
+        ex("-m1x0",in, full);
+        pick("high_entropy_a", "dir1"); // 65811 bytes
+        pick("high_entropy_a", "dir2");
+        ex("-D", in, full, diff);
+        CHECK(((siz(diff) > 65811) && siz(diff) < 76000));
+    }
+}
 
 TEST_CASE("symlink to dir") {
     clean();
@@ -402,5 +405,40 @@ TEST_CASE("timestamps") {
     cmp();
 }
 
+TEST_CASE("restore from stdin by redirection") {
+    clean();
+    pick("a");
+    ex("-m1", in, full);
+    ex("-R", "-stdin", out, "<", full);
+    cmp();
+}
 
+TEST_CASE("restore from stdin by pipe") {
+    clean();
+    pick("a");
+    ex("-m1", in, "-stdout", "|", p(bin), "-R -stdin", out);
+    cmp();
+}
 
+TEST_CASE("compress from stdin by redirection") {
+    clean();
+    pick("a");
+    ex("-m1", "-stdin", "a", full, "<", p(in + "/a"));
+    ex("-R", full, out);
+    cmp();
+}
+
+TEST_CASE("compress from stdin by pipe") {
+    clean();
+    pick("a");   
+    sys(win ? "type" : "cat", p(in + "/a"), "|", p(bin), "-m1", "-stdin", "a", full);
+    ex("-R", full, out);
+    cmp();
+}
+
+TEST_CASE("compress from stdin and restorre to stdout") {
+    clean();
+    pick("a");
+    ex("-m1", "-stdin", "a", "-stdout", "<", p(in + "/a"), ">", p(out + "/a"));
+    cmp_diff(); // timestamp cannot match
+}
