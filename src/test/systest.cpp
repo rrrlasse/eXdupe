@@ -124,7 +124,6 @@ string p(string path) {
 }
 
 void rm(string path) {
-    REQUIRE(path.starts_with(work));
     path = p(path);
     REQUIRE((path.find("/tmp/") != string::npos || path.find("\\tmp\\") != string::npos));
     if(win) {
@@ -249,6 +248,49 @@ void all_types() {
     ld(in + "/link_to_missing_dir", in + "/missing_dir"); // broken link to dir
 }
 }
+
+TEST_CASE("skip item prefixed with -- as relative path") {   
+    auto skip = GENERATE("a", "d", "link_to_a", "link_to_d", "link_to_missing_file", "link_to_missing_dir");
+    SECTION("") {
+        clean();
+        all_types();
+        string path = p(in + "/" + skip);
+        ex("-m1", "--" + path, in, full);
+        ex("-R", full, out);
+        rm(path);
+    }
+    cmp();
+}
+
+TEST_CASE("skip item prefixed with -- as absolute path") {
+    auto skip = GENERATE("a", "d", "link_to_a", "link_to_d", "link_to_missing_file", "link_to_missing_dir");
+    SECTION("") {
+        clean();
+        all_types();
+        string path = p(in + "/" + skip);
+        path = std::filesystem::absolute(path).string();
+        ex("-m1", "--" + path, in, full);
+        ex("-R", full, out);
+        rm(path);
+    }
+    cmp();
+}
+
+#ifdef _WIN32
+TEST_CASE("skip item prefixed with -- in different case") {   
+    auto skip = GENERATE("A", "D", "Link_to_a", "Link_to_d", "Link_to_missing_file", "Link_to_missing_dir");
+    SECTION("") {
+        clean();
+        all_types();
+        string path = p(in + "/" + skip);
+        path = std::filesystem::absolute(path).string();
+        ex("-m1", "--" + path, in, full);
+        ex("-R", full, out);
+        rm(path);
+    }
+    cmp();
+}
+#endif
 
 TEST_CASE("simple backup, diff backup and restore") {
     clean();
@@ -442,3 +484,5 @@ TEST_CASE("compress from stdin and restorre to stdout") {
     ex("-m1", "-stdin", "a", "-stdout", "<", p(in + "/a"), ">", p(out + "/a"));
     cmp_diff(); // timestamp cannot match
 }
+
+

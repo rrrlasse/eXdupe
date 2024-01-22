@@ -315,7 +315,7 @@ STRING lcase(STRING str) {
     // change each element of the STRING to lower case
     STRING s = str;
     for (unsigned int i = 0; i < s.length(); i++) {
-        // s[i] = (char)tolower(s[i]);
+        s[i] = (char)tolower(s[i]);
     }
     return s;
 }
