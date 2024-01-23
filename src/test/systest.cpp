@@ -249,6 +249,48 @@ void all_types() {
 }
 }
 
+
+
+TEST_CASE("overwrite during restore") {  
+    // Overwrite
+    clean();
+    pick("a");
+    cp(testfiles + "/b", out + "/a");
+    ex("-m1", in, full);
+    ex("-Rf", full, out);
+    cmp();
+
+    // Abort
+    clean();
+    pick("a");
+    ex("-m1", in, full);
+    cp(in + "/b", out + "/a");
+    cp(out + "/b", out + "/a");
+    ex("-R", full, out);
+    cmp();
+}
+
+TEST_CASE("overwrite during backup") {  
+    // Overwrite
+    clean();
+    pick("a");
+    ex("-m1", in, full);
+    pick("b");
+    ex("-m1f", in, full);
+    ex("-R", full, out);
+    cmp();
+
+    // Abort
+    clean();
+    pick("a");
+    ex("-m1", in, full);
+    pick("b");
+    ex("-m1", in, full);
+    rm(in + "/b");
+    ex("-R", full, out);
+    cmp();
+}
+
 TEST_CASE("skip item prefixed with -- as relative path") {   
     auto skip = GENERATE("a", "d", "link_to_a", "link_to_d", "link_to_missing_file", "link_to_missing_dir");
     SECTION("") {
@@ -295,7 +337,7 @@ TEST_CASE("skip item prefixed with -- in different case") {
 TEST_CASE("simple backup, diff backup and restore") {
     clean();
     pick("a");
-    ex("-m1",in, full);
+    ex("-m1", in, full);
     ex("-R", full, out);
     cmp();
 
