@@ -302,9 +302,9 @@ uint64_t belongs_to(uint64_t offset) // todo: verify that this algorithm also
 {
     // belongs_to requires first element to be 0!
     abort(infiles.size() == 0, UNITXT("infiles.size() == 0"));
-    abort(infiles[0].offset != 0, UNITXT("infiles[0].offset != 0"));
+    abort(infiles.at(0).offset != 0, UNITXT("infiles[0].offset != 0"));
 
-    if (offset >= infiles[infiles.size() - 1].offset) {
+    if (offset >= infiles.at(infiles.size() - 1).offset) {
         return infiles.size() - 1;
     }
 
@@ -313,7 +313,7 @@ uint64_t belongs_to(uint64_t offset) // todo: verify that this algorithm also
 
     while (upper - lower > 1) {
         uint64_t middle = lower + (upper - lower) / 2;
-        if (offset >= infiles[middle].offset) {
+        if (offset >= infiles.at(middle).offset) {
             lower = middle;
         } else {
             upper = middle;
@@ -358,15 +358,15 @@ int write_references(FILE *file) {
     io.write_ui<uint64_t>(references.size(), file);
 
     for (size_t i = 0; i < references.size(); i++) {
-        io.write_ui<uint8_t>(references[i].is_reference, file);
-        if (references[i].is_reference) {
-            io.write_ui<uint64_t>(references[i].payload_reference, file);
+        io.write_ui<uint8_t>(references.at(i).is_reference, file);
+        if (references.at(i).is_reference) {
+            io.write_ui<uint64_t>(references.at(i).payload_reference, file);
         } else {
-            io.write_ui<uint64_t>(references[i].archive_offset, file);
+            io.write_ui<uint64_t>(references.at(i).archive_offset, file);
         }
 
-        io.write_ui<uint64_t>(references[i].payload, file);
-        io.write_ui<uint32_t>(static_cast<uint32_t>(references[i].length), file);
+        io.write_ui<uint64_t>(references.at(i).payload, file);
+        io.write_ui<uint32_t>(static_cast<uint32_t>(references.at(i).length), file);
     }
 
     io.write_ui<uint32_t>(0, file);
@@ -432,14 +432,14 @@ uint64_t find_reference(uint64_t payload) {
     while (upper != lower) {
         uint64_t middle = lower + (upper - lower) / 2;
 
-        if (references[middle].payload + references[middle].length - 1 < payload) {
+        if (references.at(middle).payload + references.at(middle).length - 1 < payload) {
             lower = middle + 1;
         } else {
             upper = middle;
         }
     }
 
-    if (references[lower].payload <= payload && references[lower].payload + references[lower].length - 1 >= payload) {
+    if (references.at(lower).payload <= payload && references.at(lower).payload + references.at(lower).length - 1 >= payload) {
         return lower;
     } else {
         return std::numeric_limits<uint64_t>::max();
@@ -458,20 +458,20 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
         if (rr == std::numeric_limits<uint64_t>::max()) {
             abort(true, UNITXT("Internal error, find_reference() = -1"));
         }
-        uint64_t prior = payload + bytes_resolved - references[rr].payload;
+        uint64_t prior = payload + bytes_resolved - references.at(rr).payload;
         size_t needed = size - bytes_resolved;
-        size_t ref_has = references[rr].length - prior >= needed ? needed : references[rr].length - prior;
+        size_t ref_has = references.at(rr).length - prior >= needed ? needed : references.at(rr).length - prior;
 
-        if (references[rr].is_reference) {
-            resolve(references[rr].payload_reference + prior, ref_has, dst + bytes_resolved, ifile, fdiff, splitpay);
+        if (references.at(rr).is_reference) {
+            resolve(references.at(rr).payload_reference + prior, ref_has, dst + bytes_resolved, ifile, fdiff, splitpay);
         } else {
 
-            char *b = bytebuffer.buffer_find(references[rr].payload, ref_has);
+            char *b = bytebuffer.buffer_find(references.at(rr).payload, ref_has);
             if (b != 0) {
                 memcpy(dst + bytes_resolved, b + prior, ref_has);
             } else {
                 FILE *f;
-                if (references[rr].payload >= splitpay) {
+                if (references.at(rr).payload >= splitpay) {
                     f = fdiff;
                 } else {
                     f = ifile;
@@ -479,7 +479,7 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
 
                 // seek and read and decompress literal packet
                 uint64_t orig = io.tell(f);
-                uint64_t ao = references[rr].archive_offset;
+                uint64_t ao = references.at(rr).archive_offset;
                 io.seek(f, ao, SEEK_SET);
                 vin.resize(DUP_HEADER_LEN, 'c');
                 io.try_read_buf(vin.data(), DUP_HEADER_LEN, f);
@@ -496,7 +496,7 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
                     abort(true, UNITXT("Internal error, dup_decompress() = %d"), r);
                 }
 
-                bytebuffer.buffer_add(vout.data(), references[rr].payload, references[rr].length);
+                bytebuffer.buffer_add(vout.data(), references.at(rr).payload, references.at(rr).length);
 
                 io.seek(f, orig, SEEK_SET);
                 memcpy(dst + bytes_resolved, vout.data() + prior, ref_has);
@@ -610,7 +610,7 @@ int write_contents(FILE *file) {
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(contents.size(), file);
     for (size_t i = 0; i < contents.size(); i++) {
-        write_contents_item(file, &contents[i]);
+        write_contents_item(file, &contents.at(i));
     }
     io.write_ui<uint32_t>(0, file);
     io.write_ui<uint64_t>(io.write_count - w, file);
@@ -706,15 +706,15 @@ vector<STRING> wildcard_expand(vector<STRING> files) {
     vector<STRING> ret;
 
     for (uint32_t i = 0; i < files.size(); i++) {
-        STRING payload_queue = remove_delimitor(files[i]);
+        STRING payload_queue = remove_delimitor(files.at(i));
         STRING s = right(payload_queue) == UNITXT("") ? payload_queue : right(payload_queue);
         if (s.find_first_of(UNITXT("*?")) == string::npos) {
-            ret.push_back(files[i]);
+            ret.push_back(files.at(i));
         } else {
             vector<STRING> f;
-            hFind = FindFirstFileW(files[i].c_str(), &FindFileData);
+            hFind = FindFirstFileW(files.at(i).c_str(), &FindFileData);
 
-            abort(!continue_flag && hFind == INVALID_HANDLE_VALUE, UNITXT("Source file(s) '%s' not found"), slashify(files[i]).c_str());
+            abort(!continue_flag && hFind == INVALID_HANDLE_VALUE, UNITXT("Source file(s) '%s' not found"), slashify(files.at(i)).c_str());
 
             if (hFind != INVALID_HANDLE_VALUE) {
                 if (STRING(FindFileData.cFileName) != UNITXT(".") && STRING(FindFileData.cFileName) != UNITXT("..")) {
@@ -730,14 +730,14 @@ vector<STRING> wildcard_expand(vector<STRING> files) {
                 FindClose(hFind);
                 abort(dwError != ERROR_NO_MORE_FILES, UNITXT("FindNextFile error. Error is %u"), dwError);
 
-                size_t t = files[i].find_last_of(UNITXT("\\/"));
+                size_t t = files.at(i).find_last_of(UNITXT("\\/"));
                 STRING dir = UNITXT("");
                 if (t != string::npos) {
-                    dir = files[i].substr(0, t + 1);
+                    dir = files.at(i).substr(0, t + 1);
                 }
 
                 for (uint32_t j = 0; j < f.size(); j++) {
-                    ret.push_back(dir + f[j]);
+                    ret.push_back(dir + f.at(j));
                 }
             }
         }
@@ -758,8 +758,8 @@ void tidy_args(int argc2, CHR *argv2[]) {
 void parse_flags(void) {
     int i = 1;
 
-    while (argc > i && argv[i].substr(0, 1) == UNITXT("-") && argv[i].substr(0, 2) != UNITXT("--") && argv[i] != UNITXT("-stdin") && argv[i] != UNITXT("-stdout")) {
-        flags = argv[i];
+    while (argc > i && argv.at(i).substr(0, 1) == UNITXT("-") && argv.at(i).substr(0, 2) != UNITXT("--") && argv.at(i) != UNITXT("-stdin") && argv.at(i) != UNITXT("-stdout")) {
+        flags = argv.at(i);
         i++;
         flags_exist++;
 
@@ -892,27 +892,27 @@ void parse_files(void) {
             name = argv.at(flags_exist + 2);
         }
 
-        abort(inputfiles[0] == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdin") || (inputfiles[0] == UNITXT("-stdin") && argc < 4 + flags_exist) ||
-                  (inputfiles[0] != UNITXT("-stdin") && argc < 3 + flags_exist),
+        abort(inputfiles.at(0) == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdin") || (inputfiles.at(0) == UNITXT("-stdin") && argc < 4 + flags_exist) ||
+                  (inputfiles.at(0) != UNITXT("-stdin") && argc < 3 + flags_exist),
               UNITXT("Syntax error in source or destination. "));
     } else if (compress_flag && diff_flag) {
         for (int i = flags_exist + 1; i < argc - 2; i++) {
-            add_item(argv[i]);
+            add_item(argv.at(i));
         }
 
         abort(argc - 1 < flags_exist + 3, UNITXT("Missing arguments. "));
         full = argv.at(argc - 2);
         diff = argv.at(argc - 1);
-        if (inputfiles[0] == UNITXT("-stdin")) {
+        if (inputfiles.at(0) == UNITXT("-stdin")) {
             abort(argc - 1 < flags_exist + 4, UNITXT("Missing arguments. "));
             name = argv.at(flags_exist + 2);
         }
-        abort(inputfiles[0] == UNITXT("-stdin") && argc < 5 + flags_exist, UNITXT(".full file from -stdin not supported. "));
+        abort(inputfiles.at(0) == UNITXT("-stdin") && argc < 5 + flags_exist, UNITXT(".full file from -stdin not supported. "));
 
         abort(full == UNITXT("-stdin"), UNITXT(".full file from -stdin not supported. "));
 
-        abort(inputfiles[0] == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdout") || (inputfiles[0] == UNITXT("-stdin") && argc < 4 + flags_exist) ||
-                  (inputfiles[0] != UNITXT("-stdin") && argc < 3 + flags_exist),
+        abort(inputfiles.at(0) == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdout") || (inputfiles.at(0) == UNITXT("-stdin") && argc < 4 + flags_exist) ||
+                  (inputfiles.at(0) != UNITXT("-stdin") && argc < 3 + flags_exist),
               UNITXT("Syntax error in source or destination. "));
     } else if (!compress_flag && !diff_flag && !list_flag) {
         abort(argc - 1 < flags_exist + 2, UNITXT("Missing arguments. "));
@@ -944,18 +944,18 @@ void parse_files(void) {
 
         abort(full == UNITXT("-stdout") || diff == UNITXT("-stdout") || (full == UNITXT("-stdin") && diff == UNITXT("-stdin")) || (argc < 4 + flags_exist), UNITXT("Syntax error in source or destination. "));
     } else if (list_flag) {
-        full = argv[1 + flags_exist];
+        full = argv.at(1 + flags_exist);
     }
 
-    if (compress_flag && inputfiles[0] != STRING(UNITXT("-stdin"))) {
+    if (compress_flag && inputfiles.at(0) != STRING(UNITXT("-stdin"))) {
         vector<STRING> inputfiles2;
 
         for (uint32_t i = 0; i < inputfiles.size(); i++) {
             if (abs_path(inputfiles.at(i)) == STRING(UNITXT(""))) {
-                abort(!continue_flag, UNITXT("Aborted, does not exist: %s"), slashify(inputfiles[i]).c_str());
-                statusbar.print(2, UNITXT("Skipped, does not exist: %s"), slashify(inputfiles[i]).c_str());
+                abort(!continue_flag, UNITXT("Aborted, does not exist: %s"), slashify(inputfiles.at(i)).c_str());
+                statusbar.print(2, UNITXT("Skipped, does not exist: %s"), slashify(inputfiles.at(i)).c_str());
             } else {
-                inputfiles2.push_back(abs_path(inputfiles[i]));
+                inputfiles2.push_back(abs_path(inputfiles.at(i)));
 #ifdef WINDOWS
                 inputfiles2.back() = snap(inputfiles2.back());
 #endif
@@ -1124,20 +1124,20 @@ STRING parent_path(const vector<STRING> &items) {
     }
 
     for (uint32_t i = 0; i < items.size(); i++) {
-        if (items[i].size() == prefix || items[i].substr(prefix - 1, 1) == STRING(DELIM_STR)) {
+        if (items.at(i).size() == prefix || items.at(i).substr(prefix - 1, 1) == STRING(DELIM_STR)) {
             // Do nothing
         } else {
-            return left(items[0].substr(prefix));
+            return left(items.at(0).substr(prefix));
         }
     }
 
-    return items[0].substr(0, prefix);
+    return items.at(0).substr(0, prefix);
 }
 
 vector<STRING> leftify(const vector<STRING> &items) {
     vector<STRING> r;
     for (size_t i = 0; i < items.size(); i++) {
-        r.push_back(left(items[i]));
+        r.push_back(left(items.at(i)));
     }
     return r;
 }
@@ -1154,19 +1154,19 @@ pair<STRING, size_t> extract_to(STRING curdir, STRING curfile) {
     size_t prefix = p.size();
 
     for (uint32_t i = 0; i < restorelist.size(); i++) {
-        if (curdir_case == restorelist[i]) {
+        if (curdir_case == restorelist.at(i)) {
             return make_pair(curdir.substr(prefix), i);
         }
 
-        if (curdir_case.substr(0, restorelist[i].size() + 1) == restorelist[i] + DELIM_STR) {
+        if (curdir_case.substr(0, restorelist.at(i).size() + 1) == restorelist.at(i) + DELIM_STR) {
             return make_pair(curdir.substr(prefix), i);
         }
 
-        if (curdir_case + DELIM_STR + curfile == restorelist[i]) {
+        if (curdir_case + DELIM_STR + curfile == restorelist.at(i)) {
             return make_pair(curdir.substr(left(p).size()), i);
         }
 
-        if (curdir_case == UNITXT("") && curfile == restorelist[i]) {
+        if (curdir_case == UNITXT("") && curfile == restorelist.at(i)) {
             return make_pair(curdir, i);
         }
     }
@@ -1181,7 +1181,7 @@ void verify_restorelist(vector<STRING> restorelist, const vector<contents_t> &co
             break;
         }
 
-        c = content[i];
+        c = content.at(i);
         if (c.directory) {
             if (c.name != UNITXT("./")) { // todo, simplify by not making an archive possible to contain ./ ?
                 curdir = remove_delimitor(c.name);
@@ -1196,12 +1196,12 @@ void verify_restorelist(vector<STRING> restorelist, const vector<contents_t> &co
         STRING s = p.first;
         if (s != UNITXT(":")) // : means don't extract
         {
-            restorelist[j] = UNITXT(":");
+            restorelist.at(j) = UNITXT(":");
         }
     }
 
     for (uint32_t i = 0; i < restorelist.size(); i++) {
-        abort(restorelist[i] != UNITXT(":"), UNITXT("'%s' does not exist in archive or is included multiple times by your [files] list"), restorelist[i].c_str());
+        abort(restorelist.at(i) != UNITXT(":"), UNITXT("'%s' does not exist in archive or is included multiple times by your [files] list"), restorelist.at(i).c_str());
     }
 }
 
@@ -1276,9 +1276,9 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
     vector<contents_t> content;
 
     for (uint32_t i = 0; i < restorelist.size(); i++) {
-        restorelist[i] = slashify(restorelist[i]);
-        restorelist[i] = remove_delimitor(restorelist[i]);
-        restorelist[i] = CASESENSE(restorelist[i]);
+        restorelist.at(i) = slashify(restorelist.at(i));
+        restorelist.at(i) = remove_delimitor(restorelist.at(i));
+        restorelist.at(i) = CASESENSE(restorelist.at(i));
     }
 
     if (diff_flag) {
@@ -1297,7 +1297,7 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
     verify_restorelist(restorelist, content);
 
     for (uint32_t i = 0; i < content.size(); i++) {
-        c = content[i];
+        c = content.at(i);
         if (diff_flag) {
             c.payload += basepay;
         }
@@ -1399,7 +1399,7 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
         abort(r == -1 || r == -2, UNITXT("Internal error, dup_decompress() = %p"), r);
 
         assert(c.size() > 0);
-        payload_orig = c[0].payload;
+        payload_orig = c.at(0).payload;
 
         if (r == 0) {
             // dup_decompress() wrote literal at the destination, nothing we need to do
@@ -1410,19 +1410,19 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
                 if (payload + resolved >= payload_orig && add_files) {
                     size_t fo = belongs_to(payload + resolved);
                     int j = io.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
-                    abort(j != 0, UNITXT("Internal error 1 or non-seekable device: seek(%s, %p, %p)"), infiles[fo].filename.c_str(), payload, payload_orig);
+                    abort(j != 0, UNITXT("Internal error 1 or non-seekable device: seek(%s, %p, %p)"), infiles.at(fo).filename.c_str(), payload, payload_orig);
                     len2 = io.read(out + resolved, len - resolved, ofile);
-                    abort(len2 != len - resolved, UNITXT("Internal error 2: read(%s, %p, %p)"), infiles[fo].filename.c_str(), len, len2);
+                    abort(len2 != len - resolved, UNITXT("Internal error 2: read(%s, %p, %p)"), infiles.at(fo).filename.c_str(), len, len2);
                     resolved += len2;
                     io.seek(ofile, 0, SEEK_END);
                 } else {
                     FILE *ifile2;
                     size_t fo = belongs_to(payload + resolved);
                     {
-                        ifile2 = try_open(infiles[fo].filename, 'r', true);
-                        infiles[fo].handle = ifile2;
-                        int j = io.seek(ifile2, payload + resolved - infiles[fo].offset, SEEK_SET);
-                        abort(j != 0, UNITXT("Internal error 9 or destination is a non-seekable device: seek(%s, %p, %p)"), infiles[fo].filename.c_str(), payload, infiles[fo].offset);
+                        ifile2 = try_open(infiles.at(fo).filename, 'r', true);
+                        infiles.at(fo).handle = ifile2;
+                        int j = io.seek(ifile2, payload + resolved - infiles.at(fo).offset, SEEK_SET);
+                        abort(j != 0, UNITXT("Internal error 9 or destination is a non-seekable device: seek(%s, %p, %p)"), infiles.at(fo).filename.c_str(), payload, infiles.at(fo).offset);
                     }
                     len2 = io.read(out + resolved, len - resolved, ifile2);
                     resolved += len2;
@@ -1437,19 +1437,19 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
 
         while (c.size() > 0 && src_consumed < len) {
             if (ofile == 0) {
-                ofile = create_file(c[0].extra);
-                destfile = c[0].extra;
+                ofile = create_file(c.at(0).extra);
+                destfile = c.at(0).extra;
                 checksum_init(&decompress_checksum);
 
                 if (add_files) {
-                    add_file(c[0].extra, add_file_payload);
-                    add_file_payload += c[0].size;
+                    add_file(c.at(0).extra, add_file_payload);
+                    add_file_payload += c.at(0).size;
                 }
 
                 curfile_written = 0;
             }
 
-            auto missing = c[0].size - curfile_written;
+            auto missing = c.at(0).size - curfile_written;
             auto has = minimum(missing, len - src_consumed);
             curfile_written += has;
 
@@ -1461,13 +1461,13 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
             payload_written += has;
             src_consumed += has;
 
-            if (curfile_written == c[0].size) {
-                current_outfile_begin += c[0].size;
+            if (curfile_written == c.at(0).size) {
+                current_outfile_begin += c.at(0).size;
 
                 io.close(ofile);
                 ofile = 0;
                 curfile_written = 0;
-                abort(c[0].checksum != decompress_checksum.result, UNITXT("File checksum error"));
+                abort(c.at(0).checksum != decompress_checksum.result, UNITXT("File checksum error"));
 
                 c.erase(c.begin());
             }
@@ -1709,7 +1709,7 @@ bool include(const STRING &name) {
     STRING n = remove_delimitor(CASESENSE(unsnap(abs_path(name))));
 
     for (uint32_t j = 0; j < excludelist.size(); j++) {
-        STRING e = excludelist[j];
+        STRING e = excludelist.at(j);
         if (n == e) {
             // statusbar.print(9, UNITXT("Skipped, in -- exclude list: %s"), name.c_str());
             return false;
@@ -1742,10 +1742,10 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool first
 
     // Sort input items so that root items are first.
     for (uint32_t i = 0; i < items.size(); i++) {
-        if (items[i].find(DELIM_STR) == string::npos) {
-            root_items.push_back(items[i]);
+        if (items.at(i).find(DELIM_STR) == string::npos) {
+            root_items.push_back(items.at(i));
         } else {
-            non_root_items.push_back(items[i]);
+            non_root_items.push_back(items.at(i));
         }
     }
     items.clear();
@@ -1757,7 +1757,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool first
     // 'items2'
     vector<STRING> items2;
     for (uint32_t i = 0; i < items.size(); i++) {
-        STRING sub = base_dir + items[i];
+        STRING sub = base_dir + items.at(i);
         int type = get_attributes(sub, follow_symlinks);
         if (type == -1) {
             if (continue_flag) {
@@ -1769,7 +1769,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool first
             // we must avoid including destination file when compressing. Note
             // that *nix is case sensitive.
             if (CASESENSE(abs_path(sub)) != CASESENSE(abs_path(output_file))) {
-                items2.push_back(items[i]);
+                items2.push_back(items.at(i));
                 attributes.push_back(type);
             }
         }
@@ -1782,10 +1782,10 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool first
 
     // first process files
     for (uint32_t j = 0; j < items.size(); j++) {
-        STRING sub = base_dir + items[j];
-        if (!ISDIR(attributes[j]) && !(ISLINK(attributes[j]) && !follow_symlinks) && (first_call || include(sub))) {
-            save_directory(base_dir, left(items[j]) + (left(items[j]) == UNITXT("") ? UNITXT("") : DELIM_STR), true);
-            STRING u = items[j];
+        STRING sub = base_dir + items.at(j);
+        if (!ISDIR(attributes.at(j)) && !(ISLINK(attributes.at(j)) && !follow_symlinks) && (first_call || include(sub))) {
+            save_directory(base_dir, left(items.at(j)) + (left(items.at(j)) == UNITXT("") ? UNITXT("") : DELIM_STR), true);
+            STRING u = items.at(j);
             STRING s = right(u) == UNITXT("") ? u : right(u);
             compress_file(sub, s, false);
         }
@@ -1793,29 +1793,29 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool first
 
     // then process symlinks
     for (uint32_t j = 0; j < items.size(); j++) {
-        STRING sub = base_dir + items[j];
+        STRING sub = base_dir + items.at(j);
 
-        if (ISLINK(attributes[j]) && !follow_symlinks && (first_call || include(sub))) {
+        if (ISLINK(attributes.at(j)) && !follow_symlinks && (first_call || include(sub))) {
             // we must avoid including destination file when compressing. Note
             // that *nix is case sensitive.
             if (output_file == UNITXT("-stdout") || (CASESENSE(abs_path(sub)) != CASESENSE(abs_path(output_file)))) {
-                save_directory(base_dir, left(items[j]) + (left(items[j]) == UNITXT("") ? UNITXT("") : DELIM_STR), true);
-                compress_symlink(sub, right(items[j]) == UNITXT("") ? items[j] : right(items[j]));
+                save_directory(base_dir, left(items.at(j)) + (left(items.at(j)) == UNITXT("") ? UNITXT("") : DELIM_STR), true);
+                compress_symlink(sub, right(items.at(j)) == UNITXT("") ? items.at(j) : right(items.at(j)));
             }
         }
     }
 
     // finally process directories
     for (uint32_t j = 0; j < items.size(); j++) {
-        STRING sub = base_dir + items[j];
-        if (ISDIR(attributes[j]) && (!no_recursion_flag || first_call) && (first_call || include(sub))) {
-            if (items[j] != UNITXT("")) {
-                items[j] = remove_delimitor(items[j]) + DELIM_STR;
+        STRING sub = base_dir + items.at(j);
+        if (ISDIR(attributes.at(j)) && (!no_recursion_flag || first_call) && (first_call || include(sub))) {
+            if (items.at(j) != UNITXT("")) {
+                items.at(j) = remove_delimitor(items.at(j)) + DELIM_STR;
             }
 
             vector<STRING> newdirs;
 #ifdef WINDOWS
-            if (ISLINK(attributes[j])) {
+            if (ISLINK(attributes.at(j))) {
                 continue;
             }
 
@@ -1831,7 +1831,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool first
             } else {
                 while (bContinue) {
                     if (STRING(data.cFileName) != UNITXT(".") && STRING(data.cFileName) != UNITXT("..")) {
-                        newdirs.push_back(items[j] + STRING(data.cFileName));
+                        newdirs.push_back(items.at(j) + STRING(data.cFileName));
                     }
                     bContinue = FindNextFileW(hFind, &data);
                 }
@@ -1846,17 +1846,17 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool first
             } else {
                 while ((entry = readdir(dir)) != 0) {
                     if (STRING(entry->d_name) != UNITXT(".") && STRING(entry->d_name) != UNITXT("..")) {
-                        newdirs.push_back(items[j] + entry->d_name);
+                        newdirs.push_back(items.at(j) + entry->d_name);
                     }
                 }
             }
 
             closedir(dir);
 #endif
-            if (items[j] != UNITXT("")) {
+            if (items.at(j) != UNITXT("")) {
                 dirs++;
             }
-            save_directory(base_dir, items[j], true);
+            save_directory(base_dir, items.at(j), true);
             compress_recursive(base_dir, newdirs, false);
         }
     }
@@ -1870,14 +1870,14 @@ void compress(const STRING &base_dir, vector<STRING> items) {
 void compress_args(vector<STRING> args) {
     uint32_t i = 0;
     for (i = 0; i < args.size(); i++) {
-        args[i] = remove_leading_curdir(args[i]);
-        if (is_dir(args[i]) && !is_symlink(args[i])) {
-            args[i] = remove_delimitor(args[i]) + DELIM_STR;
+        args.at(i) = remove_leading_curdir(args.at(i));
+        if (is_dir(args.at(i)) && !is_symlink(args.at(i))) {
+            args.at(i) = remove_delimitor(args.at(i)) + DELIM_STR;
         }
     }
 
     size_t prefix = longest_common_prefix(args, !WIN);
-    STRING base_dir = args[0].substr(0, prefix);
+    STRING base_dir = args.at(0).substr(0, prefix);
 
     base_dir = left(base_dir);
     if (base_dir != UNITXT("")) {
@@ -1886,7 +1886,7 @@ void compress_args(vector<STRING> args) {
     statusbar.m_base_dir = base_dir;
 
     for (i = 0; i < args.size(); i++) {
-        args[i] = args[i].substr(base_dir.length());
+        args.at(i) = args.at(i).substr(base_dir.length());
     }
 
     compress(base_dir, args);
@@ -1937,7 +1937,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
             decompress_files(file_queue, add_files);
         } else if (w == 'C') { // crc
             uint32_t crc = io.read_ui<uint32_t>(ifile);
-            file_queue[file_queue.size() - 1].checksum = crc;
+            file_queue.at(file_queue.size() - 1).checksum = crc;
         } else if (w == 'L') { // symlink
             contents_t c;
             files++;
@@ -2017,7 +2017,7 @@ void create_shadows(void) {
     vector<pair<STRING, STRING>> snaps; //(STRING mount, STRING shadow)
     snaps = get_snaps();
     for (uint32_t i = 0; i < snaps.size(); i++) {
-        statusbar.print(3, UNITXT("Created snapshot %s -> %s"), snaps[i].first.c_str(), snaps[i].second.c_str());
+        statusbar.print(3, UNITXT("Created snapshot %s -> %s"), snaps.at(i).first.c_str(), snaps.at(i).second.c_str());
     }
 #endif
 }
@@ -2034,12 +2034,12 @@ int main(int argc2, char *argv2[])
         print_usage(false);
         return 2;
     }
-    if (argc2 == 2 && argv[1] == UNITXT("-u?")) {
+    if (argc2 == 2 && argv.at(1) == UNITXT("-u?")) {
         print_lua_help();
         return 0;
     }
 
-    if (argc2 == 2 && argv[1] == UNITXT("-?")) {
+    if (argc2 == 2 && argv.at(1) == UNITXT("-?")) {
         print_usage(true);
         return 0;
     }
@@ -2135,9 +2135,9 @@ int main(int argc2, char *argv2[])
         output_file_mine = true; // todo, can this be deleted?
         write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt);
 
-        if (inputfiles.size() > 0 && inputfiles[0] != UNITXT("-stdin")) {
+        if (inputfiles.size() > 0 && inputfiles.at(0) != UNITXT("-stdin")) {
             compress_args(inputfiles);
-        } else if (inputfiles.size() > 0 && inputfiles[0] == UNITXT("-stdin")) {
+        } else if (inputfiles.size() > 0 && inputfiles.at(0) == UNITXT("-stdin")) {
             compress_file(UNITXT("-stdin"), name, true); // flush = true
         }
 
