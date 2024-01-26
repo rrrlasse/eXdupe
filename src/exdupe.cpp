@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cmath>
 #include <errno.h>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -35,7 +36,6 @@
 #include <thread>
 #include <utility>
 #include <vector>
-#include <filesystem>
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
 #define WINDOWS
@@ -148,6 +148,7 @@ bool shadow_copy = false;
 bool absolute_path = false;
 bool hash_flag = false;
 bool build_info_flag = false;
+bool statistics_flag = false;
 
 uint32_t verbose_level = 1;
 uint32_t megabyte_flag = 0;
@@ -352,7 +353,7 @@ void add_references(const unsigned char *src, size_t len, uint64_t archive_offse
     }
 }
 
-int write_references(FILE *file) {
+size_t write_references(FILE *file) {
     io.try_write("REFERENC", 8, file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(references.size(), file);
@@ -372,7 +373,7 @@ int write_references(FILE *file) {
     io.write_ui<uint32_t>(0, file);
     io.write_ui<uint64_t>(io.write_count - w, file);
 
-    return 0;
+    return io.write_count - w;
 }
 
 uint64_t seek_to_header(FILE *file, const string &header) {
@@ -445,7 +446,6 @@ uint64_t find_reference(uint64_t payload) {
         return std::numeric_limits<uint64_t>::max();
     }
 }
-
 
 bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FILE *fdiff, uint64_t splitpay) {
     std::vector<unsigned char> vin;
@@ -579,7 +579,7 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
     return false;
 }
 
-int write_hashtable(FILE *file) {
+size_t write_hashtable(FILE *file) {
     size_t t = dup_compress_hashtable();
     io.try_write("HASHTBLE", 8, file);
     io.write_ui<uint64_t>(t, file);
@@ -588,7 +588,7 @@ int write_hashtable(FILE *file) {
 #ifdef _DEBUG
     dup_decompress_hashtable(t);
 #endif
-    return 0;
+    return t;
 }
 
 uint64_t read_hashtable(FILE *file) {
@@ -605,7 +605,7 @@ uint64_t read_hashtable(FILE *file) {
     return 0;
 }
 
-int write_contents(FILE *file) {
+size_t write_contents(FILE *file) {
     io.try_write("CONTENTS", 8, file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(contents.size(), file);
@@ -614,7 +614,7 @@ int write_contents(FILE *file) {
     }
     io.write_ui<uint32_t>(0, file);
     io.write_ui<uint64_t>(io.write_count - w, file);
-    return 0;
+    return io.write_count - w;
 }
 
 STRING validchars(STRING filename) {
@@ -692,7 +692,7 @@ void print_build_info() {
     STRING b = STRING(UNITXT("ver " VER ", built ")) + td + UNITXT(", sha ") + UNITXT(GIT_COMMIT_HASH) + UNITXT(", ");
 #ifdef NDEBUG
     b += UNITXT("release mode");
-#else    
+#else
     b += UNITXT("debug mode");
 #endif
     statusbar.print(0, b.c_str());
@@ -775,7 +775,7 @@ void parse_flags(void) {
             abort(true, UNITXT("-s flag not supported in *nix"));
 #endif
         } else {
-            size_t e = flags.find_first_not_of(UNITXT("-fhuRrxqcDpiLzatgmv0123456789B"));
+            size_t e = flags.find_first_not_of(UNITXT("-fhuRrxqcDpiLzkatgmv0123456789B"));
             if (e != string::npos) {
                 abort(true, UNITXT("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
@@ -799,6 +799,7 @@ void parse_flags(void) {
                      {absolute_path, "a"},
                      {hash_flag, "z"},
                      {build_info_flag, "B"},
+                     {statistics_flag, "k"},
                  }) {
                 if (regx(flagsS, t.second) != "") {
                     t.first = true;
@@ -1003,7 +1004,7 @@ Flags:
   -gn Use n GB memory (default = 2) for deduplication. Use -mn to specify MB
       instead. Use 2 to 8 GB per TB of input data for best compression ratio.
   -xn Use compression level n after deduplication (0 = none, 1 = zstd-1
-      (default), 2 = zstd-10, 3 = zstd-19
+      (default), 2 = zstd-10, 3 = zstd-19)
    -- Prefix items in the <sources> list with "--" to exclude them
    -p Include named pipes
    -h Follow symlinks (default is to store symlink only)
@@ -1014,6 +1015,7 @@ Flags:
       with -u? flag.
   -z  Use slower cryptographic hash BLAKE3. Default is xxHash128
  -vn  Verbosity n (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
+  -k  Show deduplication statistics at the end
 
 Example of backup, differential backups and restore:
   exdupe my_dir backup.full
@@ -1210,13 +1212,11 @@ void force_overwrite(const STRING &file) {
         abort(!force_flag, UNITXT("Destination file '%s' already exists"), slashify(file).c_str());
         try {
             std::filesystem::remove(file);
-        } 
-        catch(exception&) {
-            abort(true, UNITXT("Failed to overwrite file: %s"), slashify(file).c_str());        
+        } catch (exception &) {
+            abort(true, UNITXT("Failed to overwrite file: %s"), slashify(file).c_str());
         }
     }
 }
-
 
 FILE *create_file(const STRING &file) {
     force_overwrite(file);
@@ -1228,7 +1228,7 @@ void create_symlink(STRING path, contents_t c) {
     force_overwrite(path);
 #ifdef WINDOWS
     int ret = CreateSymbolicLink(path.c_str(), c.link.c_str(), SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE | (c.directory ? SYMBOLIC_LINK_FLAG_DIRECTORY : 0));
-    if(ret == 0) {
+    if (ret == 0) {
         int e = GetLastError();
         abort(GetLastError() == ERROR_PRIVILEGE_NOT_HELD, UNITXT("Plase run eXdupe as administrator to restore symlinks: %s -> %s"), path.c_str(), c.link.c_str());
         abort(true, UNITXT("Unknown error (GetLastError() = %d) restoring symlink: %s -> %s"), e, path.c_str(), c.link.c_str());
@@ -1242,12 +1242,10 @@ void create_symlink(STRING path, contents_t c) {
     abort(ret != 0, UNITXT("Error creating symlink: %s -> %s"), path.c_str(), c.link.c_str());
 }
 
-
 void ensure_relative(const STRING &path) {
     STRING s = STRING(UNITXT("Archive contains absolute paths. Add a [files] argument. ")) + STRING(diff_flag ? STRING() : STRING());
     abort((path.size() >= 2 && path.substr(0, 2) == UNITXT("\\\\")) || path.find_last_of(UNITXT(":")) != string::npos, s.c_str());
 }
-
 
 void decompress_individuals(FILE *ffull, FILE *fdiff) {
     FILE *archive_file;
@@ -1260,10 +1258,10 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
         archive_file = ffull;
     }
 
-    if(!exists(directory)) {
+    if (!exists(directory)) {
         create_directories(directory, 0);
     }
-   
+
     uint64_t orig = seek_to_header(archive_file, "CONTENTS");
     uint64_t payload = 0;
     contents_t c;
@@ -1322,9 +1320,9 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
             }
 
             if (!pipe_out) {
-                //statusbar.print(0, STRING   (STRING() + UNITXT("\nCreating:") + dstdir + UNITXT("\n")).c_str()  );
+                // statusbar.print(0, STRING   (STRING() + UNITXT("\nCreating:") + dstdir + UNITXT("\n")).c_str()  );
                 create_directories(dstdir, c.file_date);
-                //cerr << "\nDone" << "\n";
+                // cerr << "\nDone" << "\n";
             }
 
             if (!pipe_out) {
@@ -1493,7 +1491,7 @@ void compress_symlink(const STRING &link, const STRING &target) {
 
     statusbar.update(BACKUP, dup_counter_payload(), io.write_count, link + UNITXT(" -> ") + STRING(abs_path(tmp)));
     io.try_write("L", 1, ofile);
-    
+
     files++;
 
     contents_t c;
@@ -1523,7 +1521,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
     auto empty_q = [&]() {
         if (payload_queue.size() > 0) {
             uint64_t pay;
-            size_t cc = dup_compress(payload_queue.c_str(), (char*)out, payload_queue.size(), &pay);
+            size_t cc = dup_compress(payload_queue.c_str(), (char *)out, payload_queue.size(), &pay);
             payload_compressed += pay;
             if (cc > 0) {
                 io.try_write("A", 1, ofile);
@@ -1954,7 +1952,6 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
     }
 }
 
-
 void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt) {
     if (s == BACKUP) {
         io.try_write("EXDUPE F", 8, file);
@@ -1993,7 +1990,7 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
     char revision = io.read_ui<uint8_t>(file);
     char dev = io.read_ui<uint8_t>(file);
 
-    if(major == 1 && minor == 1 && revision == 0 && dev == 0) {
+    if (major == 1 && minor == 1 && revision == 0 && dev == 0) {
         abort(true, UNITXT("This file was created with eXdupe version 1.1.0.dev-23 or earlier. Please use the exact same dev-version to restore it"));
     }
 
@@ -2006,7 +2003,6 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
     hash_salt = io.read_ui<uint64_t>(file);
     return io.read_ui<uint64_t>(file); // mem usage
 }
-
 
 void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, UNITXT("Wrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
 
@@ -2110,7 +2106,7 @@ int main(int argc2, char *argv2[])
             hashtable = malloc(memory_usage);
             abort(!hashtable, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), memory_usage >> 20);
             memset(hashtable, 0, memory_usage);
-            pay_count = read_references(ifile); // read size in bytes of user payload in .full file  
+            pay_count = read_references(ifile); // read size in bytes of user payload in .full file
 
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
             abort(r == 1, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), memory_usage >> 20);
@@ -2143,6 +2139,7 @@ int main(int argc2, char *argv2[])
 
         if (files + dirs == 0) {
             if (no_recursion_flag) {
+                // todo, delete, wildcard no longer needed
                 abort(true, UNITXT("0 source files or directories. Missing '*' wildcard with -r flag?"));
             } else {
                 abort(true, UNITXT("0 source files or directories"));
@@ -2150,22 +2147,53 @@ int main(int argc2, char *argv2[])
         }
 
         io.try_write("X", 1, ofile);
-        write_contents(ofile);
+        size_t contents_size = write_contents(ofile);
+        size_t hashtable_size = 0;
 
         if (!diff_flag) {
-            write_hashtable(ofile);
+            hashtable_size = write_hashtable(ofile);
         }
-        
-        write_references(ofile);
+
+        size_t references_size = write_references(ofile);
         io.try_write("END", 3, ofile);
 
-        uint64_t t = (GetTickCount() - start_time);
-        t = t == 0 ? 1 : t;
-        auto speed = s2w(format_size(dup_counter_payload() / t * 1000));
-        auto sratio = ((float(io.write_count) / float(dup_counter_payload() + 1)) * 100.);
-        sratio = sratio > 999.9 ? 999.9 : sratio;
-        statusbar.print(1, UNITXT("Compressed %s B in %s files into %s (%.1f%%) at %s/s"), del(dup_counter_payload()).c_str(), del(files).c_str(), s2w(format_size(io.write_count)).c_str(), sratio, speed.c_str());
-        // wcerr << s2w(format_size(large_hits())) << ", " << s2w(format_size(small_hits())) << L"\n";
+        statusbar.print(1, UNITXT("Compressed %s B in %s files into %s"), del(dup_counter_payload()).c_str(), del(files).c_str(), s2w(format_size(io.write_count)).c_str());
+
+        if (statistics_flag) {
+            auto kb = [](uint64_t i) {
+                string s = w2s(del(i / 1024 / 1024));
+                s = string(11 - s.size(), ' ') + s + " MB";
+                return s;
+            };
+
+            std::ostringstream s;
+            uint64_t t = (GetTickCount() - start_time);
+            t = t == 0 ? 1 : t;
+            auto sratio = ((float(io.write_count) / float(dup_counter_payload() + 1)) * 100.);
+            sratio = sratio > 999.9 ? 999.9 : sratio;
+            s << "\n";
+            s << "Speed: " << format_size(dup_counter_payload() / t * 1000) << "/s\n";
+            string r = to_string(int(sratio));
+            s << "Ratio: " << r << "%\n";
+            s << "\n";
+//            s << "DEDUPE_LARGE = " << DEDUPE_LARGE << ", DEDUPE_SMALL = " << DEDUPE_SMALL << ", DISK_READ_CHUNK = " << DISK_READ_CHUNK << "\n";
+            s << DEDUPE_LARGE / 1024 << " K references:           " << kb(largehits) << "\n";
+            s << DEDUPE_SMALL / 1024 << " K references:             " << kb(smallhits) << "\n";
+            s << "Total references:           " << kb(largehits + smallhits) << "\n";
+            s << "Literals:                 + " << kb(stored_as_literals) << "\n";
+            s << "Read:                     = " << kb(io.read_count) << "\n";
+            s << "\n";
+            s << "Compressed literals:        " << kb(literals_compressed_size) << "\n";
+            // * 2 because it's stored both at the end of archive and also scattered in the arhive for restoring from stdin
+            s << "Metadata of source items: + " << kb(2 * contents_size) << "\n";
+            s << "Reference table:          + " << kb(references_size) << "\n";
+            s << "Hashtable:                + " << kb(hashtable_size) << "\n";
+            uint64_t total = literals_compressed_size + 2 * contents_size + references_size + hashtable_size;
+            s << "Various overhead:           " << kb(io.write_count - total) << "\n";
+            s << "Written:                  = " << kb(io.write_count) << "\n";
+            STRING str = s2w(s.str());
+            statusbar.print(0, UNITXT("%s"), str.c_str());
+        }
 
         io.close(ofile);
     } else {

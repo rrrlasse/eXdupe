@@ -93,6 +93,7 @@ STRING get_pid(void);
 uint64_t filesize(STRING file, bool followlinks);
 
 STRING s2w(const std::string &s);
+string w2s(const STRING &s);
 STRING left(const STRING &s);
 STRING right(const STRING &s);
 

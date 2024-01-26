@@ -138,8 +138,11 @@ pthread_cond_t jobdone_cond;
 pthread_mutex_t jobdone_mutex;
 mutex job_info;
 
-std::atomic<uint64_t> largehits = 0;
-std::atomic<uint64_t> smallhits = 0;
+// statistics
+std::atomic<uint64_t> largehits;
+std::atomic<uint64_t> smallhits;
+std::atomic<uint64_t> stored_as_literals;
+std::atomic<uint64_t> literals_compressed_size;
 
 // Set to false in order to not update the hashtable. Used during diff backup.
 bool add_data = true;
@@ -158,10 +161,6 @@ struct hash_t {
 hash_t (*table)[2];
 
 bool used(hash_t h) { return h.offset != 0 && h.hash != 0; }
-
-uint64_t large_hits() { return largehits; }
-
-uint64_t small_hits() { return smallhits; }
 
 template <class T, class U> const uint64_t minimum(const T a, const U b) {
     return (static_cast<uint64_t>(a) > static_cast<uint64_t>(b)) ? static_cast<uint64_t>(b) : static_cast<uint64_t>(a);
@@ -562,13 +561,13 @@ const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t l
                     collision_skip = 32;
                     *payload_ref = table[j][no].offset;
                     pthread_mutex_unlock_wrapper(&table_mutex);
-
+                    /*
                     if (block == LARGE_BLOCK) {
                         largehits += block;
                     } else {
                         smallhits += block;
                     }
-
+                    */
                     return src;
                 } else {
                     char c;
@@ -624,6 +623,13 @@ static void hashat(const unsigned char *src, uint64_t pay, size_t len, int no, u
 
 static size_t write_match(size_t length, uint64_t payload, unsigned char *dst) {
     if (length > 0) {
+        if(length == LARGE_BLOCK) {
+            largehits += length;
+        }
+        else {
+            smallhits += length;
+        }
+
         memcpy(dst, DUP_MATCH, 2);
         dst += 8 - 6;
         ll2str(32 - (6 + 8), (char *)dst, 4);
@@ -667,6 +673,10 @@ static size_t write_literals(const unsigned char *src, size_t length, unsigned c
         dst += 4;
         ll2str(0, (char *)dst, 8);
         dst += 8;
+
+        stored_as_literals += length;
+        literals_compressed_size += r + 32 - (6 + 8);
+
         return r + 32 - (6 + 8);
     }
     return 0;

@@ -1,5 +1,4 @@
-#ifndef DEDUPE_HEADER
-#define DEDUPE_HEADER
+#pragma once
 
 /*
 A packet of compressed data can either be a "match" (header starts with "MM") or a "literal" header starts with "TT":
@@ -49,7 +48,8 @@ void print_profiling(void);
 uint64_t dup_get_flushed(void);
 size_t flush_pend(char *dst, uint64_t *payloadreturned);
 
-uint64_t large_hits();
-uint64_t small_hits();
+extern std::atomic<uint64_t> largehits;
+extern std::atomic<uint64_t> smallhits;
+extern std::atomic<uint64_t> stored_as_literals;
+extern std::atomic<uint64_t> literals_compressed_size;
 
-#endif

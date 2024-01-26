@@ -22,6 +22,7 @@
 
 using namespace std;
 
+// NOT thread safe
 class Cio {
   private:
     char tmp[4096];

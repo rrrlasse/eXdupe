@@ -90,6 +90,7 @@ std::string format_size(uint64_t size) {
 }
 
 STRING s2w(const std::string &s) { return STRING(s.begin(), s.end()); }
+string w2s(const STRING &s) { return string(s.begin(), s.end()); }
 
 STRING left(const STRING &s) {
     const size_t t = s.find_last_of(UNITXT("/\\"));
