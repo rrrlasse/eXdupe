@@ -1084,15 +1084,20 @@ You can reference following variables:
   time:    Last modified time as os.date object. You can also reference these
            integer variables: year, month, day, time, hour, min, sec
 
+Helper funcitons:
+  contains({list}, value): Check if the list contains the value
+
 Warning: string.upper() and string.lower() will only change ASCII characters,
 and some characters like asian and symbols are not well supported. Also note
 that string and path comparing is case sensitive.
 
 Examples:
   -v0 -u"print('added ' .. path .. ': ' .. size); return true"
-  -v3 -u"return ext ~= 'tmp' and not FILE_ATTRIBUTE_TEMPORARY"
-  -v3 -u"return year >= 2024"
-  -v3 -u"return utf8.lower(ext) == 'txt'")del";
+  -u"return ext ~= 'tmp' and not FILE_ATTRIBUTE_TEMPORARY"
+  -u"return year >= 2024"
+  -u"return utf8.lower(ext) == 'txt'"
+  -u"return not contains({'tmp', 'temp'}, ext)")del";
+
     statusbar.print(0, tostring(lua_help).c_str());
 }
 

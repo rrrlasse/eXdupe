@@ -418,6 +418,16 @@ TEST_CASE("lua types") {
     cmp();
 }
 
+TEST_CASE("lua contains") {
+    clean();
+    pick("a");
+    pick("b");
+    ex("-m1v3", "-u\"return(contains({'a'}, name))\"", in, full);
+    rm(in + "/b");
+    ex("-Rv3", full, out); 
+    cmp();
+}
+
 TEST_CASE("deduplication") {
     clean();
     auto i = GENERATE("", "-h");
