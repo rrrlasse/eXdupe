@@ -9,11 +9,9 @@
 #include <intrin.h>
 #endif
 
-// When compressing the hashtable, worst case is that all entries are in use, in which case it ends up
-// growing COMPRESSED_HASHTABLE_OVERHEAD bytes in size. Tighter upper bound is probably 16 or so.
-#define COMPRESSED_HASHTABLE_OVERHEAD 100
-#define DUP_MATCH "MM"
-#define DUP_LITERAL "TT"
+// #define HASH_PARTIAL_BLOCKS
+
+#define HASH_SIZE 16
 
 #if defined(__SVR4) && defined(__sun)
 #include <thread.h>
@@ -147,14 +145,18 @@ std::atomic<uint64_t> literals_compressed_size;
 // Set to false in order to not update the hashtable. Used during diff backup.
 bool add_data = true;
 
-#define SHA_SIZE 16
+// When compressing the hashtable, worst case is that all entries are in use, in which case it ends up
+// growing COMPRESSED_HASHTABLE_OVERHEAD bytes in size. Tighter upper bound is probably 16 or so.
+#define COMPRESSED_HASHTABLE_OVERHEAD 100
+#define DUP_MATCH "MM"
+#define DUP_LITERAL "TT"
 
 #pragma pack(push, 1)
 struct hash_t {
     uint64_t offset : 48;
     uint64_t hash : 16;
     uint16_t slide;
-    unsigned char sha[SHA_SIZE];
+    unsigned char sha[HASH_SIZE];
 };
 #pragma pack(pop)
 
@@ -264,11 +266,11 @@ static void sha(const unsigned char *src, size_t len, unsigned char *dst) {
         blake3_hasher_update(&hasher, src, len);
         uint8_t output[BLAKE3_OUT_LEN];
         blake3_hasher_finalize(&hasher, output, BLAKE3_OUT_LEN);
-        memcpy(dst, output, SHA_SIZE);
+        memcpy(dst, output, HASH_SIZE);
     } else {
         XXH64_hash_t s{g_hash_salt};
         XXH128_hash_t hash = XXH128(src, len, s);
-        memcpy(dst, &hash, SHA_SIZE);
+        memcpy(dst, &hash, HASH_SIZE);
     }
 }
 
@@ -341,8 +343,8 @@ size_t dup_compress_hashtable(void) {
                 ll2str(h.offset, dst, 6);
                 ll2str(h.hash, dst + 6, 2);
                 ll2str(h.slide, dst + 6 + 2, 2);
-                memcpy(dst + 6 + 2 + 2, h.sha, SHA_SIZE);
-                dst += 6 + 2 + 2 + SHA_SIZE;
+                memcpy(dst + 6 + 2 + 2, h.sha, HASH_SIZE);
+                dst += 6 + 2 + 2 + HASH_SIZE;
                 i++;
             }
         } else {
@@ -397,12 +399,12 @@ int dup_decompress_hashtable(size_t len) {
         for (uint64_t k = 0; k < count2; k++) {
             if (used2) {
                 unsigned char temp[100];
-                src -= (6 + 2 + 2 + SHA_SIZE);
-                memcpy(temp, src, 6 + 2 + 2 + SHA_SIZE);
+                src -= (6 + 2 + 2 + HASH_SIZE);
+                memcpy(temp, src, 6 + 2 + 2 + HASH_SIZE);
                 table[i / 2][i % 2].offset = str2ll(temp, 8);
                 table[i / 2][i % 2].hash = static_cast<uint16_t>(str2ll(temp + 6, 2));
                 table[i / 2][i % 2].slide = static_cast<uint16_t>(str2ll(temp + 6 + 2, 2));
-                memcpy(table[i / 2][i % 2].sha, temp + 6 + 2 + 2, SHA_SIZE);
+                memcpy(table[i / 2][i % 2].sha, temp + 6 + 2 + 2, HASH_SIZE);
             } else {
                 memset(&table[i / 2][i % 2], 0, sizeof(hash_t));
             }
@@ -514,9 +516,14 @@ static uint32_t window(const unsigned char *src, size_t len, const unsigned char
 
     if (pos != 0) {
         *pos = (unsigned char *)src + match;
-    }
+    }        
 
-    return quick(src[match], src[match + p20], src[match + p80], src[match + len - slide - 4], (unsigned char *)src + match, len - slide - 8);
+    if(match == slide) {
+        return -1;
+    }
+    else {
+        return quick(src[match], src[match + p20], src[match + p80], src[match + len - slide - 4], (unsigned char *)src + match, len - slide - 8);
+    }
 }
 
 // there must be LARGE_BLOCK more valid data after src + len
@@ -530,9 +537,8 @@ const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t l
     while (src <= last_src) {
         uint64_t j = entry(w);
 
-        // CAUTION: Outside mutex, assume reading garbage and that data changes
-        // between reads
-        if (table[j][no].hash == uint16_t(w) && used(table[j][no])) {
+        // CAUTION: Outside mutex, assume reading garbage and that data changes between reads
+        if (w != -1 && table[j][no].hash == uint16_t(w) && used(table[j][no])) {
             pthread_mutex_lock_wrapper(&table_mutex);
             if (used(table[j][no]) && w_pos - table[j][no].slide > src && w_pos - table[j][no].slide <= last_src) {
                 src = w_pos - table[j][no].slide;
@@ -540,34 +546,27 @@ const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t l
             pthread_mutex_unlock_wrapper(&table_mutex);
 
             if (!add_data || (table[j][no].offset + block < pay + (src - orig_src))) {
-                unsigned char s[SHA_SIZE];
+                unsigned char s[HASH_SIZE];
 
                 if (block == LARGE_BLOCK) {
                     unsigned char tmp[8 * 1024];
-                    assert(sizeof(tmp) >= LARGE_BLOCK / SMALL_BLOCK * SHA_SIZE);
+                    assert(sizeof(tmp) >= LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE);
                     uint32_t k;
                     for (k = 0; k < LARGE_BLOCK / SMALL_BLOCK; k++) {
-                        sha(src + k * SMALL_BLOCK, SMALL_BLOCK, tmp + k * SHA_SIZE);
+                        sha(src + k * SMALL_BLOCK, SMALL_BLOCK, tmp + k * HASH_SIZE);
                     }
-                    sha(tmp, LARGE_BLOCK / SMALL_BLOCK * SHA_SIZE, s);
+                    sha(tmp, LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, s);
                 } else {
                     sha(src, block, s);
                 }
 
                 pthread_mutex_lock_wrapper(&table_mutex);
 
-                if (dd_equal(s, table[j][no].sha, SHA_SIZE) && table[j][no].hash == uint16_t(w) && used(table[j][no]) &&
+                if (dd_equal(s, table[j][no].sha, HASH_SIZE) && table[j][no].hash == uint16_t(w) && used(table[j][no]) &&
                     (!add_data || (table[j][no].offset + block < pay + (src - orig_src)))) {
                     collision_skip = 32;
                     *payload_ref = table[j][no].offset;
                     pthread_mutex_unlock_wrapper(&table_mutex);
-                    /*
-                    if (block == LARGE_BLOCK) {
-                        largehits += block;
-                    } else {
-                        smallhits += block;
-                    }
-                    */
                     return src;
                 } else {
                     char c;
@@ -602,23 +601,20 @@ static void hashat(const unsigned char *src, uint64_t pay, size_t len, int no, u
     uint64_t w = window(src, len, &o);
     uint64_t j = entry(w);
 
-    pthread_mutex_lock_wrapper(&table_mutex);
-
-    if ((overwrite == 0 && !used(table[j][no])) || (overwrite == 1 && (!used(table[j][no]) || table[j][no].hash != uint16_t(w))) || (overwrite == 2)) {
-        if (!dd_equal(hash, table[j][no].sha, SHA_SIZE)) {
-            table[j][no].hash = static_cast<uint16_t>(w);
-            table[j][no].offset = pay;
-
-            memcpy((unsigned char *)table[j][no].sha, hash, SHA_SIZE);
-
-            assert(o - src <= 0xffff); // todo, use gsl::narrow
-            table[j][no].slide = static_cast<uint16_t>(o - src);
-
-            static_assert(is_same<decltype(table[j][no].slide), uint16_t>::value);
+    if(w != -1) {
+        pthread_mutex_lock_wrapper(&table_mutex);
+        if ( ((overwrite == 0 && !used(table[j][no])) || (overwrite == 1 && (!used(table[j][no]) || table[j][no].hash != uint16_t(w))) || (overwrite == 2))) {
+            if (!dd_equal(hash, table[j][no].sha, HASH_SIZE)) {
+                table[j][no].hash = static_cast<uint16_t>(w);
+                table[j][no].offset = pay;
+                memcpy((unsigned char *)table[j][no].sha, hash, HASH_SIZE);
+                assert(o - src <= 0xffff); // todo, use gsl::narrow
+                table[j][no].slide = static_cast<uint16_t>(o - src);
+                static_assert(is_same<decltype(table[j][no].slide), uint16_t>::value);
+            }
         }
+        pthread_mutex_unlock_wrapper(&table_mutex);
     }
-
-    pthread_mutex_unlock_wrapper(&table_mutex);
 }
 
 static size_t write_match(size_t length, uint64_t payload, unsigned char *dst) {
@@ -683,35 +679,43 @@ static size_t write_literals(const unsigned char *src, size_t length, unsigned c
 }
 
 static void hash_chunk(const unsigned char *src, uint64_t pay, size_t length, int policy) {
-    char tmp[512 * SHA_SIZE];
-    assert(sizeof(tmp) >= SHA_SIZE * LARGE_BLOCK / SMALL_BLOCK);
+    char tmp[512 * HASH_SIZE];
+    assert(sizeof(tmp) >= HASH_SIZE * LARGE_BLOCK / SMALL_BLOCK);
 
     size_t small_blocks = length / SMALL_BLOCK;
+    size_t large_blocks = length / LARGE_BLOCK;
     uint32_t smalls = 0;
     uint32_t j = 0;
 
     for (j = 0; j < small_blocks; j++) {
-        sha(src + j * SMALL_BLOCK, SMALL_BLOCK, (unsigned char *)tmp + smalls * SHA_SIZE);
-        hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, 0, (unsigned char *)tmp + smalls * SHA_SIZE, policy);
+        sha(src + j * SMALL_BLOCK, SMALL_BLOCK, (unsigned char *)tmp + smalls * HASH_SIZE);
+        hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, 0, (unsigned char *)tmp + smalls * HASH_SIZE, policy);
 
         smalls++;
         if (smalls == LARGE_BLOCK / SMALL_BLOCK) {
-            unsigned char tmp2[SHA_SIZE];
-            sha((unsigned char *)tmp, smalls * SHA_SIZE, tmp2);
+            unsigned char tmp2[HASH_SIZE];
+            sha((unsigned char *)tmp, smalls * HASH_SIZE, tmp2);
             hashat(src + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, pay + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, LARGE_BLOCK, 1, (unsigned char *)tmp2, policy);
-
             smalls = 0;
         }
     }
 
+#ifdef HASH_PARTIAL_BLOCKS
     size_t rem_size = length - SMALL_BLOCK * small_blocks;
     size_t rem_offset = SMALL_BLOCK * small_blocks;
-
     if (rem_size >= 128) {
         sha(src + rem_offset, rem_size, (unsigned char *)tmp);
         hashat(src + rem_offset, pay + rem_offset, rem_size, 0, (unsigned char *)tmp, policy);
     }
 
+    // Hash any remainder smaller than LARGE_BLOCK
+    rem_size = length - LARGE_BLOCK * large_blocks;
+    rem_offset = LARGE_BLOCK * large_blocks;
+    if (rem_size >= SMALL_BLOCK) {
+        sha(src + rem_offset, rem_size, (unsigned char *)tmp);
+        hashat(src + rem_offset, pay + rem_offset, rem_size, 1, (unsigned char *)tmp, policy);
+    }
+#endif
     return;
 }
 
@@ -829,7 +833,7 @@ static void *compress_thread(void *arg) {
 
 int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_count, void *space, int compression_level, bool crypto_hash, uint64_t hash_seed, uint64_t basepay) {
     // FIXME: The dup() function contains a stack allocated array ("tmp") of 8
-    // KB that must be able to fit LARGE_BLOCK / SMALL_BLOCK * SHA_SIZE bytes.
+    // KB that must be able to fit LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE bytes.
     // Find a better solution. alloca() causes sporadic crash in VC for inlined
     // functions.
     assert(large_block <= 512 * 1024);
