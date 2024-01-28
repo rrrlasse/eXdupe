@@ -118,10 +118,11 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
         "FILE_ATTRIBUTE_SPARSE_FILE = " + (attrib & FILE_ATTRIBUTE_SPARSE_FILE ? "true" : "false") + "\n" + 
         "FILE_ATTRIBUTE_SYSTEM = " + (attrib & FILE_ATTRIBUTE_SYSTEM ? "true" : "false") + "\n" + 
         "FILE_ATTRIBUTE_TEMPORARY = " + (attrib & FILE_ATTRIBUTE_TEMPORARY ? "true" : "false") + "\n" + 
-        "FILE_ATTRIBUTE_VIRTUAL = " + (attrib & FILE_ATTRIBUTE_VIRTUAL ? "true" : "false") + "\n" +
-        "function contains(items, item)\n" + "for _,v in pairs(items) do\n" + "  if v == item then\n" + "    return true\n" + "  end\n" + "end\nreturn false\n" + "end\n\n";
+        "FILE_ATTRIBUTE_VIRTUAL = " + (attrib & FILE_ATTRIBUTE_VIRTUAL ? "true" : "false") + "\n";
 #endif
+    auto_script += "function contains(i, l);\n for _,v in pairs(i) do;if v == l then;return true;end;end;return false;\nend\n";
     // clang-format on
+    
 
     std::string str2 = utf8_script() + auto_script + user_script;
 

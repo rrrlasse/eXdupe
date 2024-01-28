@@ -422,9 +422,28 @@ TEST_CASE("lua contains") {
     clean();
     pick("a");
     pick("b");
-    ex("-m1v3", "-u\"return(contains({'a'}, name))\"", in, full);
+    ex("-m1", "-u\"return(contains({'a'}, name))\"", in, full);
     rm(in + "/b");
-    ex("-Rv3", full, out); 
+    ex("-R", full, out); 
+    cmp();
+}
+
+TEST_CASE("lua utf8") {
+    clean();
+    pick("æøåäöüßéèáéíóúüñ");
+    pick("운일암반계곡");
+    ex("-m1", "-u\"return(name ~= 'a')\"", in, full);
+    ex("-R", full, out); 
+    cmp();
+}
+
+TEST_CASE("lua no case conversion") {
+    // No longer pass lower case to Lua
+    clean();
+    pick("a");
+    cp(in + "/a", in + "/AAA");
+    ex("-m1v3", "-u\"return(name ~= 'aaa')\"", in, full);
+    ex("-R", full, out); 
     cmp();
 }
 

@@ -1669,9 +1669,6 @@ bool lua_test(STRING path, const STRING &script) {
         return true;
     }
 
-#ifdef WINDOWS
-    path = lcase(path);
-#endif
     STRING dir;
     STRING file;
     uint64_t size = 0;
