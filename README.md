@@ -1,4 +1,4 @@
-# 2.1 gigabyte/second
+## 2.1 gigabyte/second
 eXdupe is an ultra fast file archiver that supports deduplication and differential backups.
 
 It's easy to use. Let's backup the entire D drive on Windows:
@@ -25,4 +25,21 @@ Try the latest development version (backwards compatibility broken often) that *
 Or get the stable version:
 
 &nbsp;&nbsp;&nbsp;[1.0.0](https://github.com/rrrlasse/eXdupe/releases/tag/v1.0.0)
+## Building
+### Linux
+    mkdir exdupe
+    cd exdupe
+    wget https://github.com/rrrlasse/eXdupe/archive/refs/heads/main.tar.gz
+    tar -zxf main.tar.gz
+    cmake eXdupe-main/src/
+    make
+    ./exdupe
+### Visual Studio Code
+Press Ctrl+Shift+X to open the extensions window and install `C/C++` and `CMake Tools`.
+
+Now select `File / Open Folder...` and select the `src` folder of the eXdupe source code.
+
+Press F7 to build. Select `amd64` if you are asked for Kit.
+
+You should now have `exdupe.exe` in the `src` folder. This will be a slow debug version. To build a release version, click the CMake icon in the Activity Bar and under `PROJECT STATUS / Configure`, change Debug to Release.
 <br><img src="https://github.com/rrrlasse/exdupe/blob/stuff/cmd.webp" width="90%">
