@@ -249,7 +249,40 @@ void all_types() {
 }
 }
 
+TEST_CASE("traverse") {
+    // Traverse into d despite of -r flag because it was passed explicitly on the command line
+    clean();
+    md(in + "/d");
+    cp(testfiles + "/a", in + "/d/a");
+    ex("-m1r", in + "/d", full);
+    ex("-Rf", full, out + "/d");
+    cmp();
 
+    // Wildcard must be seen as being passed explicitly (mostly for Windows that has no expansion)
+    clean();
+    md(in + "/d");
+    cp(testfiles + "/a", in + "/d/a");
+    ex("-m1r", in + "/*", full);
+    ex("-Rf", full, out + "/d");
+    cmp();
+}
+
+TEST_CASE("lua is_arg") {
+    clean();
+    md(in + "/d");
+    cp(testfiles + "/a", in + "/d/a");
+    ex("-m1r", "-u\"return(is_arg or (not is_dir))\"", in + "/d", full);
+    ex("-Rf", full, out + "/d");
+    cmp();
+
+    clean();
+    pick("a");
+    pick("b");
+    ex("-m1r", "-u\"return(is_arg)\"", in + "/a", full);
+    ex("-Rf", full, out);
+    rm(in + "/b");
+    cmp();
+}
 
 TEST_CASE("overwrite during restore") {  
     // Overwrite
@@ -409,7 +442,7 @@ TEST_CASE("lua types") {
         rm(in);
         md(in);
         pick("a");
-        ex("-m1 -u\"return is_file\"", in, full);
+        ex("-m1 -u\"return is_file or is_arg\"", in, full);
     }
 
     // todo, links
@@ -422,7 +455,7 @@ TEST_CASE("lua contains") {
     clean();
     pick("a");
     pick("b");
-    ex("-m1", "-u\"return(contains({'a'}, name))\"", in, full);
+    ex("-m1", "-u\"return(is_dir or contains({'a'}, name))\"", in, full);
     rm(in + "/b");
     ex("-R", full, out); 
     cmp();

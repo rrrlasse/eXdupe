@@ -71,7 +71,7 @@ std::string utf8e(const STRING &str) {
 #endif
 }
 
-bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t size, STRING ext2, uint32_t attrib, time_t date) {
+bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t size, STRING ext2, uint32_t attrib, time_t date, bool top_level) {
     string user_script = utf8e(user_script2);
     string path = utf8e(remove_delimitor(path2));
     string name = utf8e(name2);
@@ -91,6 +91,7 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
         "is_file = " + (type == FILE_TYPE ? "true" : "false") + "\n" + 
         "is_link = " + (type == SYMLINK_TYPE ? "true" : "false") + "\n" + 
         "is_dir = " + (type == DIR_TYPE ? "true" : "false") + "\n" + 
+        "is_arg = " + (top_level ? "true" : "false") + "\n" + 
         "path = " + "\"" + path + "\"\n" + 
         "name = " + "\"" + name + "\"\n" + 
         "size = " + s(size) + "\n" + 

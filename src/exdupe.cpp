@@ -1074,18 +1074,22 @@ void print_lua_help() {
 If the script returns true the item will be added, else it will be skipped.
 
 You can reference following variables:
-  path:    Absolute path
-  is_*:    Boolean variables is_dir, is_file, is_link
-  name:    Name without path
-  ext:     Extension or empty if no period exists
-  size:    Size
-  attrib:  Result of chmod on Linux. On Windows you can reference the booleans
-           FILE_ATTRIBUTE_READONLY, FILE_ATTRIBUTE_HIDDEN, etc.
-  time:    Last modified time as os.date object. You can also reference these
-           integer variables: year, month, day, time, hour, min, sec
+  path:   Absolute path
+  is_*:   Boolean variables is_dir, is_file, is_link, is_arg
+  name:   Name without path
+  ext:    Extension or empty if no period exists
+  size:   Size
+  attrib: Result of chmod on Linux. On Windows you can reference the booleans
+          FILE_ATTRIBUTE_READONLY, FILE_ATTRIBUTE_HIDDEN, etc.
+  time:   Last modified time as os.date object. You can also reference these
+          integer variables: year, month, day, time, hour, min, sec
 
 Helper functions:
   contains({list}, value): Test if the list contains the value
+
+The is_arg variable tells if the item was passed to eXdupe on the command line
+and can be used to prevent it from being skipped. Note that items that are
+found through wildcards (* and ?) will also set is_arg to true.
 
 Warning: string.upper() and string.lower() will only change ASCII characters,
 and some characters like asian and symbols are not well supported. Also note
@@ -1093,10 +1097,8 @@ that string and path comparing is case sensitive.
 
 Examples:
   -v0 -u"print('added ' .. path .. ': ' .. size); return true"
-  -u"return ext ~= 'tmp' and not FILE_ATTRIBUTE_TEMPORARY"
   -u"return year >= 2024"
-  -u"return utf8.lower(ext) == 'txt'"
-  -u"return not contains({'tmp', 'temp'}, ext)")del";
+  -u"return not (contains({'tmp', 'temp'}, lower(ext)) or FILE_ATTRIBUTE_TEMPORARY)")del";
 
     statusbar.print(0, tostring(lua_help).c_str());
 }
@@ -1664,7 +1666,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
     contents.push_back(file_meta);
 }
 
-bool lua_test(STRING path, const STRING &script) {
+bool lua_test(STRING path, const STRING &script, bool top_level) {
     if (script == UNITXT("")) {
         return true;
     }
@@ -1702,10 +1704,10 @@ bool lua_test(STRING path, const STRING &script) {
     } else {
         ext = UNITXT("");
     }
-    return execute(script, path, type, name, size, ext, attrib, date);
+    return execute(script, path, type, name, size, ext, attrib, date, top_level);
 }
 
-bool include(const STRING &name) {
+bool include(const STRING &name, bool top_level) {
     STRING n = remove_delimitor(CASESENSE(unsnap(abs_path(name))));
 
     for (uint32_t j = 0; j < excludelist.size(); j++) {
@@ -1716,7 +1718,7 @@ bool include(const STRING &name) {
         }
     }
 
-    if (!lua_test(name, lua)) {
+    if (!lua_test(name, lua, top_level)) {
         // statusbar.print(9, UNITXT("Skipped, by -f filter: %s"), name.c_str());
         return false;
     }
@@ -1731,7 +1733,7 @@ void fail_list_dir(const STRING &dir) {
     }
 }
 
-void compress_recursive(const STRING &base_dir, vector<STRING> items, bool first_call) {
+void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_level) {
     // Todo, simplify this function by initially creating three distinct lists
     // for files, dirs and symlinks. Instead of iterating through the same list
     // with each their if-conditions
@@ -1783,7 +1785,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool first
     // first process files
     for (uint32_t j = 0; j < items.size(); j++) {
         STRING sub = base_dir + items.at(j);
-        if (!ISDIR(attributes.at(j)) && !(ISLINK(attributes.at(j)) && !follow_symlinks) && (first_call || include(sub))) {
+        if (!ISDIR(attributes.at(j)) && !(ISLINK(attributes.at(j)) && !follow_symlinks) && include(sub, top_level)) {
             save_directory(base_dir, left(items.at(j)) + (left(items.at(j)) == UNITXT("") ? UNITXT("") : DELIM_STR), true);
             STRING u = items.at(j);
             STRING s = right(u) == UNITXT("") ? u : right(u);
@@ -1795,7 +1797,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool first
     for (uint32_t j = 0; j < items.size(); j++) {
         STRING sub = base_dir + items.at(j);
 
-        if (ISLINK(attributes.at(j)) && !follow_symlinks && (first_call || include(sub))) {
+        if (ISLINK(attributes.at(j)) && !follow_symlinks && include(sub, top_level)) {
             // we must avoid including destination file when compressing. Note
             // that *nix is case sensitive.
             if (output_file == UNITXT("-stdout") || (CASESENSE(abs_path(sub)) != CASESENSE(abs_path(output_file)))) {
@@ -1808,7 +1810,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool first
     // finally process directories
     for (uint32_t j = 0; j < items.size(); j++) {
         STRING sub = base_dir + items.at(j);
-        if (ISDIR(attributes.at(j)) && (!no_recursion_flag || first_call) && (first_call || include(sub))) {
+        if (ISDIR(attributes.at(j)) && (!no_recursion_flag || top_level) && include(sub, top_level)) {
             if (items.at(j) != UNITXT("")) {
                 items.at(j) = remove_delimitor(items.at(j)) + DELIM_STR;
             }
