@@ -1084,8 +1084,8 @@ You can reference following variables:
   time:    Last modified time as os.date object. You can also reference these
            integer variables: year, month, day, time, hour, min, sec
 
-Helper funcitons:
-  contains({list}, value): Check if the list contains the value
+Helper functions:
+  contains({list}, value): Test if the list contains the value
 
 Warning: string.upper() and string.lower() will only change ASCII characters,
 and some characters like asian and symbols are not well supported. Also note
