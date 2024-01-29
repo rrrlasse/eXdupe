@@ -1001,8 +1001,8 @@ Flags:
    -f Overwrite existing files (default is to abort)
    -c Continue if a source file cannot be read (default is to abort)
   -tn Use n threads (default = 8)
-  -gn Use n GB memory (default = 2) for deduplication. Use -mn to specify MB
-      instead. Use 2 to 8 GB per TB of input data for best compression ratio.
+  -gn Use n GB memory (default = 2) for deduplication. Set as high as possible
+      for best compression ratio. Use -mn to specify MB instead.
   -xn Use compression level n after deduplication (0 = none, 1 = zstd-1
       (default), 2 = zstd-10, 3 = zstd-19)
    -- Prefix items in the <sources> list with "--" to exclude them
@@ -1050,7 +1050,8 @@ Show complete help: -?
 Most common flags:
    -f Overwrite existing files (default is to abort)
    -c Continue if a source file cannot be read (default is to abort)
-  -gn Use n GB memory for deduplication (default = 2)
+  -gn Use n GB memory (default = 2) for deduplication. Set as high as possible
+      for best compression ratio. Use -mn to specify MB instead.
   -xn Use compression level n after deduplication (0 = none, 1 = default, 2, 3)
   -tn Use n threads (default = 8)
    -- Prefix items in the <sources> list with "--" to skip them
