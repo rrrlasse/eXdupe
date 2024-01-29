@@ -21,13 +21,24 @@ extern "C" {
 #include <string.h>
 #include <time.h>
 #include <vector>
+#include <regex>
 
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
 #endif
 
+namespace {
+    string auto_script;
+    string user_script;
+}
+
 std::string utf8_script();
+
+std::string escape_lua_string(const std::string& input) {
+    static const std::regex pattern("[\"'\\\n\r\t\v\f\a\b]");
+    return "\"" + std::regex_replace(input, pattern, "\\$&") + "\"";
+}
 
 typedef struct luaMemFile {
     const char *text;
@@ -71,8 +82,14 @@ std::string utf8e(const STRING &str) {
 #endif
 }
 
+static int lua_panic(lua_State *L) {
+    string script = auto_script + user_script;
+    const char *errorMsg = lua_tostring(L, -1);
+    abort(true, UNITXT("\n=================== Auto generated ======================\n%s\n=================== Your script ========================= \n%s\n\n=================== Lua error message ===================\n%s\n"), utf8d(auto_script).c_str(), utf8d(user_script).c_str(), errorMsg);
+}
+
 bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t size, STRING ext2, uint32_t attrib, time_t date, bool top_level) {
-    string user_script = utf8e(user_script2);
+    user_script = utf8e(user_script2);
     string path = utf8e(remove_delimitor(path2));
     string name = utf8e(name2);
     string ext = utf8e(ext2);
@@ -87,15 +104,15 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
     }
 
     // clang-format off
-    string auto_script = std::string() + 
+    auto_script = std::string() + 
         "is_file = " + (type == FILE_TYPE ? "true" : "false") + "\n" + 
         "is_link = " + (type == SYMLINK_TYPE ? "true" : "false") + "\n" + 
         "is_dir = " + (type == DIR_TYPE ? "true" : "false") + "\n" + 
         "is_arg = " + (top_level ? "true" : "false") + "\n" + 
-        "path = " + "\"" + path + "\"\n" + 
-        "name = " + "\"" + name + "\"\n" + 
+        "path = " + escape_lua_string(path) + "\n" + 
+        "name = " + escape_lua_string(name) + "\n" + 
         "size = " + s(size) + "\n" + 
-        "ext = " + "\"" + ext + "\"\n" +
+        "ext = " + escape_lua_string(ext) + "\n" +
         "time = os.date(" + s(date) + ")\n" +
         "year = os.date('*t', time).year\n" + 
         "month = os.date('*t', time).month\n" + 
@@ -123,8 +140,6 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
 #endif
     auto_script += "function contains(i, l);\n for _,v in pairs(i) do;if v == l then;return true;end;end;return false;\nend\n";
     // clang-format on
-    
-
     std::string str2 = utf8_script() + auto_script + user_script;
 
     luaMF.text = str2.c_str();
@@ -133,7 +148,7 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
 
     if (i != 0) {
         const char *err = lua_tostring(L, lua_gettop(L));
-        abort(i != 0, UNITXT("Auto generated:\n%s\nYour script:\n%s\n\nLUA error message:\n%s"), utf8d(auto_script).c_str(), utf8d(user_script).c_str(), utf8d(err).c_str());
+        abort(i != 0, UNITXT("\n=================== Auto generated ======================\n%s\n=================== Your script ========================= \n%s\n\n=================== Lua error message ===================\n%s\n"), utf8d(auto_script).c_str(), utf8d(user_script).c_str(), utf8d(err).c_str());
     }
 
 #ifdef _WIN32
@@ -141,6 +156,7 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
     UINT old_cp = GetConsoleOutputCP();
     SetConsoleOutputCP(65001);
 #endif
+    lua_atpanic(L, lua_panic);
     lua_call(L, 0, 1);
 #ifdef _WIN32
     SetConsoleOutputCP(old_cp);

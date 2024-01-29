@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+﻿// SPDX-License-Identifier: GPL-2.0-or-later
 //
 // eXdupe deduplication library and file archiver.
 //
@@ -1088,17 +1088,18 @@ Helper functions:
   contains({list}, value): Test if the list contains the value
 
 The is_arg variable tells if the item was passed to eXdupe on the command line
-and can be used to prevent it from being skipped. Note that items that are
-found through wildcards (* and ?) will also set is_arg to true.
+and can be used to prevent it from being skipped. It's mostly useful when using
+wildcards (* and ?) where matches will set is_arg to true.
 
-Warning: string.upper() and string.lower() will only change ASCII characters,
-and some characters like asian and symbols are not well supported. Also note
-that string and path comparing is case sensitive.
+Warning: String and path comparing is case sensitive, but string.upper() and
+string.lower() will only change the basic Latin letters a-z and A-Z. Any other
+characters (æ, ü, é, etc) are unchanged. Characters outside extended Latin are
+not well supported by string functions.
 
 Examples:
   -v0 -u"print('added ' .. path .. ': ' .. size); return true"
   -u"return year >= 2024"
-  -u"return not (contains({'tmp', 'temp'}, lower(ext)) or FILE_ATTRIBUTE_TEMPORARY)")del";
+  -u"return not contains({'tmp', 'temp'}, lower(ext))")del";
 
     statusbar.print(0, tostring(lua_help).c_str());
 }

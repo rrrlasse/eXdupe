@@ -589,4 +589,17 @@ TEST_CASE("compress from stdin and restorre to stdout") {
     cmp_diff(); // timestamp cannot match
 }
 
-
+#ifndef _WIN32
+TEST_CASE("lua unix filenames") {
+    // Create file with following name, including the double quotes: ";f();x="
+    // If not escaped correctly, it will create the Lua line: name = "";f();x=""
+    // lua_load() won't catch it because it's valid syntax, so it will instead panic
+    // at Lua-runtime because f() is not a defined function
+    clean();
+    cp(testfiles + "/a", in + R"===(/'\"\;f\(\)\;x=\"')===");
+    // cerr << sys("ls -R", in);
+    ex("-m1", "-u\"return(is_file or is_dir)\"", in, full);
+    ex("-R", full, out); 
+    cmp();
+}
+#endif
