@@ -2163,40 +2163,38 @@ int main(int argc2, char *argv2[])
         size_t references_size = write_references(ofile);
         io.try_write("END", 3, ofile);
 
-        statusbar.print(1, UNITXT("Compressed %s B in %s files into %s"), del(dup_counter_payload()).c_str(), del(files).c_str(), s2w(format_size(io.write_count)).c_str());
+        statusbar.print(1, UNITXT("Compressed %s B in %s files into %s"), del(dup_counter_payload()).c_str(), del(files).c_str(), s2w(format_size(io.write_count) + "B").c_str());
 
         if (statistics_flag) {
-            auto kb = [](uint64_t i) {
-                string s = w2s(del(i / 1024 / 1024));
-                s = string(11 - s.size(), ' ') + s + " MB";
-                return s;
-            };
-
             std::ostringstream s;
             uint64_t t = (GetTickCount() - start_time);
             t = t == 0 ? 1 : t;
             auto sratio = ((float(io.write_count) / float(dup_counter_payload() + 1)) * 100.);
             sratio = sratio > 999.9 ? 999.9 : sratio;
             s << "\n";
-            s << "Speed: " << format_size(dup_counter_payload() / t * 1000) << "/s\n";
+            s << "Speed: " << format_size(dup_counter_payload() / t * 1000) << "B/s\n";
             string r = to_string(int(sratio));
             s << "Ratio: " << r << "%\n";
             s << "\n";
-//            s << "DEDUPE_LARGE = " << DEDUPE_LARGE << ", DEDUPE_SMALL = " << DEDUPE_SMALL << ", DISK_READ_CHUNK = " << DISK_READ_CHUNK << "\n";
-            s << DEDUPE_LARGE / 1024 << " K references:           " << kb(largehits) << "\n";
-            s << DEDUPE_SMALL / 1024 << " K references:             " << kb(smallhits) << "\n";
-            s << "Total references:           " << kb(largehits + smallhits) << "\n";
-            s << "Literals:                 + " << kb(stored_as_literals) << "\n";
-            s << "Read:                     = " << kb(io.read_count) << "\n";
+            s << "Hashfunction calls:  " << format_size(hashcalls) << "\n";
+            s << "Unhashed anomalies:  " << format_size(unhashed) << "\n";
+            s << "Congestion ratio:    " << int(float(congested) / (float(hashcalls + 1)) * 100) << "%\n";
             s << "\n";
-            s << "Compressed literals:        " << kb(literals_compressed_size) << "\n";
+            s << "READ:                       " << format_size(io.read_count) << "B\n";
+            s << "  Stored as literals:       " << format_size(stored_as_literals) << "B\n";
+            s << "  Stored as references:     " << format_size(largehits + smallhits) << "B\n";
+            s << "    Large blocks:           " << format_size(largehits) << "B\n";
+            s << "    Small blocks:           " << format_size(smallhits) << "B\n";
+            s << "\n";
+            s << "WRITTEN:                    " << format_size(io.write_count) << "B\n";
+            s << "  Literals compressed:      " << format_size(literals_compressed_size) << "B\n";
             // * 2 because it's stored both at the end of archive and also scattered in the arhive for restoring from stdin
-            s << "Metadata of source items: + " << kb(2 * contents_size) << "\n";
-            s << "Reference table:          + " << kb(references_size) << "\n";
-            s << "Hashtable:                + " << kb(hashtable_size) << "\n";
+            s << "  Metadata of source items: " << format_size(2 * contents_size) << "B\n";
+            s << "  Reference table:          " << format_size(references_size) << "B\n";
+            s << "  Hashtable:                " << format_size(hashtable_size) << "B\n";
             uint64_t total = literals_compressed_size + 2 * contents_size + references_size + hashtable_size;
-            s << "Various overhead:           " << kb(io.write_count - total) << "\n";
-            s << "Written:                  = " << kb(io.write_count) << "\n";
+            s << "  Various overhead:         " << format_size(io.write_count - total) << "B\n";
+            s << "\nIncrease memory with -g flag if congestion ratio is above a few percent";
             STRING str = s2w(s.str());
             statusbar.print(0, UNITXT("%s"), str.c_str());
         }

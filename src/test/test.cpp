@@ -95,30 +95,30 @@ TEST_CASE("checksum") {
 }
 
 TEST_CASE("format_size") {
-    REQUIRE(format_size(0) == "0 B");
-    REQUIRE(format_size(1) == "1 B");
-    REQUIRE(format_size(99) == "99 B");
-    REQUIRE(format_size(100) == "100 B");
-    REQUIRE(format_size(101) == "101 B");
-    REQUIRE(format_size(999) == "999 B");
-    REQUIRE(format_size(1000) == "0.97 KB");
-    REQUIRE(format_size(1001) == "0.97 KB");
+    REQUIRE(format_size(0) == "0");
+    REQUIRE(format_size(1) == "1");
+    REQUIRE(format_size(99) == "99");
+    REQUIRE(format_size(100) == "100");
+    REQUIRE(format_size(101) == "101");
+    REQUIRE(format_size(999) == "999");
+    REQUIRE(format_size(1000) == "0.97 K");
+    REQUIRE(format_size(1001) == "0.97 K");
 
-    REQUIRE(format_size(1023) == "0.99 KB");
-    REQUIRE(format_size(1024) == "1.00 KB");
-    REQUIRE(format_size(1025) == "1.00 KB");
+    REQUIRE(format_size(1023) == "0.99 K");
+    REQUIRE(format_size(1024) == "1.00 K");
+    REQUIRE(format_size(1025) == "1.00 K");
 
-    REQUIRE(format_size(999'999) == "976 KB");
-    REQUIRE(format_size(1'000'000) == "976 KB");
-    REQUIRE(format_size(1'000'001) == "976 KB");
+    REQUIRE(format_size(999'999) == "976 K");
+    REQUIRE(format_size(1'000'000) == "976 K");
+    REQUIRE(format_size(1'000'001) == "976 K");
 
-    REQUIRE(format_size(1024 * 1024 - 1) == "0.99 MB");
-    REQUIRE(format_size(1024 * 1024) == "1.00 MB");
-    REQUIRE(format_size(1024 * 1024 + 1) == "1.00 MB");
+    REQUIRE(format_size(1024 * 1024 - 1) == "0.99 M");
+    REQUIRE(format_size(1024 * 1024) == "1.00 M");
+    REQUIRE(format_size(1024 * 1024 + 1) == "1.00 M");
 
-    REQUIRE(format_size(1024 * 1024 * 1024) == "1.00 GB");
-    REQUIRE(format_size(1024ull * 1024 * 1024 * 1024) == "1.00 TB");
-    REQUIRE(format_size(1024ull * 1024 * 1024 * 1024 * 1024) == "1.00 PB");
+    REQUIRE(format_size(1024 * 1024 * 1024) == "1.00 G");
+    REQUIRE(format_size(1024ull * 1024 * 1024 * 1024) == "1.00 T");
+    REQUIRE(format_size(1024ull * 1024 * 1024 * 1024 * 1024) == "1.00 P");
 }
 
 

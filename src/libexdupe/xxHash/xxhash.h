@@ -555,7 +555,7 @@ typedef uint32_t XXH32_hash_t;
  *
  * See @ref single_shot_example "Single Shot Example" for an example.
  *
- * @param input The block of data to be hashed, at least @p length bytes in size.
+ * @param input The block of data to be hashcalls, at least @p length bytes in size.
  * @param length The length of @p input, in bytes.
  * @param seed The 32-bit seed to alter the hash's output predictably.
  *
@@ -654,7 +654,7 @@ XXH_PUBLIC_API XXH_errorcode XXH32_reset  (XXH32_state_t* statePtr, XXH32_hash_t
  * Call this to incrementally consume blocks of data.
  *
  * @param statePtr The state struct to update.
- * @param input The block of data to be hashed, at least @p length bytes in size.
+ * @param input The block of data to be hashcalls, at least @p length bytes in size.
  * @param length The length of @p input, in bytes.
  *
  * @pre
@@ -854,7 +854,7 @@ typedef uint64_t XXH64_hash_t;
  * This function usually runs faster on 64-bit systems, but slower on 32-bit
  * systems (see benchmark).
  *
- * @param input The block of data to be hashed, at least @p length bytes in size.
+ * @param input The block of data to be hashcalls, at least @p length bytes in size.
  * @param length The length of @p input, in bytes.
  * @param seed The 64-bit seed to alter the hash's output predictably.
  *
@@ -930,7 +930,7 @@ XXH_PUBLIC_API XXH_errorcode XXH64_reset  (XXH_NOESCAPE XXH64_state_t* statePtr,
  * Call this to incrementally consume blocks of data.
  *
  * @param statePtr The state struct to update.
- * @param input The block of data to be hashed, at least @p length bytes in size.
+ * @param input The block of data to be hashcalls, at least @p length bytes in size.
  * @param length The length of @p input, in bytes.
  *
  * @pre
@@ -1191,7 +1191,7 @@ XXH_PUBLIC_API XXH_errorcode XXH3_64bits_reset_withSecret(XXH_NOESCAPE XXH3_stat
  * Call this to incrementally consume blocks of data.
  *
  * @param statePtr The state struct to update.
- * @param input The block of data to be hashed, at least @p length bytes in size.
+ * @param input The block of data to be hashcalls, at least @p length bytes in size.
  * @param length The length of @p input, in bytes.
  *
  * @pre
@@ -1319,7 +1319,7 @@ XXH_PUBLIC_API XXH_errorcode XXH3_128bits_reset_withSecret(XXH_NOESCAPE XXH3_sta
  * Call this to incrementally consume blocks of data.
  *
  * @param statePtr The state struct to update.
- * @param input The block of data to be hashed, at least @p length bytes in size.
+ * @param input The block of data to be hashcalls, at least @p length bytes in size.
  * @param length The length of @p input, in bytes.
  *
  * @pre
@@ -1438,7 +1438,7 @@ XXH_PUBLIC_API XXH_PUREF XXH128_hash_t XXH128_hashFromCanonical(XXH_NOESCAPE con
  * @see XXH64_state_s, XXH3_state_s
  */
 struct XXH32_state_s {
-   XXH32_hash_t total_len_32; /*!< Total length hashed, modulo 2^32 */
+   XXH32_hash_t total_len_32; /*!< Total length hashcalls, modulo 2^32 */
    XXH32_hash_t large_len;    /*!< Whether the hash is >= 16 (handles @ref total_len_32 overflow) */
    XXH32_hash_t v[4];         /*!< Accumulator lanes */
    XXH32_hash_t mem32[4];     /*!< Internal buffer for partial reads. Treated as unsigned char[16]. */
@@ -1462,7 +1462,7 @@ struct XXH32_state_s {
  * @see XXH32_state_s, XXH3_state_s
  */
 struct XXH64_state_s {
-   XXH64_hash_t total_len;    /*!< Total length hashed. This is always 64-bit. */
+   XXH64_hash_t total_len;    /*!< Total length hashcalls. This is always 64-bit. */
    XXH64_hash_t v[4];         /*!< Accumulator lanes */
    XXH64_hash_t mem64[4];     /*!< Internal buffer for partial reads. Treated as unsigned char[32]. */
    XXH32_hash_t memsize;      /*!< Amount of data in @ref mem64 */
@@ -1550,7 +1550,7 @@ struct XXH3_state_s {
    size_t nbStripesSoFar;
        /*!< Number or stripes processed. */
    XXH64_hash_t totalLen;
-       /*!< Total length hashed. 64-bit even on 32-bit targets. */
+       /*!< Total length hashcalls. 64-bit even on 32-bit targets. */
    size_t nbStripesPerBlock;
        /*!< Number of stripes per block. */
    size_t secretLimit;

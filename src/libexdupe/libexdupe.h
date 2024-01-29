@@ -52,4 +52,6 @@ extern std::atomic<uint64_t> largehits;
 extern std::atomic<uint64_t> smallhits;
 extern std::atomic<uint64_t> stored_as_literals;
 extern std::atomic<uint64_t> literals_compressed_size;
-
+extern std::atomic<uint64_t> hashcalls;
+extern std::atomic<uint64_t> unhashed;
+extern std::atomic<uint64_t> congested;

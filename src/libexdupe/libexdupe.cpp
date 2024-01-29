@@ -141,6 +141,11 @@ std::atomic<uint64_t> largehits;
 std::atomic<uint64_t> smallhits;
 std::atomic<uint64_t> stored_as_literals;
 std::atomic<uint64_t> literals_compressed_size;
+std::atomic<uint64_t> hashcalls;
+std::atomic<uint64_t> unhashed;
+std::atomic<uint64_t> congested;
+
+
 
 // Set to false in order to not update the hashtable. Used during diff backup.
 bool add_data = true;
@@ -519,10 +524,10 @@ static uint32_t window(const unsigned char *src, size_t len, const unsigned char
     }        
 
     if(match == slide) {
-        return -1;
+        return 0;
     }
     else {
-        return quick(src[match], src[match + p20], src[match + p80], src[match + len - slide - 4], (unsigned char *)src + match, len - slide - 8);
+        return 1 + quick(src[match], src[match + p20], src[match + p80], src[match + len - slide - 4], (unsigned char *)src + match, len - slide - 8);
     }
 }
 
@@ -531,14 +536,14 @@ const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t l
     const unsigned char *w_pos;
     const unsigned char *orig_src = src;
     const unsigned char *last_src = src + len - 1;
-    uint64_t w = window(src, block, &w_pos);
+    uint32_t w = window(src, block, &w_pos);
     size_t collision_skip = 32;
 
     while (src <= last_src) {
         uint64_t j = entry(w);
 
         // CAUTION: Outside mutex, assume reading garbage and that data changes between reads
-        if (w != -1 && table[j][no].hash == uint16_t(w) && used(table[j][no])) {
+        if (w != 0 && table[j][no].hash == uint16_t(w) && used(table[j][no])) {
             pthread_mutex_lock_wrapper(&table_mutex);
             if (used(table[j][no]) && w_pos - table[j][no].slide > src && w_pos - table[j][no].slide <= last_src) {
                 src = w_pos - table[j][no].slide;
@@ -600,9 +605,13 @@ static void hashat(const unsigned char *src, uint64_t pay, size_t len, int no, u
     const unsigned char *o;
     uint64_t w = window(src, len, &o);
     uint64_t j = entry(w);
+    hashcalls++;
 
-    if(w != -1) {
+    if(w != 0) {
         pthread_mutex_lock_wrapper(&table_mutex);
+        if(used(table[j][no]) && table[j][no].hash != uint16_t(w)) {
+            congested++;
+        }
         if ( ((overwrite == 0 && !used(table[j][no])) || (overwrite == 1 && (!used(table[j][no]) || table[j][no].hash != uint16_t(w))) || (overwrite == 2))) {
             if (!dd_equal(hash, table[j][no].sha, HASH_SIZE)) {
                 table[j][no].hash = static_cast<uint16_t>(w);
@@ -614,6 +623,9 @@ static void hashat(const unsigned char *src, uint64_t pay, size_t len, int no, u
             }
         }
         pthread_mutex_unlock_wrapper(&table_mutex);
+    }
+    else {
+        unhashed++;
     }
 }
 

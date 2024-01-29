@@ -44,9 +44,9 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
         m_last_file_print = GetTickCount();
         STRING line;
         if (backup) {
-            line = s2w(format_size(read)) + UNITXT(", ") + s2w(format_size(written)) + UNITXT(", ");
+            line = s2w(format_size(read)) + UNITXT("B, ") + s2w(format_size(written)) + UNITXT("B, ");
         } else {
-            line = s2w(format_size(written)) + UNITXT(", ");
+            line = s2w(format_size(written)) + UNITXT("B, ");
         }
 
         if (!v3) {
