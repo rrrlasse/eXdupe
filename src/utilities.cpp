@@ -51,10 +51,10 @@ namespace fs = std::filesystem;
 
 std::string format_size(uint64_t size) {
     if (size <= 999) {
-        return std::to_string(size);
+        return std::to_string(size) + " ";
     }
 
-    const char *suffixes[] = {"", " K", " M", " G", " T", " P" };
+    const char *suffixes[] = {" ", " K", " M", " G", " T", " P" };
     int suffixIndex = 0;
 
     double sizeInKB = static_cast<double>(size);

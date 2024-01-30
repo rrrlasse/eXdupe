@@ -8,10 +8,45 @@
 #include <assert.h>
 #include "ui.hpp"
 
+
+#include <iostream>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <termios.h>
+#include <unistd.h>
+#endif
+
+namespace {
+int GetHorizontalCursorPosition() {
+#ifdef _WIN32
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(GetStdHandle(STD_ERROR_HANDLE), &csbi);
+    return csbi.dwCursorPosition.X;
+#else
+    FILE* pfile = popen("tput cols", "r");
+    if (pfile) {
+        int col;
+        if (fscanf(pfile, "%d", &col) == 1) {
+            pclose(pfile);
+            return col;
+        }
+        pclose(pfile);
+    }
+    return 0;
+#endif
+}
+}
+
 Statusbar::Statusbar(OSTREAM &os) : m_os(os), m_tmp(10000, CHR('c')) {}
 
 void Statusbar::clear_line() {
-    STRING blank_line(m_term_width, ' ');
+    int cursor = GetHorizontalCursorPosition();
+    if(cursor < m_term_width) {
+        cursor = m_term_width;
+    }
+    STRING blank_line(cursor, ' ');
     m_os << UNITXT("\r") << blank_line << UNITXT("\r"); 
 };
 
@@ -61,6 +96,9 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
             } else if (!v3) {
                 clear_line();
                 if (path.size() > maxpath) {
+                    // Some characters and symbols span 2 columns even on monospace fonts, so this may overshoot maxpath.
+                    // wcwidth() apparently rarely works on Linux (returns -1 for Korean and many symbols) and can't be used either.
+                    // GetStringTypeW() works perfectly but is Windows only. So we'll just accept the issue.
                     path = path.substr(0, maxpath - 2) + UNITXT("..");
                 }
                 line += path;

@@ -95,12 +95,12 @@ TEST_CASE("checksum") {
 }
 
 TEST_CASE("format_size") {
-    REQUIRE(format_size(0) == "0");
-    REQUIRE(format_size(1) == "1");
-    REQUIRE(format_size(99) == "99");
-    REQUIRE(format_size(100) == "100");
-    REQUIRE(format_size(101) == "101");
-    REQUIRE(format_size(999) == "999");
+    REQUIRE(format_size(0) == "0 ");
+    REQUIRE(format_size(1) == "1 ");
+    REQUIRE(format_size(99) == "99 ");
+    REQUIRE(format_size(100) == "100 ");
+    REQUIRE(format_size(101) == "101 ");
+    REQUIRE(format_size(999) == "999 ");
     REQUIRE(format_size(1000) == "0.97 K");
     REQUIRE(format_size(1001) == "0.97 K");
 
