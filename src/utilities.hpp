@@ -67,7 +67,7 @@ std::string format_size(uint64_t size);
 void clear_line();
 
 uint64_t rnd64();
-
+bool is_valid_utf8(const std::string& input) ;
 STRING string2wstring(string str);
 string wstring2string(STRING wstr);
 void replace_stdstr(std::string &str, const std::string &oldStr, const std::string &newStr);

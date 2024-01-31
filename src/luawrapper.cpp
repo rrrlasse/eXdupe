@@ -22,6 +22,7 @@ extern "C" {
 #include <time.h>
 #include <vector>
 #include <regex>
+#include <format>
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -36,9 +37,33 @@ namespace {
 std::string utf8_script();
 
 std::string escape_lua_string(const std::string& input) {
-    static const std::regex pattern("[\"'\\\n\r\t\v\f\a\b]");
-    return "\"" + std::regex_replace(input, pattern, "\\$&") + "\"";
+    std::string result = input;
+    if(!is_valid_utf8(result)) {
+        // String is not utf-8, so just pass basic ASCII to the user and replace anything else with '?'
+        for (char& c : result) {
+            if ((c < ' ') ||
+                (c > '~')) {
+                c = '?';
+            }
+        }            
+    }
+
+    string result2;
+    // Escape bytes that cannot exist in Lua string literals
+    for (char c : result) {
+        if ((c < ' ') ||
+            (c > '~') ||
+            (c == '\\') ||
+            (c == '\"') ||
+            (c == '\'')) {
+            result2 += std::format("\\x{:02x}", static_cast<unsigned char>(c));
+        } else {
+            result2 += c;
+        }
+    }
+    return "\"" + result2 + "\"";
 }
+
 
 typedef struct luaMemFile {
     const char *text;

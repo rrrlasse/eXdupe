@@ -10,6 +10,8 @@
 #include <regex>
 #include <vector>
 #include <filesystem>
+#include <format>
+#include <fstream>
 
 #ifdef _WIN32
 #include <iostream>
@@ -599,6 +601,23 @@ TEST_CASE("lua unix filenames") {
     cp(testfiles + "/a", in + R"===(/'\"\;f\(\)\;x=\"')===");
     // cerr << sys("ls -R", in);
     ex("-m1", "-u\"return(is_file or is_dir)\"", in, full);
+    ex("-R", full, out); 
+    cmp();
+
+    // Try all bytes that are valid in a UNIX filename
+    clean();
+    for(int c = 0; c < 256; c++) {
+        if(c == '/' || c == '\0') {
+            continue;
+        }
+
+        std::string fileName = p(in) + "/" + char(c);
+        std::ofstream outputFile(fileName);
+        outputFile.close();
+
+    }
+  //  cerr << sys("ls -R", in);
+    ex("-m1", "-u\"return(name == 'tmp' or name == 'full' or name == 'out' or name == 'in' or len(name) == 1)\"", in, full);
     ex("-R", full, out); 
     cmp();
 }

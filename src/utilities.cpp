@@ -49,6 +49,30 @@ namespace fs = std::filesystem;
 #define DELIM_CHAR UNITXT('/')
 #endif
 
+bool is_valid_utf8(const std::string& input) {
+    int continuationBytes = 0;
+    for (char ch : input) {
+        if ((ch & 0x80) == 0x00) {
+            continuationBytes = 0;
+        } else if ((ch & 0xE0) == 0xC0) {
+            continuationBytes = 1;
+        } else if ((ch & 0xF0) == 0xE0) {
+            continuationBytes = 2;
+        } else if ((ch & 0xF8) == 0xF0) {
+            continuationBytes = 3;
+        } else if ((ch & 0xC0) == 0x80) {
+            if (continuationBytes > 0) {
+                continuationBytes--;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    return continuationBytes == 0;
+}
+
 std::string format_size(uint64_t size) {
     if (size <= 999) {
         return std::to_string(size) + " ";
@@ -299,7 +323,7 @@ STRING slashify(STRING path) {
     replace(path.begin(), path.end(), '/', '\\');
     return path;
 #else
-    replace(path.begin(), path.end(), '\\', '/');
+    //replace(path.begin(), path.end(), '\\', '/');
     return path;
 #endif
 }

@@ -1076,7 +1076,7 @@ If the script returns true the item will be added, else it will be skipped.
 
 You can reference following variables:
   path:   Absolute path
-  is_*:   Boolean variables is_dir, is_file, is_link, is_arg
+  is_*:   Boolean variables is_dir, is_file, is_link
   name:   Name without path
   ext:    Extension or empty if no period exists
   size:   Size
@@ -1088,14 +1088,13 @@ You can reference following variables:
 Helper functions:
   contains({list}, value): Test if the list contains the value
 
-The is_arg variable tells if the item was passed to eXdupe on the command line
-and can be used to prevent it from being skipped. It's mostly useful when using
-wildcards (* and ?) where matches will set is_arg to true.
+All Lua string functions work in utf-8. If path, name or ext are not valid
+utf-8 then all bytes outside basic ASCII (a-z, A-Z, 0-9 and common symbols) are
+replaced by '?' before being passed to your script.
 
-Warning: String and path comparing is case sensitive, but string.upper() and
-string.lower() will only change the basic Latin letters a-z and A-Z. Any other
-characters (æ, ü, é, etc) are unchanged. Characters outside extended Latin are
-not well supported by string functions.
+String and path comparing is case sensitive, but string.upper() and string.
+lower() will only change basic ASCII letters. Any other letters remain
+unchanged.
 
 Examples:
   -v0 -u"print('added ' .. path .. ': ' .. size); return true"
