@@ -107,7 +107,8 @@ const size_t G = 1024 * M;
 // improve for small data sets (also increase memory_usage to improve for any
 // size).
 size_t DEDUPE_SMALL = 4 * K;
-size_t DEDUPE_LARGE = 128 * K;
+size_t DEDUPE_MEDIUM = 32 * K;
+size_t DEDUPE_LARGE = 256 * K;
 
 // Data is read from disk and deduplicated in DISK_READ_CHUNK bytes at a time
 // during backup.
@@ -1001,8 +1002,8 @@ Flags:
    -f Overwrite existing files (default is to abort)
    -c Continue if a source file cannot be read (default is to abort)
   -tn Use n threads (default = 8)
-  -gn Use n GB memory (default = 2) for deduplication. Set as high as possible
-      for best compression ratio. Use -mn to specify MB instead.
+  -gn Use n GB memory (default = 2) for deduplication. Set to 16 GB per TB
+      of input data. Use -mn to specify MB instead.
   -xn Use compression level n after deduplication (0 = none, 1 = zstd-1
       (default), 2 = zstd-10, 3 = zstd-19)
    -- Prefix items in the <sources> list with "--" to exclude them
@@ -1050,8 +1051,8 @@ Show complete help: -?
 Most common flags:
    -f Overwrite existing files (default is to abort)
    -c Continue if a source file cannot be read (default is to abort)
-  -gn Use n GB memory (default = 2) for deduplication. Set as high as possible
-      for best compression ratio. Use -mn to specify MB instead.
+  -gn Use n GB memory for deduplication (default = 2). Set to 16 GB per TB of
+      input data for best result
   -xn Use compression level n after deduplication (0 = none, 1 = default, 2, 3)
   -tn Use n threads (default = 8)
    -- Prefix items in the <sources> list with "--" to skip them
@@ -1972,6 +1973,7 @@ void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t
     io.write_ui<uint8_t>(VER_DEV, file);
 
     io.write_ui<uint64_t>(DEDUPE_SMALL, file);
+    io.write_ui<uint64_t>(DEDUPE_MEDIUM, file);
     io.write_ui<uint64_t>(DEDUPE_LARGE, file);
 
     io.write_ui<uint8_t>(hash_flag ? 1 : 0, file);
@@ -2000,6 +2002,7 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
     }
 
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
+    DEDUPE_MEDIUM = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
     abort(dev != VER_DEV, UNITXT("This file was created with eXdupe version %d.%d.%d.dev-%d. Please use the exact same version to restore it"), major, minor, revision, dev);
@@ -2113,7 +2116,7 @@ int main(int argc2, char *argv2[])
             memset(hashtable, 0, memory_usage);
             pay_count = read_references(ifile); // read size in bytes of user payload in .full file
 
-            int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
+            int r = dup_init(DEDUPE_LARGE, DEDUPE_MEDIUM, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
             abort(r == 1, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), memory_usage >> 20);
             abort(r == 2, UNITXT("Error creating threads. This differential backup requires %d MB memory. Try -t1 flag"), memory_usage >> 20);
 
@@ -2127,7 +2130,7 @@ int main(int argc2, char *argv2[])
             hash_salt = rnd64();
             hashtable = tmalloc(memory_usage);
             abort(!hashtable, UNITXT("Out of memory. Reduce -m, -g or -t flag"));
-            int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
+            int r = dup_init(DEDUPE_LARGE, DEDUPE_MEDIUM, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
             abort(r == 1, UNITXT("Out of memory. Reduce -m, -g or -t flag"));
             abort(r == 2, UNITXT("Error creating threads. Reduce -m, -g or -t flag"));
             dup_add(true);
@@ -2167,33 +2170,32 @@ int main(int argc2, char *argv2[])
         if (statistics_flag) {
             std::ostringstream s;
             uint64_t t = (GetTickCount() - start_time);
-            t = t == 0 ? 1 : t;
-            auto sratio = ((float(io.write_count) / float(dup_counter_payload() + 1)) * 100.);
-            sratio = sratio > 999.9 ? 999.9 : sratio;
+            auto sratio = ((float(io.write_count) / float(io.read_count + 1)) * 100.);
+            sratio = sratio > 999 ? 999 : sratio;
             s << "\n";
-            s << "Speed: " << format_size(dup_counter_payload() / t * 1000) << "B/s\n";
-            string r = to_string(int(sratio));
-            s << "Ratio: " << r << "%\n";
+            s << "Speed:   " << format_size(dup_counter_payload() / (t + 1) * 1000) << "B/s\n";
+            s << "Ratio:   " << to_string(int(sratio)) << "%\n";
             s << "\n";
-            s << "Hashfunction calls:  " << format_size(hashcalls) << "\n";
-            s << "Unhashed anomalies:  " << format_size(unhashed) << "\n";
-            s << "Congestion ratio:    " << int(float(congested) / (float(hashcalls + 1)) * 100) << "%\n";
+            s << "Read:                      " << format_size(io.read_count) << "B\n";
+            s << " Stored as literals:       " << format_size(stored_as_literals) << "B\n";
+            s << " Stored as references:     " << format_size(largehits + smallhits) << "B\n";
+            s << "  Large blocks:            " << format_size(largehits) << "B\n";
+            s << "  Medium blocks:           " << format_size(mediumhits) << "B\n";
+            s << "  Small blocks:            " << format_size(smallhits) << "B\n";
             s << "\n";
-            s << "READ:                       " << format_size(io.read_count) << "B\n";
-            s << "  Stored as literals:       " << format_size(stored_as_literals) << "B\n";
-            s << "  Stored as references:     " << format_size(largehits + smallhits) << "B\n";
-            s << "    Large blocks:           " << format_size(largehits) << "B\n";
-            s << "    Small blocks:           " << format_size(smallhits) << "B\n";
-            s << "\n";
-            s << "WRITTEN:                    " << format_size(io.write_count) << "B\n";
-            s << "  Literals compressed:      " << format_size(literals_compressed_size) << "B\n";
+            s << "Written:                   " << format_size(io.write_count) << "B\n";
+            s << " Literals compressed:      " << format_size(literals_compressed_size) << "B\n";
             // * 2 because it's stored both at the end of archive and also scattered in the arhive for restoring from stdin
-            s << "  Metadata of source items: " << format_size(2 * contents_size) << "B\n";
-            s << "  Reference table:          " << format_size(references_size) << "B\n";
-            s << "  Hashtable:                " << format_size(hashtable_size) << "B\n";
+            s << " Metadata of source items: " << format_size(2 * contents_size) << "B\n";
+            s << " Reference table:          " << format_size(references_size) << "B\n";
+            s << " Hashtable:                " << format_size(hashtable_size) << "B\n";
             uint64_t total = literals_compressed_size + 2 * contents_size + references_size + hashtable_size;
-            s << "  Various overhead:         " << format_size(io.write_count - total) << "B\n";
-            s << "\nIncrease memory with -g flag if congestion ratio is above a few percent";
+            s << " Various overhead:         " << format_size(io.write_count - total) << "B\n";
+            s << "\n";
+            s << "Unhashed anomalies: " << format_size(unhashed) << "B\n";
+            s << "Hash congestion:    " << std::to_string(int(double(congested) / (double(io.read_count + 1)) * 100 )) << "%\n";
+            s << "\n";
+            s << "Increase memory with -g flag if hash congestion is above a few percent";
             STRING str = s2w(s.str());
             statusbar.print(0, UNITXT("%s"), str.c_str());
         }

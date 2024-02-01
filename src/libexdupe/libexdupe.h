@@ -20,7 +20,7 @@ TT cccc dddd pppppppp <data compressed with some traditional data compression>
 #include <string.h>
 
 uint64_t dup_memory(uint64_t bits);
-int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
+int dup_init(size_t large_block, size_t medium_block, size_t small_block, uint64_t memory_usage,
 	     int max_threadcount, void *memory, int compression_level,
 	     bool crypto_hash, uint64_t hash_seed, uint64_t basepay);
 
@@ -49,6 +49,7 @@ uint64_t dup_get_flushed(void);
 size_t flush_pend(char *dst, uint64_t *payloadreturned);
 
 extern std::atomic<uint64_t> largehits;
+extern std::atomic<uint64_t> mediumhits;
 extern std::atomic<uint64_t> smallhits;
 extern std::atomic<uint64_t> stored_as_literals;
 extern std::atomic<uint64_t> literals_compressed_size;
