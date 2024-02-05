@@ -596,7 +596,7 @@ uint64_t read_hashtable(FILE *file) {
     uint64_t s = io.read_ui<uint64_t>(file);
     if (verbose_level > 0) {
         statusbar.clear_line();
-        statusbar.update(BACKUP, 0, 0, (STRING() + UNITXT("Reading meta data from full backup...\r")).c_str(), false, true);
+        statusbar.update(BACKUP, 0, 0, (STRING() + UNITXT("Reading hashtable from full backup...\r")).c_str(), false, true);
     }
     io.try_read_buf(hashtable, s, file);
     io.seek(file, orig, SEEK_SET);
@@ -2119,18 +2119,16 @@ int main(int argc2, char *argv2[])
 
             read_hashtable(ifile);
             io.close(ifile);
-            dup_add(true);
 
         } else {
             output_file = full;
             ofile = create_file(output_file);
-            hash_salt = rnd64();
+            hash_salt = hash_flag ? rnd64() : 0;
             hashtable = tmalloc(memory_usage);
             abort(!hashtable, UNITXT("Out of memory. Reduce -m, -g or -t flag"));
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
             abort(r == 1, UNITXT("Out of memory. Reduce -m, -g or -t flag"));
             abort(r == 2, UNITXT("Error creating threads. Reduce -m, -g or -t flag"));
-            dup_add(true);
         }
 
         output_file_mine = true; // todo, can this be deleted?
@@ -2162,40 +2160,28 @@ int main(int argc2, char *argv2[])
         size_t references_size = write_references(ofile);
         io.try_write("END", 3, ofile);
 
-        statusbar.print(1, UNITXT("Compressed %s B in %s files into %s"), del(dup_counter_payload()).c_str(), del(files).c_str(), s2w(format_size(io.write_count) + "B").c_str());
-
-        if (statistics_flag) {
+        if (statistics_flag) {  
             std::ostringstream s;
             uint64_t t = (GetTickCount() - start_time);
             t = t == 0 ? 1 : t;
             auto sratio = ((float(io.write_count) / float(dup_counter_payload() + 1)) * 100.);
-            sratio = sratio > 999.9 ? 999.9 : sratio;
-            s << "\n";
-            s << "Speed: " << format_size(dup_counter_payload() / t * 1000) << "B/s\n";
-            string r = to_string(int(sratio));
-            s << "Ratio: " << r << "%\n";
-            s << "\n";
-            s << "Hashfunction calls:  " << format_size(hashcalls) << "\n";
-            s << "Unhashed anomalies:  " << format_size(unhashed) << "\n";
-            s << "Congestion ratio:    " << int(float(congested) / (float(hashcalls + 1)) * 100) << "%\n";
-            s << "\n";
-            s << "READ:                       " << format_size(io.read_count) << "B\n";
-            s << "  Stored as literals:       " << format_size(stored_as_literals) << "B\n";
-            s << "  Stored as references:     " << format_size(largehits + smallhits) << "B\n";
-            s << "    Large blocks:           " << format_size(largehits) << "B\n";
-            s << "    Small blocks:           " << format_size(smallhits) << "B\n";
-            s << "\n";
-            s << "WRITTEN:                    " << format_size(io.write_count) << "B\n";
-            s << "  Literals compressed:      " << format_size(literals_compressed_size) << "B\n";
-            // * 2 because it's stored both at the end of archive and also scattered in the arhive for restoring from stdin
-            s << "  Metadata of source items: " << format_size(2 * contents_size) << "B\n";
-            s << "  Reference table:          " << format_size(references_size) << "B\n";
-            s << "  Hashtable:                " << format_size(hashtable_size) << "B\n";
+            string r = to_string(int(sratio > 999.9 ? 999.9 : sratio));
+
+            statusbar.print(1, UNITXT("Compressed %s B in %s files into %s (%s%%) at %sB/s"), del(dup_counter_payload()).c_str(), del(files).c_str(), del(io.write_count).c_str(), s2w(r.c_str()), s2w(format_size(dup_counter_payload() / t * 1000)));
+            s << "Stored as literals:          " << format_size(stored_as_literals) << "B (" << format_size(literals_compressed_size) << "B compressed)\n";
+            s << "Stored as duplicated blocks: " << format_size(largehits + smallhits) << "B (large = " << format_size(largehits) << "B, small = " << format_size(smallhits) << "B)\n";
             uint64_t total = literals_compressed_size + 2 * contents_size + references_size + hashtable_size;
-            s << "  Various overhead:         " << format_size(io.write_count - total) << "B\n";
-            s << "\nIncrease memory with -g flag if congestion ratio is above a few percent";
+            s << "Overheads:                   meta = " << format_size(2 * contents_size) << "B, refs = " << format_size(references_size) << "B, hashtable = " << format_size(hashtable_size) << "B, misc = " << format_size(io.write_count - total) << "B\n";    
+            s << "Unhashed due to congestion:  large = " << format_size(congested_large) << "B, small = " << format_size(congested_small) << "B\n";
+            s << "Unhashed anomalies:          large = " << format_size(anomalies_large) << "B, small = " << format_size(anomalies_small) << "B";
+
             STRING str = s2w(s.str());
             statusbar.print(0, UNITXT("%s"), str.c_str());
+
+            print_fillratio();            
+        }
+        else {
+            statusbar.print(1, UNITXT("Compressed %s B in %s files into %s"), del(dup_counter_payload()).c_str(), del(files).c_str(), s2w(format_size(io.write_count) + "B").c_str());
         }
 
         io.close(ofile);
