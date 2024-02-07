@@ -27,19 +27,15 @@ Or get the stable version:
 &nbsp;&nbsp;&nbsp;[1.0.0](https://github.com/rrrlasse/eXdupe/releases/tag/v1.0.0)
 ## Building
 ### Linux
-    mkdir exdupe
-    cd exdupe
     wget https://github.com/rrrlasse/eXdupe/archive/refs/heads/main.tar.gz
     tar -zxf main.tar.gz
     cmake eXdupe-main/src/
     make
-    ./exdupe
-### Visual Studio Code
-Press Ctrl+Shift+X to open the extensions window and install `C/C++` and `CMake Tools`.
+### Visual Studio
+Install support for C++ and CMake. Then, from a Developer Command Prompt, run this from the source code root directory:
 
-Now select `File / Open Folder...` and select the `src` folder of the eXdupe source code.
-
-Press F7 to build. Select `amd64` if you are asked for Kit.
-
-You should now have `exdupe.exe` in the `src` folder. This will be a slow debug version. To build a release version, click the CMake icon in the Activity Bar and under `PROJECT STATUS / Configure`, change Debug to Release.
+    mkdir out
+    cd out
+    cmake ..\src
+    make
 <br><img src="https://github.com/rrrlasse/exdupe/blob/stuff/cmd.webp" width="90%">
