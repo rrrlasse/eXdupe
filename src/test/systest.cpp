@@ -249,6 +249,12 @@ void all_types() {
     lf(in + "/link_to_missing_file", in + "/missing_file"); // broken link to file  
     ld(in + "/link_to_missing_dir", in + "/missing_dir"); // broken link to dir
 }
+
+void modify(string file) {
+    file = p(file);
+    sys("echo a>>", file);        
+}
+
 }
 
 TEST_CASE("traverse") {
@@ -408,18 +414,16 @@ TEST_CASE("w flag") {
     ex("-Dw", a, full, diff + "w");
     CHECK((siz(diff + "w") < siz(diff) / 2));
 #endif
-   
+
     // Recognize that file has changed
-    rm(in + "/high_entropy_b");
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    cp(in + "/high_entropy_a", in + "/high_entropy_b");
+    modify(in + "/high_entropy_a");
     rm(out);
     ex("-Dwf", in, full, diff + "w");
     ex("-RD", full, diff + "w", out);
     cmp();
 }
 
-TEST_CASE("destination dirctory doesn't exist") {
+TEST_CASE("destination directory doesn't exist") {
     clean();
     pick("a");
     ex("-m1",in, full);
