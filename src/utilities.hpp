@@ -44,6 +44,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <vector>
+#include <tuple>
 
 #ifdef WINDOWS
 #include <windows.h>
@@ -78,7 +79,7 @@ bool is_symlink(STRING file);
 bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir);
 bool is_named_pipe(STRING file);
 void set_date(STRING file, time_t date);
-time_t get_date(STRING file);
+pair<time_t, time_t> get_date(STRING file);
 STRING slashify(STRING path);
 STRING slashify(STRING path);
 vector<STRING> split_string(STRING str, STRING delim);

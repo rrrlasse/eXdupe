@@ -13,6 +13,7 @@
 #include <random>
 #include <time.h>
 #include <assert.h>
+#include <tuple>
 #include "unicode.h"
 #include "utilities.hpp"
 
@@ -263,24 +264,29 @@ std::tm local_time_tm(const time_t &t) {
     return localTime;
 }
 
-time_t get_date(STRING file) {
+// Returns {created time, modified time} on Windows and {status change time, modified time} on nix
+pair<time_t, time_t> get_date(STRING file) {
 #ifdef WINDOWS
-    FILETIME fileTime;
+    FILETIME fileTimeModified;
+    FILETIME fileTimeCreated;
 
     HANDLE hFile = CreateFile(file.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT , NULL);
     if (hFile != INVALID_HANDLE_VALUE) {
-        if (GetFileTime(hFile, nullptr, nullptr, &fileTime)) {
-            ULARGE_INTEGER uli;
-            uli.LowPart = fileTime.dwLowDateTime;
-            uli.HighPart = fileTime.dwHighDateTime;
+        if (GetFileTime(hFile, &fileTimeCreated, nullptr, &fileTimeModified)) {
+            ULARGE_INTEGER modified;
+            ULARGE_INTEGER created;
+            created.LowPart = fileTimeCreated.dwLowDateTime;
+            created.HighPart = fileTimeCreated.dwHighDateTime;
+            modified.LowPart = fileTimeModified.dwLowDateTime;
+            modified.HighPart = fileTimeModified.dwHighDateTime;
             CloseHandle(hFile);
-            return static_cast<time_t>((uli.QuadPart - 116444736000000000ull) / 10000000ull);
+            return {static_cast<time_t>((created.QuadPart - 116444736000000000ull) / 10000000ull), static_cast<time_t>((modified.QuadPart - 116444736000000000ull) / 10000000ull)};
         } else {
-            return 0;
+            return {};
         }
         CloseHandle(hFile);
     } else {
-        return 0;
+        return {};
     }
 #else
     struct stat attrib;
@@ -290,7 +296,7 @@ time_t get_date(STRING file) {
     } else {
         stat(file.c_str(), &attrib);
     }
-    return attrib.st_mtime;
+    return {attrib.st_ctime, attrib.st_mtime};
 #endif
 }
 

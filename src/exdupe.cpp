@@ -80,6 +80,8 @@ const bool WIN = false;
 #include <limits>
 #include <sstream>
 #include <string>
+#include <set>
+#include <map>
 
 #include "bytebuffer.h"
 #include "io.hpp"
@@ -149,6 +151,7 @@ bool absolute_path = false;
 bool hash_flag = false;
 bool build_info_flag = false;
 bool statistics_flag = false;
+bool timestamp_flag = false;
 
 uint32_t verbose_level = 1;
 uint32_t megabyte_flag = 0;
@@ -160,6 +163,7 @@ uint32_t compression_level = 1;
 uint64_t files = 0;
 uint64_t dirs = 0;
 uint64_t tot_res = 0;
+uint64_t unchanged = 0;
 
 uint64_t hash_salt;
 
@@ -201,21 +205,27 @@ typedef struct {
 
 vector<file_offset_t> infiles;
 
-typedef struct {
+class contents_t {
+public:
+    bool unchanged;
     STRING name;
     STRING link;
     uint64_t size;
     uint64_t payload;
     uint32_t checksum;
-    time_t file_date;
+    time_t file_modified;
+    time_t file_c_time; // created on Windows, status change on nix
     int attributes;
     bool directory;
     bool symlink;
     checksum_t ct;
     STRING extra;
-} contents_t;
+    STRING abs_path;
+};
 
 vector<contents_t> contents;
+// Only used during diff backup to test if files are unchanged compared to full
+map<STRING, contents_t> contents_full;
 
 typedef struct {
     uint64_t payload;
@@ -227,8 +237,6 @@ typedef struct {
 
 vector<reference_t> references;
 vector<reference_t> read_ahead;
-
-uint64_t total_decompressed = 0;
 
 void move_cursor_up() {
 #ifdef _WIN32
@@ -268,15 +276,19 @@ STRING date2str(time_t date) {
 }
 
 void write_contents_item(FILE *file, contents_t *c) {
+    io.writestr(c->abs_path, file);
     io.writestr(c->name, file);
     io.writestr(c->link, file);
     io.write_ui<uint64_t>(c->size, file);
     io.write_ui<uint64_t>(c->payload, file);
     io.write_ui<uint32_t>(c->checksum, file);
-    io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_date), file);
+    io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_c_time), file);
+    io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_modified), file);
     io.write_ui<uint32_t>(c->attributes, file);
     io.write_ui<uint8_t>(c->directory ? 1 : 0, file);
     io.write_ui<uint8_t>(c->symlink ? 1 : 0, file);
+    io.write_ui<uint8_t>(c->unchanged ? 1 : 0, file);
+
 }
 
 void add_file(const STRING &file, uint64_t offset) {
@@ -490,7 +502,6 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
                 io.try_read_buf(vin.data() + DUP_HEADER_LEN, lenc - DUP_HEADER_LEN, f);
                 uint64_t p;
                 int r = dup_decompress(vin.data(), vout.data(), &lenc, &p);
-                total_decompressed += lenc;
 
                 if (r != 0 && r != 1) {
                     abort(true, UNITXT("Internal error, dup_decompress() = %d"), r);
@@ -508,7 +519,7 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
     return false;
 }
 // clang-format off
-void print_file(STRING filename, uint64_t size, time_t file_date = 0, int attributes = 0) {
+void print_file(STRING filename, uint64_t size, time_t file_modified = 0, int attributes = 0) {
 #ifdef WINDOWS
     statusbar.print(0, UNITXT("%s  %s  %s"), 
         size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 19).c_str(),
@@ -519,9 +530,9 @@ void print_file(STRING filename, uint64_t size, time_t file_date = 0, int attrib
         attributes & FILE_ATTRIBUTE_READONLY ? 'R' : ' ',
         attributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED ? 'I' : ' ',
 */
-        date2str(file_date).c_str(), filename.c_str());
+        date2str(file_modified).c_str(), filename.c_str());
 #else
-    statusbar.print(0, UNITXT("%s  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 19).c_str(), date2str(file_date).c_str(), filename.c_str());
+    statusbar.print(0, UNITXT("%s  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 19).c_str(), date2str(file_modified).c_str(), filename.c_str());
 #endif
 }
 // clang-format on
@@ -627,15 +638,18 @@ STRING validchars(STRING filename) {
 }
 
 void read_content_item(FILE *file, contents_t *c) {
+    c->abs_path = slashify(io.readstr(file));
     c->name = slashify(io.readstr(file));
     c->link = slashify(io.readstr(file));
     c->size = io.read_ui<uint64_t>(file);
     c->payload = io.read_ui<uint64_t>(file);
     c->checksum = io.read_ui<uint32_t>(file);
-    c->file_date = io.read_ui<uint32_t>(file);
+    c->file_c_time = io.read_ui<uint32_t>(file);
+    c->file_modified = io.read_ui<uint32_t>(file);
     c->attributes = io.read_ui<uint32_t>(file);
     c->directory = io.read_ui<uint8_t>(file) == 0 ? false : true;
     c->symlink = io.read_ui<uint8_t>(file) == 0 ? false : true;
+    c->unchanged = io.read_ui<uint8_t>(file) == 0 ? false : true;
     if (!c->directory) {
         STRING i = c->name;
         c->name = slashify(validchars(c->name));
@@ -646,16 +660,17 @@ void read_content_item(FILE *file, contents_t *c) {
 }
 
 uint64_t dump_contents(FILE *file) {
+    //todo rewrite into using read_content()
     uint64_t orig = seek_to_header(file, "CONTENTS");
     uint64_t payload = 0, files = 0;
 
     uint64_t n = io.read_ui<uint64_t>(file);
     for (uint64_t i = 0; i < n; i++) {
         contents_t c;
-        read_content_item(file, &c);
+        read_content_item(file, &c); 
 
         if (c.symlink) {
-            print_file(STRING(c.name + UNITXT(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_date, c.attributes);
+            print_file(STRING(c.name + UNITXT(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_modified, c.attributes);
             files++;
         } else if (c.directory) {
             if (c.name != UNITXT(".\\") && c.name != UNITXT("./") && c.name != UNITXT("")) {
@@ -675,7 +690,7 @@ uint64_t dump_contents(FILE *file) {
         } else {
             payload += c.size;
             files++;
-            print_file(c.name, c.size, c.file_date, c.attributes);
+            print_file(c.name, c.size, c.file_modified, c.attributes);
         }
     }
 
@@ -775,7 +790,7 @@ void parse_flags(void) {
             abort(true, UNITXT("-s flag not supported in *nix"));
 #endif
         } else {
-            size_t e = flags.find_first_not_of(UNITXT("-fhuRrxqcDpiLzkatgmv0123456789B"));
+            size_t e = flags.find_first_not_of(UNITXT("-wfhuRrxqcDpiLzkatgmv0123456789B"));
             if (e != string::npos) {
                 abort(true, UNITXT("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
@@ -783,11 +798,12 @@ void parse_flags(void) {
             string flagsS = wstring2string(flags);
 
             // abort if numeric digits are used with a wrong flag
-            if (regx(flagsS, "[^mgtvix0123456789][0-9]+") != "") {
+            if (regx(flagsS, "[^mgwtvix0123456789][0-9]+") != "") {
                 abort(true, UNITXT("Numeric values must be preceded by m, g, t, v, or x"));
             }
 
             for (auto t : std::vector<pair<bool &, std::string>>{
+                     {timestamp_flag, "w"},
                      {restore_flag, "R"},
                      {no_recursion_flag, "r"},
                      {force_flag, "f"},
@@ -857,6 +873,7 @@ void parse_flags(void) {
     }
 
     // todo, add s and p verification
+    abort(timestamp_flag != 0 && !diff_flag, UNITXT("-w flag can only be used for differential backup"));
     abort(megabyte_flag != 0 && gigabyte_flag != 0, UNITXT("-m flag not compatible with -g"));
     abort(restore_flag && (no_recursion_flag || continue_flag), UNITXT("-R flag not compatible with -n or -c"));
     abort(restore_flag && (megabyte_flag != 0 || gigabyte_flag != 0), UNITXT("-m and -t flags not applicable to restore (no memory required)"));
@@ -1000,9 +1017,11 @@ paths to restore, written as printed by the -L flag.
 Flags:
    -f Overwrite existing files (default is to abort)
    -c Continue if a source file cannot be read (default is to abort)
+   -w Use only timestamps to detect changed files during diff backup. Smaller
+      diff and very fast, but use with caution
   -tn Use n threads (default = 8)
-  -gn Use n GB memory (default = 2) for deduplication. Set as high as possible
-      for best compression ratio. Use -mn to specify MB instead.
+  -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
+      of input data for best result. Use -mn to specify MB instead.
   -xn Use compression level n after deduplication (0 = none, 1 = zstd-1
       (default), 2 = zstd-10, 3 = zstd-19)
    -- Prefix items in the <sources> list with "--" to exclude them
@@ -1050,8 +1069,10 @@ Show complete help: -?
 Most common flags:
    -f Overwrite existing files (default is to abort)
    -c Continue if a source file cannot be read (default is to abort)
-  -gn Use n GB memory (default = 2) for deduplication. Set as high as possible
-      for best compression ratio. Use -mn to specify MB instead.
+   -w Use only timestamps to detect changed files during diff backup. Smaller
+      diff and very fast, but use with caution
+  -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
+      input data for best result
   -xn Use compression level n after deduplication (0 = none, 1 = default, 2, 3)
   -tn Use n threads (default = 8)
    -- Prefix items in the <sources> list with "--" to skip them
@@ -1246,13 +1267,26 @@ void create_symlink(STRING path, contents_t c) {
 #else
     int ret = symlink(c.link.c_str(), path.c_str());
 #endif
-    set_date(path, c.file_date);
+    set_date(path, c.file_modified);
     abort(ret != 0, UNITXT("Error creating symlink: %s -> %s"), path.c_str(), c.link.c_str());
 }
 
 void ensure_relative(const STRING &path) {
     STRING s = STRING(UNITXT("Archive contains absolute paths. Add a [files] argument. ")) + STRING(diff_flag ? STRING() : STRING());
     abort((path.size() >= 2 && path.substr(0, 2) == UNITXT("\\\\")) || path.find_last_of(UNITXT(":")) != string::npos, s.c_str());
+}
+
+vector<contents_t> read_contents(FILE* f) {
+    vector<contents_t> ret;
+    contents_t c;
+    uint64_t orig = seek_to_header(f, "CONTENTS");
+    uint64_t n = io.read_ui<uint64_t>(f);
+    for (uint64_t i = 0; i < n; i++) {
+        read_content_item(f, &c);
+        ret.push_back(c);
+    }
+    io.seek(f, orig, SEEK_SET);
+    return ret;
 }
 
 void decompress_individuals(FILE *ffull, FILE *fdiff) {
@@ -1270,7 +1304,7 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
         create_directories(directory, 0);
     }
 
-    uint64_t orig = seek_to_header(archive_file, "CONTENTS");
+
     uint64_t payload = 0;
     contents_t c;
     uint64_t resolved = 0;
@@ -1294,19 +1328,12 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
         basepay = read_references(ffull);
     }
 
-    uint64_t n = io.read_ui<uint64_t>(archive_file);
-    for (uint64_t i = 0; i < n; i++) {
-        read_content_item(archive_file, &c);
-        content.push_back(c);
-    }
+    content = read_contents(archive_file);
 
     verify_restorelist(restorelist, content);
 
     for (uint32_t i = 0; i < content.size(); i++) {
         c = content.at(i);
-        if (diff_flag) {
-            c.payload += basepay;
-        }
 
         if (c.directory && !c.symlink) {
             curdir = remove_delimitor(c.name);
@@ -1328,9 +1355,7 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
             }
 
             if (!pipe_out) {
-                // statusbar.print(0, STRING   (STRING() + UNITXT("\nCreating:") + dstdir + UNITXT("\n")).c_str()  );
-                create_directories(dstdir, c.file_date);
-                // cerr << "\nDone" << "\n";
+                create_directories(dstdir, c.file_modified);
             }
 
             if (!pipe_out) {
@@ -1350,6 +1375,10 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
                 ofile = pipe_out ? stdout : create_file(outfile);
                 resolved = 0;
 
+                if (diff_flag && !c.unchanged) {
+                    c.payload += basepay;
+                }
+
                 while (resolved < c.size) {
                     size_t process = minimum(c.size - resolved, RESTORE_CHUNKSIZE);
                     resolve(c.payload + resolved, process, restore_buffer.data(), ffull, fdiff, basepay);
@@ -1362,7 +1391,7 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
                 }
                 if (!pipe_out) {
                     fclose(ofile);
-                    set_date(dstdir + DELIM_STR + c.name, c.file_date);
+                    set_date(dstdir + DELIM_STR + c.name, c.file_modified);
                     set_attributes(dstdir + DELIM_STR + c.name, c.attributes);
                 }
                 abort(c.checksum != t.result, UNITXT("File checksum error"));
@@ -1370,7 +1399,7 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
         }
     }
 
-    io.seek(ffull, orig, SEEK_SET);
+
 }
 
 uint64_t payload_written = 0;
@@ -1485,7 +1514,7 @@ void compress_symlink(const STRING &link, const STRING &target) {
     bool is_dir;
     STRING tmp;
 
-    time_t file_date = get_date(link);
+    time_t file_modified = get_date(link).second;
     int t = symlink_target(link.c_str(), tmp, is_dir) ? 0 : -1;
 
     if (t == -1) {
@@ -1503,7 +1532,7 @@ void compress_symlink(const STRING &link, const STRING &target) {
     files++;
 
     contents_t c;
-
+    c.unchanged = false;
     c.directory = is_dir;
     c.symlink = true;
     c.link = STRING(tmp);
@@ -1511,7 +1540,7 @@ void compress_symlink(const STRING &link, const STRING &target) {
     c.size = 0;
     c.payload = 0;
     c.checksum = 0;
-    c.file_date = file_date;
+    c.file_modified = file_modified;
     write_contents_item(ofile, &c);
     contents.push_back(c);
     return;
@@ -1525,7 +1554,6 @@ vector<contents_t> file_queue;
 // NOTE! Remember to call with flush = true after, or with the last file! If you flush, then passing a file is optional
 // and you can leave the string parameters empty.
 void compress_file(const STRING &input_file, const STRING &filename, const bool flush) {
-
     auto empty_q = [&]() {
         if (payload_queue.size() > 0) {
             uint64_t pay;
@@ -1567,6 +1595,44 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
         return;
     }
 
+    pair<time_t, time_t> file_time;
+    int attributes = 0;
+    checksum_t file_checksum;
+    checksum_init(&file_checksum);
+    uint64_t file_size = 0;
+    contents_t file_meta;
+    uint64_t file_read = 0;
+
+    if (input_file != UNITXT("-stdin")) {
+        if(timestamp_flag) {
+            file_time = get_date(input_file);
+
+            contents_t f;
+            auto it = contents_full.find( CASESENSE(abs_path(input_file)));
+
+            if(it != contents_full.end()) {
+           //     CERR << file_time.first << " " << file_time.second << ";" << it->second.file_c_time << " " << it->second.file_modified << "\n";
+            }
+
+            if(it != contents_full.end() && it->second.file_c_time == file_time.first && it->second.file_modified == file_time.second) {
+                statusbar.update(BACKUP, dup_counter_payload() + unchanged, io.write_count, input_file);
+                contents_t c = it->second;
+                c.abs_path = abs_path(input_file);
+                c.unchanged = true;
+                unchanged += c.size;
+                contents.push_back(c);
+                files++;
+                // todo, superfluous because diff cannt be restored from stdin
+                io.try_write("F", 1, ofile); 
+                write_contents_item(ofile, &c);
+                if (flush) {
+                    flushit();
+                }
+                return;
+            }
+        }
+    }
+
     ifile = try_open(input_file.c_str(), 'r', false);
 
     if (!ifile) {
@@ -1578,47 +1644,42 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
         }
     }
 
-    time_t file_date;
-    int attributes = 0;
-    checksum_t file_checksum;
-    checksum_init(&file_checksum);
-    uint64_t file_size = 0;
-    contents_t file_meta;
-    uint64_t file_read = 0;
-
     statusbar.update(BACKUP, dup_counter_payload(), io.write_count, input_file);
 
     if (input_file != UNITXT("-stdin")) {
         io.seek(ifile, 0, SEEK_END);
+        file_time = get_date(input_file);
         file_size = io.tell(ifile);
-        file_date = get_date(input_file);
         attributes = get_attributes(input_file, follow_symlinks);
         io.seek(ifile, 0, SEEK_SET);
     } else {
-        file_date = cur_date();
+        file_time = {cur_date(), cur_date()};
         file_size = std::numeric_limits<uint64_t>::max();
     }
 
+    file_meta.abs_path = abs_path(input_file);
     file_meta.payload = payload_read;
     file_meta.name = filename;
     file_meta.size = file_size;
-    file_meta.file_date = file_date;
+    file_meta.file_c_time = file_time.first;
+    file_meta.file_modified = file_time.second;
     file_meta.attributes = attributes;
     file_meta.directory = false;
     file_meta.symlink = false;
+    file_meta.unchanged = false;
     checksum_init(&file_meta.ct);
     file_queue.push_back(file_meta);
 
     files++;
 
     io.try_write("F", 1, ofile);
-    write_contents_item(ofile, &file_meta);
+    write_contents_item(ofile, &file_meta); // todo, maybe skip for diff backups
 
     if (file_size > DISK_READ_CHUNK - payload_queue.size()) {
         empty_q();
 
         while (file_read < file_size) {
-            statusbar.update(BACKUP, dup_counter_payload(), io.write_count, input_file);
+            statusbar.update(BACKUP, dup_counter_payload() + unchanged, io.write_count, input_file);
             size_t r = io.read_valid_length(in, minimum(file_size - file_read, DISK_READ_CHUNK), ifile, input_file);
             if (input_file == UNITXT("-stdin") && r == 0) {
                 break;
@@ -1694,7 +1755,7 @@ bool lua_test(STRING path, const STRING &script, bool top_level) {
 #endif
 
     type = is_symlink(path) ? SYMLINK_TYPE : is_dir(path) ? DIR_TYPE : FILE_TYPE;
-    date = get_date(path);
+    date = get_date(path).second;
     path = remove_delimitor(path);
     name = right(remove_delimitor(path)) == UNITXT("") ? path : right(remove_delimitor(path));
     size = filesize(path, false);
@@ -1917,7 +1978,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
             ensure_relative(c.name);
             curdir = extract_dir + DELIM_STR + c.name;
             save_directory(UNITXT(""), curdir);
-            create_directories(curdir, c.file_date);
+            create_directories(curdir, c.file_modified);
         } else if (w == 'F') {
             contents_t c;
             files++;
@@ -2112,12 +2173,20 @@ int main(int argc2, char *argv2[])
             abort(!hashtable, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), memory_usage >> 20);
             memset(hashtable, 0, memory_usage);
             pay_count = read_references(ifile); // read size in bytes of user payload in .full file
+            references.clear();
 
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
             abort(r == 1, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), memory_usage >> 20);
             abort(r == 2, UNITXT("Error creating threads. This differential backup requires %d MB memory. Try -t1 flag"), memory_usage >> 20);
 
             read_hashtable(ifile);
+
+            auto con = read_contents(ifile);
+            for(auto c : con) {
+                c.abs_path = CASESENSE(c.abs_path);
+                contents_full[CASESENSE(abs_path(c.abs_path))] = c;
+            }
+
             io.close(ifile);
 
         } else {
@@ -2164,16 +2233,17 @@ int main(int argc2, char *argv2[])
             std::ostringstream s;
             uint64_t t = (GetTickCount() - start_time);
             t = t == 0 ? 1 : t;
-            auto sratio = ((float(io.write_count) / float(dup_counter_payload() + 1)) * 100.);
-            string r = to_string(int(sratio > 999.9 ? 999.9 : sratio));
+            int sratio = int((double(io.write_count) / double(dup_counter_payload() + unchanged + 1)) * 100.);
+            sratio = sratio > 999 ? 999 : sratio == 0 ? 1 : sratio;
 
-            statusbar.print(1, UNITXT("Compressed %s B in %s files into %s (%s%%) at %sB/s"), del(dup_counter_payload()).c_str(), del(files).c_str(), del(io.write_count).c_str(), s2w(r.c_str()), s2w(format_size(dup_counter_payload() / t * 1000)));
+            statusbar.print(1, UNITXT("Compressed %s B in %s files into %s (%s%%) at %sB/s"), del(dup_counter_payload() + unchanged).c_str(), del(files).c_str(), del(io.write_count).c_str(), s2w(std::to_string(sratio)).c_str(), s2w(format_size((dup_counter_payload() + unchanged) / t * 1000)).c_str());
+            s << "Unchanged files by -w flag:  " << format_size(unchanged) << "B\n";
             s << "Stored as literals:          " << format_size(stored_as_literals) << "B (" << format_size(literals_compressed_size) << "B compressed)\n";
-            s << "Stored as duplicated blocks: " << format_size(largehits + smallhits) << "B (large = " << format_size(largehits) << "B, small = " << format_size(smallhits) << "B)\n";
+            s << "Stored as duplicated blocks: " << format_size(largehits + smallhits) << "B (" << format_size(largehits) << "B large, " << format_size(smallhits) << "B small)\n";
             uint64_t total = literals_compressed_size + 2 * contents_size + references_size + hashtable_size;
-            s << "Overheads:                   meta = " << format_size(2 * contents_size) << "B, refs = " << format_size(references_size) << "B, hashtable = " << format_size(hashtable_size) << "B, misc = " << format_size(io.write_count - total) << "B\n";    
-            s << "Unhashed due to congestion:  large = " << format_size(congested_large) << "B, small = " << format_size(congested_small) << "B\n";
-            s << "Unhashed anomalies:          large = " << format_size(anomalies_large) << "B, small = " << format_size(anomalies_small) << "B";
+            s << "Overheads:                   " << format_size(2 * contents_size) << "B meta, " << format_size(references_size) << "B refs, " << format_size(hashtable_size) << "B hashtable, " << format_size(io.write_count - total) << "B misc\n";    
+            s << "Unhashed due to congestion:  " << format_size(congested_large) << "B large, " << format_size(congested_small) << "B small\n";
+            s << "Unhashed anomalies:          " << format_size(anomalies_large) << "B large, " << format_size(anomalies_small) << "B small";
 
             STRING str = s2w(s.str());
             statusbar.print(0, UNITXT("%s"), str.c_str());
@@ -2181,7 +2251,7 @@ int main(int argc2, char *argv2[])
             print_fillratio();            
         }
         else {
-            statusbar.print(1, UNITXT("Compressed %s B in %s files into %s"), del(dup_counter_payload()).c_str(), del(files).c_str(), s2w(format_size(io.write_count) + "B").c_str());
+            statusbar.print(1, UNITXT("Compressed %s B in %s files into %s"), del(dup_counter_payload() + unchanged).c_str(), del(files).c_str(), s2w(format_size(io.write_count) + "B").c_str());
         }
 
         io.close(ofile);

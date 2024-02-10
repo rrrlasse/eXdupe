@@ -382,6 +382,43 @@ TEST_CASE("simple backup, diff backup and restore") {
     cmp();
 }
 
+TEST_CASE("w flag") {
+    // Diff must be tiny if source file was unchanged
+    clean();
+    pick("high_entropy_a");
+    ex("-m1", in, full);
+    ex("-D", in, full, diff);
+    ex("-Dw", in, full, diff + "w");
+    CHECK((siz(diff + "w") < siz(diff) / 2));
+    ex("-RD", full, diff, out);
+    cmp();
+    rm(out);
+    ex("-RD", full, diff + "w", out);
+    cmp();
+
+#ifdef _WIN32
+    // Recognize file is unchanged despite being passed in different case
+    clean();
+    pick("high_entropy_a");
+    string a = filesystem::absolute(in).string();
+    std::transform(a.begin(), a.end(), a.begin(), [](unsigned char c){ return std::toupper(c); });
+    ex("-m1", a, full);
+    std::transform(a.begin(), a.end(), a.begin(), [](unsigned char c){ return std::tolower(c); });
+    ex("-D", in, full, diff);
+    ex("-Dw", a, full, diff + "w");
+    CHECK((siz(diff + "w") < siz(diff) / 2));
+#endif
+   
+    // Recognize that file has changed
+    rm(in + "/high_entropy_b");
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    cp(in + "/high_entropy_a", in + "/high_entropy_b");
+    rm(out);
+    ex("-Dwf", in, full, diff + "w");
+    ex("-RD", full, diff + "w", out);
+    cmp();
+}
+
 TEST_CASE("destination dirctory doesn't exist") {
     clean();
     pick("a");
@@ -584,7 +621,7 @@ TEST_CASE("compress from stdin by pipe") {
     cmp();
 }
 
-TEST_CASE("compress from stdin and restorre to stdout") {
+TEST_CASE("compress from stdin and restore to stdout") {
     clean();
     pick("a");
     ex("-m1", "-stdin", "a", "-stdout", "<", p(in + "/a"), ">", p(out + "/a"));
