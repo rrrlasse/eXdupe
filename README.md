@@ -17,10 +17,10 @@ Identical data blocks as small as 4 KB are being searched at byte grannularity p
 | **Time**          |          24 s |    366 s |         562 s |     72 s |     35 s |
 | **Options**       |       -g1 -t10 | -m1 -t12 |       fastest | default |    -1 -T0 |
 
-Try the latest development version (backwards compatibility broken often) that **doubles** the speed and improves compression ratio:
+Try the latest development version (backwards compatibility broken often) that **doubles** the speed and improves compression ratio. Version dev31 now supports a -w flag that only uses timestamps to find changed files during a diff backup, without having to read payload:
 
-&nbsp;&nbsp;&nbsp;[exdupe30.exe](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe30.exe)
-<br>&nbsp;&nbsp;&nbsp;[exdupe30_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe30_linux_amd64.tar.gz)
+&nbsp;&nbsp;&nbsp;[exdupe31.exe](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe31.exe)
+<br>&nbsp;&nbsp;&nbsp;[exdupe31_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe31_linux_amd64.tar.gz)
 
 Or get the stable version:
 
