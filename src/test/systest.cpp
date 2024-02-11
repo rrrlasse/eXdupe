@@ -395,7 +395,7 @@ TEST_CASE("w flag") {
     ex("-m1", in, full);
     ex("-D", in, full, diff);
     ex("-Dw", in, full, diff + "w");
-    CHECK((siz(diff + "w") < siz(diff) / 2));
+    CHECK((siz(diff + "w") > siz(diff) / 2));
     ex("-RD", full, diff, out);
     cmp();
     rm(out);
@@ -412,7 +412,7 @@ TEST_CASE("w flag") {
     std::transform(a.begin(), a.end(), a.begin(), [](unsigned char c){ return std::tolower(c); });
     ex("-D", in, full, diff);
     ex("-Dw", a, full, diff + "w");
-    CHECK((siz(diff + "w") < siz(diff) / 2));
+    CHECK((siz(diff + "w") > siz(diff) / 2));
 #endif
 
     // Recognize that file has changed

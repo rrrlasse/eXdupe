@@ -150,7 +150,7 @@ bool absolute_path = false;
 bool hash_flag = false;
 bool build_info_flag = false;
 bool statistics_flag = false;
-bool timestamp_flag = false;
+bool no_timestamp_flag = false;
 
 uint32_t verbose_level = 1;
 uint32_t megabyte_flag = 0;
@@ -805,7 +805,7 @@ void parse_flags(void) {
             }
 
             for (auto t : std::vector<pair<bool &, std::string>>{
-                     {timestamp_flag, "w"},
+                     {no_timestamp_flag, "w"},
                      {restore_flag, "R"},
                      {no_recursion_flag, "r"},
                      {force_flag, "f"},
@@ -875,7 +875,7 @@ void parse_flags(void) {
     }
 
     // todo, add s and p verification
-    abort(timestamp_flag != 0 && !diff_flag, UNITXT("-w flag can only be used for differential backup"));
+    abort(no_timestamp_flag != 0 && !diff_flag, UNITXT("-w flag can only be used for differential backup"));
     abort(megabyte_flag != 0 && gigabyte_flag != 0, UNITXT("-m flag not compatible with -g"));
     abort(restore_flag && (no_recursion_flag || continue_flag), UNITXT("-R flag not compatible with -n or -c"));
     abort(restore_flag && (megabyte_flag != 0 || gigabyte_flag != 0), UNITXT("-m and -t flags not applicable to restore (no memory required)"));
@@ -1019,8 +1019,8 @@ paths to restore, written as printed by the -L flag.
 Flags:
    -f Overwrite existing files (default is to abort)
    -c Continue if a source file cannot be read (default is to abort)
-   -w Use only timestamps to detect changed files during diff backup. Smaller
-      diff and very fast, but use with caution
+   -w Read contents of files during differential backup to determine if they
+      have changed (default is to look at timestamps only)
   -tn Use n threads (default = 8)
   -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
       of input data for best result. Use -mn to specify MB instead.
@@ -1071,17 +1071,13 @@ Show complete help: -?
 Most common flags:
    -f Overwrite existing files (default is to abort)
    -c Continue if a source file cannot be read (default is to abort)
-   -w Use only timestamps to detect changed files during diff backup. Smaller
-      diff and very fast, but use with caution
+   -w Read contents of files during differential backup to determine if they
+      have changed (default is to look at timestamps only)
   -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
       input data for best result
   -xn Use compression level n after deduplication (0 = none, 1 = default, 2, 3)
   -tn Use n threads (default = 8)
-   -- Prefix items in the <sources> list with "--" to skip them
-
-Example:
-  exdupe backup_dir backup.full
-  exdupe -R backup.full restore_dir)";
+   -- Prefix items in the <sources> list with "--" to skip them)";
 
     for (auto &a : {&long_help, &short_help}) {
         *a = std::regex_replace(*a, std::regex("%/"), WIN ? "\\" : "/");
@@ -1606,7 +1602,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
     uint64_t file_read = 0;
 
     if (input_file != UNITXT("-stdin")) {
-        if(timestamp_flag) {
+        if(!no_timestamp_flag) {
             file_time = get_date(input_file);
 
             contents_t f;
