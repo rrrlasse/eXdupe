@@ -574,6 +574,9 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
         c.link = UNITXT("");
         c.payload = 0;
         c.checksum = 0;
+        auto d = get_date(full);
+        c.file_c_time = d.first;
+        c.file_modified = d.second;
         contents.push_back(c);
 
         if (write) {
@@ -1815,6 +1818,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_l
             non_root_items.push_back(items.at(i));
         }
     }
+
     items.clear();
     items.insert(items.end(), root_items.begin(), root_items.end());
     items.insert(items.end(), non_root_items.begin(), non_root_items.end());
