@@ -57,6 +57,8 @@
 #include <utime.h>
 #endif
 
+#define CASESENSE(str) lcase(str)
+
 using namespace std; // fixme, remove
 
 enum { FILE_TYPE, DIR_TYPE, SYMLINK_TYPE, ERROR_TYPE };
@@ -92,6 +94,7 @@ STRING remove_leading_delimitor(STRING path);
 void abort(bool b, const CHR *fmt, ...);
 STRING get_pid(void);
 uint64_t filesize(STRING file, bool followlinks);
+bool same_path(STRING p1, STRING p2);
 
 STRING s2w(const std::string &s);
 string w2s(const STRING &s);

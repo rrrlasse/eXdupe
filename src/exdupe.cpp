@@ -53,7 +53,6 @@ const bool WIN = true;
 #define DELIM_CHAR UNITXT('\\')
 #define LONGLONG UNITXT("%I64d")
 
-#define CASESENSE(str) lcase(str)
 
 #else
 #define unsnap(x) x
@@ -1804,6 +1803,10 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_l
     vector<STRING> root_items;
     vector<STRING> non_root_items;
 
+    auto our_own = [](STRING file) {
+        return output_file == UNITXT("-stdout") || ((diff.empty() || (!same_path(file, diff))) && !same_path(file, full));
+    };
+
     // Sort input items so that root items are first.
     for (uint32_t i = 0; i < items.size(); i++) {
         if (items.at(i).find(DELIM_STR) == string::npos) {
@@ -1830,9 +1833,8 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_l
                 abort(true, UNITXT("Aborted, access error: %s"), sub.c_str());
             }
         } else {
-            // we must avoid including destination file when compressing. Note
-            // that *nix is case sensitive.
-            if (CASESENSE(abs_path(sub)) != CASESENSE(abs_path(output_file))) {
+            // avoid including full and diff file when compressing
+            if (our_own(sub)) {
                 items2.push_back(items.at(i));
                 attributes.push_back(type);
             }
@@ -1860,9 +1862,8 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_l
         STRING sub = base_dir + items.at(j);
 
         if (ISLINK(attributes.at(j)) && !follow_symlinks && include(sub, top_level)) {
-            // we must avoid including destination file when compressing. Note
-            // that *nix is case sensitive.
-            if (output_file == UNITXT("-stdout") || (CASESENSE(abs_path(sub)) != CASESENSE(abs_path(output_file)))) {
+            // avoid including full and diff file when compressing
+            if (our_own(sub)) {
                 save_directory(base_dir, left(items.at(j)) + (left(items.at(j)) == UNITXT("") ? UNITXT("") : DELIM_STR), true);
                 compress_symlink(sub, right(items.at(j)) == UNITXT("") ? items.at(j) : right(items.at(j)));
             }

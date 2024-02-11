@@ -800,6 +800,10 @@ size_t longest_common_prefix(vector<STRING> strings, bool case_sensitive) {
     }
 }
 
+bool same_path(STRING p1, STRING p2) {
+    return CASESENSE(abs_path(p1)) == CASESENSE(abs_path(p2));
+}
+
 void set_bold(bool bold) {
 #ifdef WINDOWS
     static WORD original = 7;
