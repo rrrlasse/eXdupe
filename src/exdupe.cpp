@@ -520,7 +520,7 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
 // clang-format off
 void print_file(STRING filename, uint64_t size, time_t file_modified = 0, int attributes = 0) {
 #ifdef WINDOWS
-    statusbar.print(0, UNITXT("%s  %s  %s"), 
+    statusbar.print_no_lf(0, UNITXT("%s  %s  %s\n"), 
         size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 19).c_str(),
 /*
         attributes & FILE_ATTRIBUTE_ARCHIVE ? 'A' : ' ', 
@@ -531,7 +531,7 @@ void print_file(STRING filename, uint64_t size, time_t file_modified = 0, int at
 */
         date2str(file_modified).c_str(), filename.c_str());
 #else
-    statusbar.print(0, UNITXT("%s  %s  %s"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 19).c_str(), date2str(file_modified).c_str(), filename.c_str());
+    statusbar.print_no_lf(0, UNITXT("%s  %s  %s\n"), size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 19).c_str(), date2str(file_modified).c_str(), filename.c_str());
 #endif
 }
 // clang-format on
@@ -684,7 +684,7 @@ uint64_t dump_contents(FILE *file) {
                 STRING full_orig = full;
 
                 if (full != last_full || first_time) {
-                    statusbar.print(0, UNITXT("%s%s"), STRING(full_orig != full ? UNITXT("*") : UNITXT("")).c_str(), full.c_str());
+                    statusbar.print_no_lf(0, UNITXT("%s%s\n"), STRING(full_orig != full ? UNITXT("*") : UNITXT("")).c_str(), full.c_str());
                     last_full = full;
                     first_time = false;
                 }
@@ -696,7 +696,7 @@ uint64_t dump_contents(FILE *file) {
         }
     }
 
-    statusbar.print(0, UNITXT("%s B in %s files"), del(payload).c_str(), del(files).c_str());
+    statusbar.print_no_lf(0, UNITXT("\n%s B in %s files\n"), del(payload).c_str(), del(files).c_str());
 
     io.seek(file, orig, SEEK_SET);
     return 0;
@@ -2071,7 +2071,7 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
     return io.read_ui<uint64_t>(file); // mem usage
 }
 
-void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, UNITXT("Wrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
+void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, UNITXT("\nWrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
 
 void create_shadows(void) {
 #ifdef WINDOWS
@@ -2229,7 +2229,9 @@ int main(int argc2, char *argv2[])
 
         size_t references_size = write_references(ofile);
         io.try_write("END", 3, ofile);
-
+        if(verbose_level > 0 && verbose_level < 3) {
+            statusbar.clear_line();
+        }
         if (statistics_flag) {  
             std::ostringstream s;
             uint64_t t = (GetTickCount() - start_time);
@@ -2237,7 +2239,7 @@ int main(int argc2, char *argv2[])
             int sratio = int((double(io.write_count) / double(dup_counter_payload() + unchanged + 1)) * 100.);
             sratio = sratio > 999 ? 999 : sratio == 0 ? 1 : sratio;
 
-            statusbar.print(1, UNITXT("Compressed %s B in %s files into %s (%s%%) at %sB/s"), del(dup_counter_payload() + unchanged).c_str(), del(files).c_str(), del(io.write_count).c_str(), s2w(std::to_string(sratio)).c_str(), s2w(format_size((dup_counter_payload() + unchanged) / t * 1000)).c_str());
+            statusbar.print_no_lf(1, UNITXT("\nCompressed %s B in %s files into %s (%s%%) at %sB/s\n"), del(dup_counter_payload() + unchanged).c_str(), del(files).c_str(), del(io.write_count).c_str(), s2w(std::to_string(sratio)).c_str(), s2w(format_size((dup_counter_payload() + unchanged) / t * 1000)).c_str());
             s << "Unchanged files by -w flag:  " << format_size(unchanged) << "B\n";
             s << "Stored as literals:          " << format_size(stored_as_literals) << "B (" << format_size(literals_compressed_size) << "B compressed)\n";
             s << "Stored as duplicated blocks: " << format_size(largehits + smallhits) << "B (" << format_size(largehits) << "B large, " << format_size(smallhits) << "B small)\n";
@@ -2252,7 +2254,7 @@ int main(int argc2, char *argv2[])
             print_fillratio();            
         }
         else {
-            statusbar.print(1, UNITXT("Compressed %s B in %s files into %s"), del(dup_counter_payload() + unchanged).c_str(), del(files).c_str(), s2w(format_size(io.write_count) + "B").c_str());
+            statusbar.print_no_lf(1, UNITXT("\nCompressed %s B in %s files into %s\n"), del(dup_counter_payload() + unchanged).c_str(), del(files).c_str(), s2w(format_size(io.write_count) + "B").c_str());
         }
 
         io.close(ofile);

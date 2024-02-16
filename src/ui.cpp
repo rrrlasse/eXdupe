@@ -122,3 +122,16 @@ void Statusbar::print(int verbosity, const CHR *fmt, ...) {
         m_os << s << UNITXT("\n");
     }
 }
+
+void Statusbar::print_no_lf(int verbosity, const CHR *fmt, ...) {
+    if (verbosity <= m_verbose_level) {
+        va_list argv;
+        va_start(argv, fmt);
+        int printed = VSPRINTF(m_tmp.data(), m_tmp.size(), fmt, argv);
+        static_cast<void>(printed);
+        assert(printed < m_tmp.size() - 1);
+        STRING s = STRING(m_tmp.data());
+        va_end(argv);
+        m_os << s;
+    }
+}

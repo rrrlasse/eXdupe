@@ -15,6 +15,7 @@ class Statusbar {
   public:
     Statusbar(OSTREAM& os = CERR);
     void print(int verbosity, const CHR *fmt, ...);
+    void print_no_lf(int verbosity, const CHR *fmt, ...);
     void update(status_t status, uint64_t read, uint64_t written, STRING path, bool no_delay = false, bool is_message = false);
     void clear_line();
 
