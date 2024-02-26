@@ -153,7 +153,7 @@ size_t SMALL_BLOCK;
 size_t LARGE_BLOCK;
 
 const uint64_t slots = 6;
-uint64_t size_ratio = 4;
+const uint64_t size_ratio = 32;
 uint64_t small_entries;
 uint64_t large_entries;
 hash_t (*small_table)[slots];
@@ -186,8 +186,8 @@ bool used(hash_t h) { return h.offset != 0 || h.hash != 0; }
     
 
 hash_t* lookup(uint32_t hash, bool large) {
-    hash_t (*table)[slots] = large ? large_table : small_table;
-    uint32_t row = (hash % (large ? large_entries : large_entries)) / slots;;
+    hash_t (*table)[slots] = (large ? large_table : small_table);
+    uint32_t row = hash % ((large ? large_entries : small_entries) / slots);
     for(uint64_t i = 0; i < slots; i++) {
         hash_t& e = table[row][i];
         if(!used(e)) {
@@ -202,8 +202,8 @@ hash_t* lookup(uint32_t hash, bool large) {
 
 
 bool add(hash_t value, bool large) {
-    hash_t (*table)[slots] = large ? large_table : small_table;
-    uint32_t row = (value.hash % (large ? large_entries : large_entries)) / slots;
+    hash_t (*table)[slots] = (large ? large_table : small_table);
+    uint32_t row = value.hash % ((large ? large_entries : small_entries) / slots);
     for(uint64_t i = 0; i < slots; i++) {
         hash_t& e = table[row][i];
         if(e.hash == value.hash) {
@@ -221,12 +221,12 @@ bool add(hash_t value, bool large) {
 void print_fillratio() {
     for(uint64_t no = 0; no < 2; no++) {
         uint64_t count[slots + 1] {0};
-        hash_t (*table)[slots] = no == 0 ? large_table : small_table;
+        hash_t (*table)[slots] = (no == 0 ? large_table : small_table);
         uint64_t rows = (no == 0 ? large_entries : small_entries) / slots;
-        for(uint64_t i = 0; i < rows; i++) {
+        for(uint64_t row = 0; row < rows; row++) {
             uint64_t c = 0;
             for(uint64_t j = 0; j < slots; j++) {
-                hash_t& e = table[i][j];
+                hash_t& e = table[row][j];
                 if(used(e)) {
                     c++;
                 }
@@ -234,7 +234,7 @@ void print_fillratio() {
             count[c]++;
         }   
         for(uint64_t j = 0; j < slots + 1; j++) {
-            wcerr << count[j] << L" ";
+            wcerr << int(double(count[j]) / double(rows) * 100) << L" ";
         }
         if(no == 0) {
             wcerr << L"/ ";
@@ -768,7 +768,7 @@ static void hash_chunk(const unsigned char *src, uint64_t pay, size_t length, in
 
     for (j = 0; j < small_blocks; j++) {
         sha(src + j * SMALL_BLOCK, SMALL_BLOCK, (unsigned char *)tmp + smalls * HASH_SIZE);
-        bool success_small = hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, 0, (unsigned char *)tmp + smalls * HASH_SIZE, policy);
+        bool success_small = hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, false, (unsigned char *)tmp + smalls * HASH_SIZE, policy);
         if(!success_small) {
             anomalies_small += SMALL_BLOCK;
         }
@@ -777,7 +777,7 @@ static void hash_chunk(const unsigned char *src, uint64_t pay, size_t length, in
         if (smalls == LARGE_BLOCK / SMALL_BLOCK) {
             unsigned char tmp2[HASH_SIZE];
             sha((unsigned char *)tmp, smalls * HASH_SIZE, tmp2);
-            bool success_large = hashat(src + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, pay + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, LARGE_BLOCK, 1, (unsigned char *)tmp2, policy);
+            bool success_large = hashat(src + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, pay + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, LARGE_BLOCK, true, (unsigned char *)tmp2, policy);
             if(!success_large) {
                 anomalies_large += SMALL_BLOCK;
             }
@@ -962,7 +962,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
 
     hash_t (*table)[slots] = (hash_t(*)[slots])space;
     small_table = table;
-    large_table = (hash_t(*)[slots])((char*)space + sizeof(hash_t) * large_entries);
+    large_table = table + (small_entries / slots);
 
 
 
