@@ -8,7 +8,7 @@
 #define VER_MAJOR 1
 #define VER_MINOR 1
 #define VER_REVISION 0
-#define VER_DEV 32
+#define VER_DEV 33
 
 #define Q(x) #x
 #define QUOTE(x) Q(x)
