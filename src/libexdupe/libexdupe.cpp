@@ -220,10 +220,9 @@ bool add(hash_t value, bool large) {
 
 void print_fillratio() {
     for(uint64_t no = 0; no < 2; no++) {
-        wcerr << (no == 0 ? "Hashtable fillratio small:   " : "Hashtable fillratio large:   ");
         uint64_t count[slots + 1] {0};
-        hash_t (*table)[slots] = no == 0 ? small_table : large_table;
-        uint64_t rows = (no == 0 ? small_entries : large_entries) / slots;
+        hash_t (*table)[slots] = no == 0 ? large_table : small_table;
+        uint64_t rows = (no == 0 ? large_entries : small_entries) / slots;
         for(uint64_t i = 0; i < rows; i++) {
             uint64_t c = 0;
             for(uint64_t j = 0; j < slots; j++) {
@@ -237,8 +236,11 @@ void print_fillratio() {
         for(uint64_t j = 0; j < slots + 1; j++) {
             wcerr << count[j] << L" ";
         }
-    wcerr << L"\n";
+        if(no == 0) {
+            wcerr << L"/ ";
+        }
     }
+    wcerr << L"\n";
 }
 
 

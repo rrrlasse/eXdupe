@@ -163,6 +163,7 @@ uint64_t files = 0;
 uint64_t dirs = 0;
 uint64_t tot_res = 0;
 uint64_t unchanged = 0;
+uint64_t contents_size = 0;
 
 uint64_t hash_salt;
 
@@ -275,6 +276,7 @@ STRING date2str(time_t date) {
 }
 
 void write_contents_item(FILE *file, contents_t *c) {
+    uint64_t written = io.write_count;
     io.writestr(c->abs_path, file);
     io.writestr(c->name, file);
     io.writestr(c->link, file);
@@ -287,7 +289,7 @@ void write_contents_item(FILE *file, contents_t *c) {
     io.write_ui<uint8_t>(c->directory ? 1 : 0, file);
     io.write_ui<uint8_t>(c->symlink ? 1 : 0, file);
     io.write_ui<uint8_t>(c->unchanged ? 1 : 0, file);
-
+    contents_size += io.write_count - written;
 }
 
 void add_file(const STRING &file, uint64_t offset) {
@@ -1601,17 +1603,14 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
     contents_t file_meta;
     uint64_t file_read = 0;
 
-    if (input_file != UNITXT("-stdin")) {
+    if (diff_flag && input_file != UNITXT("-stdin")) {
         if(!no_timestamp_flag) {
             file_time = get_date(input_file);
-
             contents_t f;
             auto it = contents_full.find( CASESENSE(abs_path(input_file)));
-
-            if(it != contents_full.end()) {
-           //     CERR << file_time.first << " " << file_time.second << ";" << it->second.file_c_time << " " << it->second.file_modified << "\n";
-            }
-
+            //if(it != contents_full.end()) {
+            //     CERR << file_time.first << " " << file_time.second << ";" << it->second.file_c_time << " " << it->second.file_modified << "\n";
+            //}
             if(it != contents_full.end() && it->second.file_c_time == file_time.first && it->second.file_modified == file_time.second) {
                 statusbar.update(BACKUP, dup_counter_payload() + unchanged, io.write_count, input_file);
                 contents_t c = it->second;
@@ -1620,9 +1619,9 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
                 unchanged += c.size;
                 contents.push_back(c);
                 files++;
-                // todo, superfluous because diff cannt be restored from stdin
-                io.try_write("F", 1, ofile); 
-                write_contents_item(ofile, &c);
+                // Could only be used if we supported restore of diff from stding
+                // io.try_write("F", 1, ofile); 
+                // write_contents_item(ofile, &c);
                 if (flush) {
                     flushit();
                 }
@@ -1670,9 +1669,12 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
 
     files++;
 
-    io.try_write("F", 1, ofile);
-    write_contents_item(ofile, &file_meta); // todo, maybe skip for diff backups
-
+    if(!diff_flag) {
+        io.try_write("F", 1, ofile);
+        contents_t tmp = file_meta;
+        tmp.abs_path.clear();
+        write_contents_item(ofile, &tmp);
+    }
     if (file_size > DISK_READ_CHUNK - payload_queue.size()) {
         empty_q();
 
@@ -2071,7 +2073,7 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
     return io.read_ui<uint64_t>(file); // mem usage
 }
 
-void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, UNITXT("\nWrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
+void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, UNITXT("Wrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
 
 void create_shadows(void) {
 #ifdef WINDOWS
@@ -2220,7 +2222,7 @@ int main(int argc2, char *argv2[])
         }
 
         io.try_write("X", 1, ofile);
-        size_t contents_size = write_contents(ofile);
+        write_contents(ofile);
         size_t hashtable_size = 0;
 
         if (!diff_flag) {
@@ -2238,23 +2240,21 @@ int main(int argc2, char *argv2[])
             t = t == 0 ? 1 : t;
             int sratio = int((double(io.write_count) / double(dup_counter_payload() + unchanged + 1)) * 100.);
             sratio = sratio > 999 ? 999 : sratio == 0 ? 1 : sratio;
-
-            statusbar.print_no_lf(1, UNITXT("\nCompressed %s B in %s files into %s (%s%%) at %sB/s\n"), del(dup_counter_payload() + unchanged).c_str(), del(files).c_str(), del(io.write_count).c_str(), s2w(std::to_string(sratio)).c_str(), s2w(format_size((dup_counter_payload() + unchanged) / t * 1000)).c_str());
-            s << "Unchanged files by -w flag:  " << format_size(unchanged) << "B\n";
+            statusbar.print_no_lf(1, UNITXT("Compressed %s B in %s files into %s B (%s%%) at %sB/s\n"), del(dup_counter_payload() + unchanged).c_str(), del(files).c_str(), del(io.write_count).c_str(), s2w(std::to_string(sratio)).c_str(), s2w(format_size((dup_counter_payload() + unchanged) / t * 1000)).c_str());
+            s << "Unchanged files:             " << format_size(unchanged) << "B\n";
             s << "Stored as literals:          " << format_size(stored_as_literals) << "B (" << format_size(literals_compressed_size) << "B compressed)\n";
             s << "Stored as duplicated blocks: " << format_size(largehits + smallhits) << "B (" << format_size(largehits) << "B large, " << format_size(smallhits) << "B small)\n";
-            uint64_t total = literals_compressed_size + 2 * contents_size + references_size + hashtable_size;
-            s << "Overheads:                   " << format_size(2 * contents_size) << "B meta, " << format_size(references_size) << "B refs, " << format_size(hashtable_size) << "B hashtable, " << format_size(io.write_count - total) << "B misc\n";    
+            uint64_t total = literals_compressed_size + contents_size + references_size + hashtable_size;
+            s << "Overheads:                   " << format_size(contents_size) << "B meta, " << format_size(references_size) << "B refs, " << format_size(hashtable_size) << "B hashtable, " << format_size(io.write_count - total) << "B misc\n";    
             s << "Unhashed due to congestion:  " << format_size(congested_large) << "B large, " << format_size(congested_small) << "B small\n";
             s << "Unhashed anomalies:          " << format_size(anomalies_large) << "B large, " << format_size(anomalies_small) << "B small";
-
             STRING str = s2w(s.str());
             statusbar.print(0, UNITXT("%s"), str.c_str());
-
+            wcerr << "Hashtable fillratio:         ";
             print_fillratio();            
         }
         else {
-            statusbar.print_no_lf(1, UNITXT("\nCompressed %s B in %s files into %s\n"), del(dup_counter_payload() + unchanged).c_str(), del(files).c_str(), s2w(format_size(io.write_count) + "B").c_str());
+            statusbar.print_no_lf(1, UNITXT("Compressed %s B in %s files into %sB\n"), del(dup_counter_payload() + unchanged).c_str(), del(files).c_str(), s2w(format_size(io.write_count)).c_str());
         }
 
         io.close(ofile);
