@@ -19,8 +19,8 @@ Identical data blocks as small as 4 KB are being searched at byte grannularity p
 
 Try the latest development version (backwards compatibility broken often) that doubles the speed and improves compression ratio:
 
-&nbsp;&nbsp;&nbsp;[exdupe32.exe](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe32.exe)
-<br>&nbsp;&nbsp;&nbsp;[exdupe32_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe32_linux_amd64.tar.gz)
+&nbsp;&nbsp;&nbsp;[exdupe33.exe](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe33.exe)
+<br>&nbsp;&nbsp;&nbsp;[exdupe33_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe33_linux_amd64.tar.gz)
 
 Note that the meaning of the -w flag has been swapped in dev32 so that default behaviour is to look at timestamps to find changed files during differential backup.
 
