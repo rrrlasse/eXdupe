@@ -1047,9 +1047,9 @@ Example of backup, differential backups and restore:
   exdupe -RD backup.full backup2.diff restore_dir
 
 More examples:
-  exdupe -t12 -g8 file1 file2 dir1 dir2 backup.full
+  exdupe -t12 -g8 dir1 dir2 backup.full
   exdupe -R backup.full restore_dir dir2%/file.txt
-  exdupe file.txt -stdout | exdupe -R -o -stdin restore_dir)";
+  exdupe file.txt -stdout | exdupe -R -stdin restore_dir)";
 
     std::string short_help = R"(Full backup:
   [flags] <sources> <dest file | -stdout>
@@ -1066,8 +1066,6 @@ Differential backup:
 Restore differential backup:
   [flags] -RD <full backup file> <diff backup file> <dest dir | -stdout>
 
-List contents: -L <full or diff backup file>
-
 Show complete help: -?
 
 Most common flags:
@@ -1077,7 +1075,7 @@ Most common flags:
       have changed (default is to look at timestamps only)
   -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
       input data for best result
-  -xn Use compression level n after deduplication (0 = none, 1 = default, 2, 3)
+  -xn Use compression level n after deduplication (0, 1 = default, 2, 3)
   -tn Use n threads (default = 8)
    -- Prefix items in the <sources> list with "--" to skip them)";
 
