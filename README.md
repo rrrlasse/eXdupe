@@ -22,8 +22,6 @@ Try the latest development version (backwards compatibility broken often) that d
 &nbsp;&nbsp;&nbsp;[exdupe33.exe](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe33.exe)
 <br>&nbsp;&nbsp;&nbsp;[exdupe33_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe33_linux_amd64.tar.gz)
 
-Note that the meaning of the -w flag has been swapped in dev32 so that default behaviour is to look at timestamps to find changed files during differential backup.
-
 Stable version:
 
 &nbsp;&nbsp;&nbsp;[1.0.0](https://github.com/rrrlasse/eXdupe/releases/tag/v1.0.0)
