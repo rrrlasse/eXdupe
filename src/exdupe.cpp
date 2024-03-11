@@ -52,8 +52,6 @@ const bool WIN = true;
 #define DELIM_STR UNITXT("\\")
 #define DELIM_CHAR UNITXT('\\')
 #define LONGLONG UNITXT("%I64d")
-
-
 #else
 #define unsnap(x) x
 #define _isatty isatty
@@ -70,7 +68,6 @@ const bool WIN = false;
 #define DELIM_STR UNITXT("/")
 #define DELIM_CHAR '/'
 #define LONGLONG UNITXT("%lld")
-#define CASESENSE(str) str
 #endif
 
 #include <cstdlib>

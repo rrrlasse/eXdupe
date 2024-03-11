@@ -45,8 +45,8 @@
 #include <sys/types.h>
 #include <vector>
 #include <tuple>
-
 #ifdef WINDOWS
+#define CASESENSE(str) lcase(str)
 #include <windows.h>
 #else
 #include <dirent.h>
@@ -55,9 +55,10 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <utime.h>
+#define CASESENSE(str) str
 #endif
 
-#define CASESENSE(str) lcase(str)
+
 
 using namespace std; // fixme, remove
 
