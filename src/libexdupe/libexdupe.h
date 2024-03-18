@@ -18,6 +18,7 @@ TT cccc dddd pppppppp <data compressed with some traditional data compression>
 
 #include <stdint.h>
 #include <string.h>
+#include <atomic>
 
 uint64_t dup_memory(uint64_t bits);
 int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,

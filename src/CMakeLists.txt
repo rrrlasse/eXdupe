@@ -5,6 +5,7 @@ project (exdupe)
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT exdupe)
 
 set(BUILD_SHARED_LIBS OFF)
+#set(CMAKE_EXE_LINKER_FLAGS "-static -pg")
 set(CMAKE_EXE_LINKER_FLAGS "-static")
 set(CMAKE_CXX_STANDARD 20)
 
