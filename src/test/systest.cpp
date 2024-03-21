@@ -375,6 +375,23 @@ TEST_CASE("skip item prefixed with -- in different case") {
 }
 #endif
 
+
+TEST_CASE("case rename") {
+    clean();
+    pick("a");
+    ex("-m1", in, full);
+
+#ifdef _WIN32
+    sys("ren", p(in + "/a"), "A");
+#else  
+    sys("mv", p(in + "/a"), p(in + "/A"));
+#endif
+    ex("-D", in, full, diff);
+    rm(out);
+    ex("-RD", full, diff, out);
+    cmp();
+}
+
 TEST_CASE("simple backup, diff backup and restore") {
     clean();
     pick("a");
@@ -388,8 +405,22 @@ TEST_CASE("simple backup, diff backup and restore") {
     cmp();
 }
 
+TEST_CASE("diff size") {
+    // Diff must be tiny without -w
+    clean();
+    pick("high_entropy_a");
+    for(int i = 0; i < 30; i++) {
+        cp(in + "/high_entropy_a", in + "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + std::to_string(i));
+    }
+    ex("-m1", in, full);
+    ex("-D", in, full, diff);
+    CHECK(siz(diff) < 500);
+    ex("-RD", full, diff, out);
+    cmp();
+}
+
 TEST_CASE("w flag") {
-    // Diff must be tiny if source file was unchanged
+    // Diff must be smaller without -w than with
     clean();
     pick("high_entropy_a");
     ex("-m1", in, full);

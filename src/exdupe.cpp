@@ -36,6 +36,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <unordered_map>
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
 #define WINDOWS
@@ -189,6 +190,7 @@ STRING flags;
 STRING output_file;
 bool output_file_mine = false;
 void *hashtable;
+uint32_t file_id_counter = 0;
 
 Bytebuffer bytebuffer(RESTORE_BUFFER);
 
@@ -218,11 +220,14 @@ public:
     checksum_t ct;
     STRING extra;
     STRING abs_path;
+    uint32_t file_id; // diff files refer to this for unchanged files
 };
 
 vector<contents_t> contents;
-// Only used during diff backup to test if files are unchanged compared to full
-map<STRING, contents_t> contents_full;
+
+// Only used during diff backup/restore
+unordered_map<STRING, contents_t> contents_full; // {abs_path, contents}
+unordered_map<uint32_t, STRING> contents_full_ids; // {file_id, abs_path}
 
 typedef struct {
     uint64_t payload;
@@ -275,8 +280,9 @@ STRING date2str(time_t date) {
 void write_contents_item(FILE *file, contents_t *c) {
     uint64_t written = io.write_count;
     io.write_ui<uint8_t>(c->unchanged ? 1 : 0, file);
-    io.writestr(c->abs_path, file);
+    io.write_ui<uint32_t>(c->file_id, file);
     if(!c->unchanged) {
+        io.writestr(c->abs_path, file);
         io.write_ui<uint64_t>(c->payload, file);
         io.writestr(c->name, file);
         io.writestr(c->link, file);
@@ -580,7 +586,7 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
         c.file_modified = d.second;
         contents.push_back(c);
 
-        if (write) {
+        if (write && !diff_flag) {
             io.try_write("I", 1, ofile);
             write_contents_item(ofile, &c);
         }
@@ -642,10 +648,11 @@ STRING validchars(STRING filename) {
 
 void read_content_item(FILE *file, contents_t *c) {
     c->unchanged = io.read_ui<uint8_t>(file) == 0 ? false : true;
-    c->abs_path = slashify(io.readstr(file));
+    c->file_id = io.read_ui<uint32_t>(file);
     if(c->unchanged) {
         return;
     }
+    c->abs_path = slashify(io.readstr(file));
     c->payload = io.read_ui<uint64_t>(file);
     c->name = slashify(io.readstr(file));
     c->link = slashify(io.readstr(file));
@@ -665,9 +672,76 @@ void read_content_item(FILE *file, contents_t *c) {
     }
 }
 
-uint64_t dump_contents(FILE *file) {
+vector<contents_t> read_contents(FILE* f) {
+    vector<contents_t> ret;
+    contents_t c;
+    uint64_t orig = seek_to_header(f, "CONTENTS");
+    uint64_t n = io.read_ui<uint64_t>(f);
+    for (uint64_t i = 0; i < n; i++) {
+        read_content_item(f, &c);
+        ret.push_back(c);
+    }
+    io.seek(f, orig, SEEK_SET);
+    return ret;
+}
+
+void init_content_maps(FILE* ffull) {
+    auto con = read_contents(ffull);
+    for(auto c : con) {
+        if(!c.directory && !c.symlink) {
+            abort((contents_full.find(CASESENSE(c.abs_path)) != contents_full.end()), UNITXT("Internal error at main::contents_full.find(), or diff file doesn't belong to full file"));
+            contents_full[CASESENSE(c.abs_path)] = c;
+            abort((contents_full_ids.find(c.file_id) != contents_full_ids.end()), UNITXT("Internal error at main::contents_full_ids.find(), or diff file doesn't belong to full file"));
+            contents_full_ids[c.file_id] = CASESENSE(c.abs_path);
+        }
+    }
+}
+
+FILE *try_open(STRING file2, char mode, bool abortfail) {
+    auto file = file2;
+#ifdef WINDOWS
+    // todo fix properly. A long *relative* path wont work
+    if (file.size() > 250) {
+        file = wstring(L"\\\\?\\") + file;
+    }
+#endif
+    FILE *f;
+    assert(mode == 'r' || mode == 'w');
+    if (file == UNITXT("-stdin")) {
+        f = stdin;
+    } else if (file == UNITXT("-stdout")) {
+        f = stdout;
+    } else {
+        f = io.open(file.c_str(), mode);
+        abort(!f && abortfail && mode == 'w', UNITXT("Error creating file: %s"), slashify(file2).c_str());
+        abort(!f && abortfail && mode == 'r', UNITXT("Error opening file for reading: %s"), slashify(file2).c_str());
+    }
+
+    return f;
+}
+
+void resolve_unchanged(contents_t &c) {
+
+            if(c.unchanged) {
+                auto id_iter = contents_full_ids.find(c.file_id);
+                abort(id_iter == contents_full_ids.end(), UNITXT("Internal error at decompress_individuals::contents_full.find(), or diff file doesn't belong to full file"));
+                auto p = id_iter->second;
+                auto path_iter = contents_full.find(p);
+                abort(path_iter == contents_full.end(), UNITXT("Internal error at decompress_individuals::contents_full.find(), or diff file doesn't belong to full file"));
+                // todo, maybe it's better to remove this and let the payload writer access contents_full directly                
+                c = path_iter->second;
+                c.unchanged = true;
+            }
+        
+}
+
+uint64_t dump_contents() {
+    FILE* ffile = try_open(full, 'r', true);
+    FILE* file = diff_flag ? try_open(diff, 'r', true) : ffile;
+    init_content_maps(ffile);
+
     //todo rewrite into using read_content()
-    uint64_t orig = seek_to_header(file, "CONTENTS");
+    seek_to_header(file, "CONTENTS");
     uint64_t payload = 0, files = 0;
 
     uint64_t n = io.read_ui<uint64_t>(file);
@@ -678,7 +752,7 @@ uint64_t dump_contents(FILE *file) {
         if (c.symlink) {
             print_file(STRING(c.name + UNITXT(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_modified, c.attributes);
             files++;
-        } else if (c.directory) {
+        } else if (c.directory && !c.unchanged) { // if unchanged, then all other fields except file_id have arbitrary values
             if (c.name != UNITXT(".\\") && c.name != UNITXT("./") && c.name != UNITXT("")) {
                 static STRING last_full = UNITXT("");
                 static bool first_time = true;
@@ -694,6 +768,8 @@ uint64_t dump_contents(FILE *file) {
                 }
             }
         } else {
+            resolve_unchanged(c);
+
             payload += c.size;
             files++;
             print_file(c.name, c.size, c.file_modified, c.attributes);
@@ -702,7 +778,7 @@ uint64_t dump_contents(FILE *file) {
 
     statusbar.print_no_lf(0, UNITXT("\n%s B in %s files\n"), del(payload).c_str(), del(files).c_str());
 
-    io.seek(file, orig, SEEK_SET);
+    fclose(ffile);
     return 0;
 }
 
@@ -951,7 +1027,7 @@ void parse_files(void) {
 
         abort(directory == UNITXT("-stdout") && full == UNITXT("-stdin"), UNITXT("Restore with both -stdin and -stdout is not supported. One must be a seekable device. "));
         abort(full == UNITXT("-stdout") || directory == UNITXT("-stdin") || argc < 3 + flags_exist, UNITXT("Syntax error in source or destination. "));
-    } else if (!compress_flag && diff_flag) {
+    } else if (!compress_flag && diff_flag && !list_flag) {
         abort(argc - 1 < flags_exist + 3, UNITXT("Missing arguments. "));
         full = argv.at(1 + flags_exist);
         diff = argv.at(2 + flags_exist);
@@ -968,7 +1044,13 @@ void parse_files(void) {
 
         abort(full == UNITXT("-stdout") || diff == UNITXT("-stdout") || (full == UNITXT("-stdin") && diff == UNITXT("-stdin")) || (argc < 4 + flags_exist), UNITXT("Syntax error in source or destination. "));
     } else if (list_flag) {
+        abort(!diff_flag && argv.size() < 3, UNITXT("Specify a full file. "));
+        abort(!diff_flag && argv.size() > 3, UNITXT("Too many arguments. "));
+        abort(diff_flag && argv.size() != 4, UNITXT("Specify both a full and a diff file. "));
         full = argv.at(1 + flags_exist);
+        if(diff_flag) {
+            diff = argv.at(2 + flags_exist);
+        }
     }
 
     if (compress_flag && inputfiles.at(0) != STRING(UNITXT("-stdin"))) {
@@ -1013,7 +1095,9 @@ Differential backup:
 Restore differential backup:
   [flags] -RD <full backup file> <diff backup file> <dest dir | -stdout> [items]
 
-List contents: -L <full or diff backup file>
+List contents:
+  -L <full backup file to show>
+  -LD <full backup file> <diff backup file to show>
 
 Show build info: -B
 
@@ -1125,28 +1209,7 @@ Examples:
     statusbar.print(0, tostring(lua_help).c_str());
 }
 
-FILE *try_open(STRING file2, char mode, bool abortfail) {
-    auto file = file2;
-#ifdef WINDOWS
-    // todo fix properly. A long *relative* path wont work
-    if (file.size() > 250) {
-        file = wstring(L"\\\\?\\") + file;
-    }
-#endif
-    FILE *f;
-    assert(mode == 'r' || mode == 'w');
-    if (file == UNITXT("-stdin")) {
-        f = stdin;
-    } else if (file == UNITXT("-stdout")) {
-        f = stdout;
-    } else {
-        f = io.open(file.c_str(), mode);
-        abort(!f && abortfail && mode == 'w', UNITXT("Error creating file: %s"), slashify(file2).c_str());
-        abort(!f && abortfail && mode == 'r', UNITXT("Error opening file for reading: %s"), slashify(file2).c_str());
-    }
 
-    return f;
-}
 
 STRING parent_path(const vector<STRING> &items) {
     size_t prefix = longest_common_prefix(items, !WIN);
@@ -1276,18 +1339,6 @@ void ensure_relative(const STRING &path) {
     abort((path.size() >= 2 && path.substr(0, 2) == UNITXT("\\\\")) || path.find_last_of(UNITXT(":")) != string::npos, s.c_str());
 }
 
-vector<contents_t> read_contents(FILE* f) {
-    vector<contents_t> ret;
-    contents_t c;
-    uint64_t orig = seek_to_header(f, "CONTENTS");
-    uint64_t n = io.read_ui<uint64_t>(f);
-    for (uint64_t i = 0; i < n; i++) {
-        read_content_item(f, &c);
-        ret.push_back(c);
-    }
-    io.seek(f, orig, SEEK_SET);
-    return ret;
-}
 
 void decompress_individuals(FILE *ffull, FILE *fdiff) {
     FILE *archive_file;
@@ -1330,17 +1381,11 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
     content = read_contents(archive_file);
     if(diff_flag) {
         for (auto &c : content) {
-            if(c.unchanged) {
-                auto it = contents_full.find(CASESENSE(c.abs_path));
-                abort(it == contents_full.end(), UNITXT("Internal error at contents_full.find(), or diff file doesn't belong to full file"));
-                // todo, maybe it's better to remove this and let the payload writer access contents_full directly                
-                c = it->second;
-                c.unchanged = true;
-            }
+            resolve_unchanged(c);
         }
     }
 
-    verify_restorelist(restorelist, content);
+    verify_restorelist(restorelist, content); 
 
     for (uint32_t i = 0; i < content.size(); i++) {
         c = content.at(i);
@@ -1617,14 +1662,12 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
         if(!no_timestamp_flag) {
             file_time = get_date(input_file);
             contents_t f;
-            auto it = contents_full.find( CASESENSE(abs_path(input_file)));
-            //if(it != contents_full.end()) {
-            //     CERR << file_time.first << " " << file_time.second << ";" << it->second.file_c_time << " " << it->second.file_modified << "\n";
-            //}
-            if(it != contents_full.end() && it->second.file_c_time == file_time.first && it->second.file_modified == file_time.second) {
+            auto it = contents_full.find(CASESENSE(abs_path(input_file)));
+            // The "it->second.name == filename" is for Windows where we decide to do a full backup of a file if its only change was a case-rename. Note that
+            // drive-letter casing can apparently fluctuate randomly on Windows, so don't compare full paths
+            if(it != contents_full.end() && it->second.file_c_time == file_time.first && it->second.file_modified == file_time.second && it->second.name == filename) {
                 statusbar.update(BACKUP, dup_counter_payload() + unchanged, io.write_count, input_file);
                 contents_t c = it->second;
-                c.abs_path = CASESENSE(abs_path(input_file));
                 c.unchanged = true;
                 unchanged += c.size;
                 contents.push_back(c);
@@ -1735,6 +1778,8 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
     }
 
     file_meta.checksum = file_meta.ct.result;
+    file_meta.file_id = file_id_counter;
+    file_id_counter++;
     contents.push_back(file_meta);
 }
 
@@ -2097,6 +2142,7 @@ void create_shadows(void) {
 #endif
 }
 
+
 #ifdef WINDOWS
 int wmain(int argc2, CHR *argv2[])
 #else
@@ -2142,8 +2188,7 @@ int main(int argc2, char *argv2[])
     }
 
     if (list_flag) {
-        ifile = try_open(full, 'r', true);
-        dump_contents(ifile);
+        dump_contents();
     } else if (restore_flag && full != UNITXT("-stdin") && diff != UNITXT("-stdin")) {
         // Restore from file.
         // =================================================================================================
@@ -2153,12 +2198,7 @@ int main(int argc2, char *argv2[])
             read_header(ffull, full, BACKUP);
             read_header(fdiff, diff, DIFF_BACKUP);
 
-            auto con = read_contents(ffull);
-            for(auto c : con) {
-                c.abs_path = CASESENSE(c.abs_path);
-                contents_full[CASESENSE(abs_path(c.abs_path))] = c;
-            }
-
+            init_content_maps(ffull);
 
             decompress_individuals(ffull, fdiff);
         } else {
