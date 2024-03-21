@@ -204,7 +204,7 @@ vector<file_offset_t> infiles;
 
 class contents_t {
 public:
-    bool unchanged;
+    bool unchanged = false;
     STRING name;
     STRING link;
     uint64_t size;
@@ -274,18 +274,20 @@ STRING date2str(time_t date) {
 
 void write_contents_item(FILE *file, contents_t *c) {
     uint64_t written = io.write_count;
-    io.writestr(c->abs_path, file);
-    io.writestr(c->name, file);
-    io.writestr(c->link, file);
-    io.write_ui<uint64_t>(c->size, file);
-    io.write_ui<uint64_t>(c->payload, file);
-    io.write_ui<uint32_t>(c->checksum, file);
-    io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_c_time), file);
-    io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_modified), file);
-    io.write_ui<uint32_t>(c->attributes, file);
-    io.write_ui<uint8_t>(c->directory ? 1 : 0, file);
-    io.write_ui<uint8_t>(c->symlink ? 1 : 0, file);
     io.write_ui<uint8_t>(c->unchanged ? 1 : 0, file);
+    io.writestr(c->abs_path, file);
+    if(!c->unchanged) {
+        io.write_ui<uint64_t>(c->payload, file);
+        io.writestr(c->name, file);
+        io.writestr(c->link, file);
+        io.write_ui<uint64_t>(c->size, file);
+        io.write_ui<uint32_t>(c->checksum, file);
+        io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_c_time), file);
+        io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_modified), file);
+        io.write_ui<uint32_t>(c->attributes, file);
+        io.write_ui<uint8_t>(c->directory ? 1 : 0, file);
+        io.write_ui<uint8_t>(c->symlink ? 1 : 0, file);
+    }
     contents_size += io.write_count - written;
 }
 
@@ -639,18 +641,21 @@ STRING validchars(STRING filename) {
 }
 
 void read_content_item(FILE *file, contents_t *c) {
+    c->unchanged = io.read_ui<uint8_t>(file) == 0 ? false : true;
     c->abs_path = slashify(io.readstr(file));
+    if(c->unchanged) {
+        return;
+    }
+    c->payload = io.read_ui<uint64_t>(file);
     c->name = slashify(io.readstr(file));
     c->link = slashify(io.readstr(file));
     c->size = io.read_ui<uint64_t>(file);
-    c->payload = io.read_ui<uint64_t>(file);
     c->checksum = io.read_ui<uint32_t>(file);
     c->file_c_time = io.read_ui<uint32_t>(file);
     c->file_modified = io.read_ui<uint32_t>(file);
     c->attributes = io.read_ui<uint32_t>(file);
     c->directory = io.read_ui<uint8_t>(file) == 0 ? false : true;
     c->symlink = io.read_ui<uint8_t>(file) == 0 ? false : true;
-    c->unchanged = io.read_ui<uint8_t>(file) == 0 ? false : true;
     if (!c->directory) {
         STRING i = c->name;
         c->name = slashify(validchars(c->name));
@@ -1299,7 +1304,6 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
         create_directories(directory, 0);
     }
 
-
     uint64_t payload = 0;
     contents_t c;
     uint64_t resolved = 0;
@@ -1324,6 +1328,17 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
     }
 
     content = read_contents(archive_file);
+    if(diff_flag) {
+        for (auto &c : content) {
+            if(c.unchanged) {
+                auto it = contents_full.find(CASESENSE(c.abs_path));
+                abort(it == contents_full.end(), UNITXT("Internal error at contents_full.find(), or diff file doesn't belong to full file"));
+                // todo, maybe it's better to remove this and let the payload writer access contents_full directly                
+                c = it->second;
+                c.unchanged = true;
+            }
+        }
+    }
 
     verify_restorelist(restorelist, content);
 
@@ -1609,7 +1624,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
             if(it != contents_full.end() && it->second.file_c_time == file_time.first && it->second.file_modified == file_time.second) {
                 statusbar.update(BACKUP, dup_counter_payload() + unchanged, io.write_count, input_file);
                 contents_t c = it->second;
-                c.abs_path = abs_path(input_file);
+                c.abs_path = CASESENSE(abs_path(input_file));
                 c.unchanged = true;
                 unchanged += c.size;
                 contents.push_back(c);
@@ -2137,6 +2152,14 @@ int main(int argc2, char *argv2[])
             FILE *ffull = try_open(full, 'r', true);
             read_header(ffull, full, BACKUP);
             read_header(fdiff, diff, DIFF_BACKUP);
+
+            auto con = read_contents(ffull);
+            for(auto c : con) {
+                c.abs_path = CASESENSE(c.abs_path);
+                contents_full[CASESENSE(abs_path(c.abs_path))] = c;
+            }
+
+
             decompress_individuals(ffull, fdiff);
         } else {
             ifile = try_open(full, 'r', true);
