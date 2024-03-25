@@ -2079,7 +2079,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
     }
 }
 
-void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt) {
+void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt, uint64_t archive_id) {
     if (s == BACKUP) {
         io.try_write("EXDUPE F", 8, file);
     } else if (s == DIFF_BACKUP) {
@@ -2093,6 +2093,8 @@ void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t
     io.write_ui<uint8_t>(VER_REVISION, file);
     io.write_ui<uint8_t>(VER_DEV, file);
 
+    io.write_ui<uint64_t>(archive_id, file);
+
     io.write_ui<uint64_t>(DEDUPE_SMALL, file);
     io.write_ui<uint64_t>(DEDUPE_LARGE, file);
 
@@ -2102,11 +2104,12 @@ void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t
     io.write_ui<uint64_t>(mem, file);
 }
 
-uint64_t read_header(FILE *file, STRING filename, status_t expected) {
+uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* archive_id = nullptr) {
     string header = io.try_read(8, file);
-    if (expected == BACKUP) {
+    if (action == BACKUP) {
         abort(header != "EXDUPE F", UNITXT("'%s' is not a .full file"), filename.c_str());
-    } else if (expected == DIFF_BACKUP) {
+
+    } else if (action == DIFF_BACKUP) {
         abort(header != "EXDUPE D", UNITXT("'%s' is not a .diff file"), filename.c_str());
     } else {
         abort(true, UNITXT("Internal error 278"));
@@ -2121,6 +2124,11 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
         abort(true, UNITXT("This file was created with eXdupe version 1.1.0.dev-23 or earlier. Please use the exact same dev-version on it"));
     }
 
+    uint64_t id = io.read_ui<uint64_t>(file);
+    if(archive_id) {
+        *archive_id = id;
+    }
+
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
@@ -2128,6 +2136,7 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
 
     hash_flag = io.read_ui<uint8_t>(file) == 1;
     hash_salt = io.read_ui<uint64_t>(file);
+
     return io.read_ui<uint64_t>(file); // mem usage
 }
 
@@ -2198,9 +2207,11 @@ int main(int argc2, char *argv2[])
         if (diff_flag) {
             FILE *fdiff = try_open(diff, 'r', true);
             FILE *ffull = try_open(full, 'r', true);
-            read_header(ffull, full, BACKUP);
-            read_header(fdiff, diff, DIFF_BACKUP);
-
+            uint64_t full_id;
+            uint64_t diff_id;
+            read_header(ffull, full, BACKUP, &full_id);
+            read_header(fdiff, diff, DIFF_BACKUP, &diff_id);
+            abort(full_id != diff_id, UNITXT("The diff file does not belong to the full file. "));
             init_content_maps(ffull);
 
             decompress_individuals(ffull, fdiff);
@@ -2228,11 +2239,12 @@ int main(int argc2, char *argv2[])
     // Compress
     // =================================================================================================
     else if (compress_flag) {
+        uint64_t archive_id;
         if (diff_flag) {
             output_file = diff;
             ofile = create_file(output_file);
             ifile = try_open(full, 'r', true);
-            memory_usage = read_header(ifile, full, BACKUP); // also inits hash_salt
+            memory_usage = read_header(ifile, full, BACKUP, &archive_id); // also inits hash_salt
             hashtable = malloc(memory_usage);
             abort(!hashtable, UNITXT("Out of memory. This differential backup requires %d MB. Try -t1 flag"), memory_usage >> 20);
             memset(hashtable, 0, memory_usage);
@@ -2254,6 +2266,7 @@ int main(int argc2, char *argv2[])
             io.close(ifile);
 
         } else {
+            archive_id = rnd64();
             output_file = full;
             ofile = create_file(output_file);
             hash_salt = hash_flag ? rnd64() : 0;
@@ -2265,7 +2278,7 @@ int main(int argc2, char *argv2[])
         }
 
         output_file_mine = true; // todo, can this be deleted?
-        write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt);
+        write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt, archive_id);
 
         if (inputfiles.size() > 0 && inputfiles.at(0) != UNITXT("-stdin")) {
             compress_args(inputfiles);
