@@ -63,7 +63,7 @@
 using namespace std; // fixme, remove
 
 enum { FILE_TYPE, DIR_TYPE, SYMLINK_TYPE, ERROR_TYPE };
-enum status_t { BACKUP, DIFF_BACKUP, RESTORE, DIFF_RESTORE };
+enum status_t { BACKUP, DIFF_BACKUP, RESTORE, DIFF_RESTORE, LIST, DIFF_LIST };
 
 std::tm local_time_tm(const time_t &t);
 

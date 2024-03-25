@@ -738,6 +738,9 @@ void resolve_unchanged(contents_t &c) {
 uint64_t dump_contents() {
     FILE* ffile = try_open(full, 'r', true);
     FILE* file = diff_flag ? try_open(diff, 'r', true) : ffile;
+    string header = io.try_read(8, file);
+    abort(header == "EXDUPE D" && !diff_flag, UNITXT("File is a diff backup. Please use -LD <full file> <diff file to list>"));
+
     init_content_maps(ffile);
 
     //todo rewrite into using read_content()
@@ -1097,7 +1100,7 @@ Restore differential backup:
 
 List contents:
   -L <full backup file to show>
-  -LD <full backup file> <diff backup file to show>
+  -LD <full backup file> <diff backup file to list>
 
 Show build info: -B
 
@@ -2115,13 +2118,13 @@ uint64_t read_header(FILE *file, STRING filename, status_t expected) {
     char dev = io.read_ui<uint8_t>(file);
 
     if (major == 1 && minor == 1 && revision == 0 && dev == 0) {
-        abort(true, UNITXT("This file was created with eXdupe version 1.1.0.dev-23 or earlier. Please use the exact same dev-version to restore it"));
+        abort(true, UNITXT("This file was created with eXdupe version 1.1.0.dev-23 or earlier. Please use the exact same dev-version on it"));
     }
 
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-    abort(dev != VER_DEV, UNITXT("This file was created with eXdupe version %d.%d.%d.dev-%d. Please use the exact same version to restore it"), major, minor, revision, dev);
+    abort(dev != VER_DEV, UNITXT("This file was created with eXdupe version %d.%d.%d.dev-%d. Please use the exact same version on it"), major, minor, revision, dev);
 
     hash_flag = io.read_ui<uint8_t>(file) == 1;
     hash_salt = io.read_ui<uint64_t>(file);
