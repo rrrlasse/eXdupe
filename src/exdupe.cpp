@@ -161,6 +161,8 @@ uint64_t files = 0;
 uint64_t dirs = 0;
 uint64_t tot_res = 0;
 uint64_t unchanged = 0;
+uint64_t unchanged_files = 0;
+
 uint64_t contents_size = 0;
 
 uint64_t hash_salt;
@@ -1155,19 +1157,15 @@ Differential backup:
 Restore differential backup:
   [flags] -RD <full backup file> <diff backup file> <dest dir | -stdout>
 
-Show complete help: -?
-
 Most common flags:
    -f Overwrite existing files (default is to abort)
    -c Continue if a source file cannot be read (default is to abort)
-   -w Read contents of files during differential backup to determine if they
-      have changed (default is to look at timestamps only)
   -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
       input data for best result
   -xn Use compression level n after deduplication (0, 1 = default, 2, 3)
-  -tn Use n threads (default = 8)
-   -- Prefix items in the <sources> list with "--" to skip them)";
-
+   -- Prefix items in the <sources> list with "--" to skip them
+   -? Show complete help)";
+ 
     for (auto &a : {&long_help, &short_help}) {
         *a = std::regex_replace(*a, std::regex("%/"), WIN ? "\\" : "/");
         *a = std::regex_replace(*a, std::regex("%v"), VER);
@@ -1191,7 +1189,7 @@ You can reference following variables:
   attrib: Result of chmod on Linux. On Windows you can reference the booleans
           FILE_ATTRIBUTE_READONLY, FILE_ATTRIBUTE_HIDDEN, etc.
   time:   Last modified time as os.date object. You can also reference these
-          integer variables: year, month, day, time, hour, min, sec
+          integer variables: year, month, day, hour, min, sec
 
 Helper functions:
   contains({list}, value): Test if the list contains the value
@@ -1673,6 +1671,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
                 contents_t c = it->second;
                 c.unchanged = true;
                 unchanged += c.size;
+                unchanged_files++;
                 contents.push_back(c);
                 files++;
                 // Could only be used if we supported restore of diff from stding
@@ -2315,7 +2314,7 @@ int main(int argc2, char *argv2[])
             int sratio = int((double(io.write_count) / double(dup_counter_payload() + unchanged + 1)) * 100.);
             sratio = sratio > 999 ? 999 : sratio == 0 ? 1 : sratio;
             statusbar.print_no_lf(1, UNITXT("Compressed %s B in %s files into %s B (%s%%) at %sB/s\n"), del(dup_counter_payload() + unchanged).c_str(), del(files).c_str(), del(io.write_count).c_str(), s2w(std::to_string(sratio)).c_str(), s2w(format_size((dup_counter_payload() + unchanged) / t * 1000)).c_str());
-            s << "Unchanged files:             " << format_size(unchanged) << "B\n";
+            s << "Unchanged files:             " << format_size(unchanged) << "B in " << unchanged_files << " files\n";
             s << "Stored as literals:          " << format_size(stored_as_literals) << "B (" << format_size(literals_compressed_size) << "B compressed)\n";
             s << "Stored as duplicated blocks: " << format_size(largehits + smallhits) << "B (" << format_size(largehits) << "B large, " << format_size(smallhits) << "B small)\n";
             uint64_t total = literals_compressed_size + contents_size + references_size + hashtable_size;
