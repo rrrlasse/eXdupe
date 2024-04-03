@@ -1091,7 +1091,7 @@ Full backup:
 
 Restore full backup:
   [flags] -R <full backup file> <dest dir | -stdout> [items]
-  [flags] -R <-stdin> <dest dir> [items]
+  [flags] -R <-stdin> <dest dir>
 
 Differential backup:
   [flags] -D <sources> <full backup file> <dest file | -stdout>
