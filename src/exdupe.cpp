@@ -1163,7 +1163,6 @@ Most common flags:
   -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
       input data for best result
   -xn Use compression level n after deduplication (0, 1 = default, 2, 3)
-   -- Prefix items in the <sources> list with "--" to skip them
    -? Show complete help)";
  
     for (auto &a : {&long_help, &short_help}) {
@@ -2314,7 +2313,7 @@ int main(int argc2, char *argv2[])
             int sratio = int((double(io.write_count) / double(dup_counter_payload() + unchanged + 1)) * 100.);
             sratio = sratio > 999 ? 999 : sratio == 0 ? 1 : sratio;
             statusbar.print_no_lf(1, UNITXT("Compressed %s B in %s files into %s B (%s%%) at %sB/s\n"), del(dup_counter_payload() + unchanged).c_str(), del(files).c_str(), del(io.write_count).c_str(), s2w(std::to_string(sratio)).c_str(), s2w(format_size((dup_counter_payload() + unchanged) / t * 1000)).c_str());
-            s << "Unchanged files:             " << format_size(unchanged) << "B in " << unchanged_files << " files\n";
+            s << "Unchanged files:             " << w2s(del(unchanged)) << " B in " << w2s(del(unchanged_files)) << " files\n";
             s << "Stored as literals:          " << format_size(stored_as_literals) << "B (" << format_size(literals_compressed_size) << "B compressed)\n";
             s << "Stored as duplicated blocks: " << format_size(largehits + smallhits) << "B (" << format_size(largehits) << "B large, " << format_size(smallhits) << "B small)\n";
             uint64_t total = literals_compressed_size + contents_size + references_size + hashtable_size;
