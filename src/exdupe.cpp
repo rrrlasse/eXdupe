@@ -268,6 +268,14 @@ void abort(bool b, const CHR *fmt, ...) {
     }
 }
 
+void update_statusbar_backup(STRING file) {
+    statusbar.update(BACKUP, dup_counter_payload() + unchanged, io.write_count, file);
+}
+
+void update_statusbar_restore(STRING file) {
+    statusbar.update(RESTORE, 0, tot_res, file);
+}
+
 STRING date2str(time_t date) {
     if (date == 0) {
         return UNITXT("                ");
@@ -1419,14 +1427,14 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
 
             if (c.symlink) {
                 files++;
-                statusbar.update(RESTORE, 0, tot_res, c.name + UNITXT(" -> ") + c.link);
+                update_statusbar_restore(c.name + UNITXT(" -> ") + c.link);
                 create_symlink(dstdir + c.name, c);
             } else if (!c.directory) {
                 files++;
                 checksum_t t;
                 checksum_init(&t);
                 STRING outfile = remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
-                statusbar.update(RESTORE, 0, tot_res, outfile);
+                update_statusbar_restore(outfile);
                 ofile = pipe_out ? stdout : create_file(outfile);
                 resolved = 0;
 
@@ -1440,7 +1448,7 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
                     checksum(restore_buffer.data(), process, &t);
                     io.write(restore_buffer.data(), process, ofile);
                     tot_res += process;
-                    statusbar.update(RESTORE, 0, tot_res, outfile);
+                    update_statusbar_restore(outfile);
                     resolved += process;
                     payload += c.size;
                 }
@@ -1542,9 +1550,7 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
             auto missing = c.at(0).size - curfile_written;
             auto has = minimum(missing, len - src_consumed);
             curfile_written += has;
-
-            statusbar.update(RESTORE, 0, dup_counter_payload(), destfile);
-
+            update_statusbar_restore(destfile);
             io.try_write(out + src_consumed, has, ofile);
             checksum(out + src_consumed, has, &decompress_checksum);
 
@@ -1581,7 +1587,7 @@ void compress_symlink(const STRING &link, const STRING &target) {
         return;
     }
 
-    statusbar.update(BACKUP, dup_counter_payload(), io.write_count, link + UNITXT(" -> ") + STRING(abs_path(tmp)));
+    update_statusbar_backup(link + UNITXT(" -> ") + STRING(abs_path(tmp)));
     io.try_write("L", 1, ofile);
 
     files++;
@@ -1666,7 +1672,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
             // The "it->second.name == filename" is for Windows where we decide to do a full backup of a file if its only change was a case-rename. Note that
             // drive-letter casing can apparently fluctuate randomly on Windows, so don't compare full paths
             if(it != contents_full.end() && it->second.file_c_time == file_time.first && it->second.file_modified == file_time.second && it->second.name == filename) {
-                statusbar.update(BACKUP, dup_counter_payload() + unchanged, io.write_count, input_file);
+                update_statusbar_backup(input_file);
                 contents_t c = it->second;
                 c.unchanged = true;
                 unchanged += c.size;
@@ -1695,7 +1701,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
         }
     }
 
-    statusbar.update(BACKUP, dup_counter_payload(), io.write_count, input_file);
+    update_statusbar_backup(input_file);
 
     if (input_file != UNITXT("-stdin")) {
         io.seek(ifile, 0, SEEK_END);
@@ -1733,7 +1739,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
         empty_q();
 
         while (file_read < file_size) {
-            statusbar.update(BACKUP, dup_counter_payload() + unchanged, io.write_count, input_file);
+            update_statusbar_backup(input_file);
             size_t r = io.read_valid_length(in, minimum(file_size - file_read, DISK_READ_CHUNK), ifile, input_file);
             if (input_file == UNITXT("-stdin") && r == 0) {
                 break;
@@ -2053,7 +2059,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
                 c.extra = buf2;
                 c.checksum = 0;
                 file_queue.push_back(c);
-                statusbar.update(RESTORE, 0, dup_counter_payload(), buf2);
+                update_statusbar_restore(buf2);
                 name = c.name;
             }
         } else if (w == 'A') {
