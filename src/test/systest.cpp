@@ -642,24 +642,24 @@ TEST_CASE("restore from stdin by pipe") {
 
 TEST_CASE("compress from stdin by redirection") {
     clean();
-    pick("a");
-    ex("-m1", "-stdin", "a", full, "<", p(in + "/a"));
+    cp(testfiles + "/a", in + "/stdin");   
+    ex("-m1", "-stdin", full, "<", p(in + "/stdin"));
     ex("-R", full, out);
     cmp();
 }
 
 TEST_CASE("compress from stdin by pipe") {
     clean();
-    pick("a");   
-    sys(win ? "type" : "cat", p(in + "/a"), "|", p(bin), "-m1", "-stdin", "a", full);
+    cp(testfiles + "/a", in + "/stdin");
+    sys(win ? "type" : "cat", p(in + "/stdin"), "|", p(bin), "-m1", "-stdin", full);
     ex("-R", full, out);
     cmp();
 }
 
 TEST_CASE("compress from stdin and restore to stdout") {
     clean();
-    pick("a");
-    ex("-m1", "-stdin", "a", "-stdout", "<", p(in + "/a"), ">", p(out + "/a"));
+    cp(testfiles + "/a", in + "/stdin");
+    ex("-m1", "-stdin", "-stdout", "<", p(in + "/stdin"), ">", p(out + "/stdin"));
     cmp_diff(); // timestamp cannot match
 }
 

@@ -1001,12 +1001,11 @@ void parse_files(void) {
         abort(argc - 1 < flags_exist + 2, UNITXT("Missing arguments. "));
         full = argv.at(argc - 1);
         if (inputfiles.at(0) == UNITXT("-stdin")) {
-            abort(argc - 1 < flags_exist + 3, UNITXT("Missing arguments. "));
+            abort(argc - 1 < flags_exist + 2, UNITXT("Missing arguments. "));
             name = argv.at(flags_exist + 2);
         }
 
-        abort(inputfiles.at(0) == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdin") || (inputfiles.at(0) == UNITXT("-stdin") && argc < 4 + flags_exist) ||
-                  (inputfiles.at(0) != UNITXT("-stdin") && argc < 3 + flags_exist),
+        abort(inputfiles.at(0) == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdin") || (inputfiles.at(0) == UNITXT("-stdin") && argc < 3 + flags_exist) || (inputfiles.at(0) != UNITXT("-stdin") && argc < 3 + flags_exist),
               UNITXT("Syntax error in source or destination. "));
     } else if (compress_flag && diff_flag) {
         for (int i = flags_exist + 1; i < argc - 2; i++) {
@@ -1024,8 +1023,7 @@ void parse_files(void) {
 
         abort(full == UNITXT("-stdin"), UNITXT(".full file from -stdin not supported. "));
 
-        abort(inputfiles.at(0) == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdout") || (inputfiles.at(0) == UNITXT("-stdin") && argc < 4 + flags_exist) ||
-                  (inputfiles.at(0) != UNITXT("-stdin") && argc < 3 + flags_exist),
+        abort(inputfiles.at(0) == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdout") || (inputfiles.at(0) == UNITXT("-stdin") && argc < 3 + flags_exist) || (inputfiles.at(0) != UNITXT("-stdin") && argc < 3 + flags_exist),
               UNITXT("Syntax error in source or destination. "));
     } else if (!compress_flag && !diff_flag && !list_flag) {
         abort(argc - 1 < flags_exist + 2, UNITXT("Missing arguments. "));
@@ -1095,7 +1093,7 @@ void print_usage(bool show_long) {
 
 Full backup:
   [flags] <sources> <dest file | -stdout>
-  [flags] <-stdin> <filename to assign> <dest file>
+  [flags] <-stdin> <dest file>
 
 Restore full backup:
   [flags] -R <full backup file> <dest dir | -stdout> [items]
@@ -2287,6 +2285,7 @@ int main(int argc2, char *argv2[])
         if (inputfiles.size() > 0 && inputfiles.at(0) != UNITXT("-stdin")) {
             compress_args(inputfiles);
         } else if (inputfiles.size() > 0 && inputfiles.at(0) == UNITXT("-stdin")) {
+            name = UNITXT("stdin");
             compress_file(UNITXT("-stdin"), name, true); // flush = true
         }
 
