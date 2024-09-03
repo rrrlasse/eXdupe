@@ -530,6 +530,22 @@ bool ISLINK(int attributes) {
 #endif
 }
 
+bool ISREG(int attributes) {
+#ifdef WINDOWS
+    return !ISDIR(attributes) && !ISNAMEDPIPE(attributes);
+#else
+    return S_ISREG(attributes);
+#endif
+}
+
+bool ISSOCK(int attributes) {
+#ifdef WINDOWS
+    return false;
+#else
+    return S_ISSOCK(attributes);
+#endif
+}
+
 int get_attributes(STRING path, bool follow) {
 #ifdef WINDOWS
     if (path.size() > 250) {

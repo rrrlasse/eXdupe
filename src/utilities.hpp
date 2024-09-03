@@ -105,6 +105,8 @@ STRING right(const STRING &s);
 bool ISNAMEDPIPE(int attributes);
 bool ISDIR(int attributes);
 bool ISLINK(int attributes);
+bool ISREG(int attributes);
+bool ISSOCK(int attributes);
 
 int get_attributes(STRING path, bool follow);
 bool set_attributes(STRING path, int attributes);

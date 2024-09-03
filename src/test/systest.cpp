@@ -80,7 +80,7 @@ template<typename... Args> std::string sys(const Args&... args) {
         std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
         return converter.from_bytes(utf8str);
     };
-    std::array<char, 128> buffer;
+    std::array<char, 2048> buffer;
     std::string result;
     string cmd2 = conc(args...);
     wstring cmd = utf8w(cmd2);
@@ -580,7 +580,7 @@ TEST_CASE("deduplication") {
         pick("high_entropy_a", "dir2");
         ex("-D", in, full, diff);
         CHECK(((siz(diff) > 65811) && siz(diff) < 76000));
-    }
+    } 
 }
 
 TEST_CASE("symlink to dir") {
@@ -693,4 +693,40 @@ TEST_CASE("lua unix filenames") {
     ex("-R", full, out); 
     cmp();
 }
+
+TEST_CASE("skip domain socket") {
+    clean();
+    pick("a");
+    sys("timeout 0.1 nc -lU " + in + "/domain_socket");
+    ex("-m1",in, full);
+    ex("-R", full, out);
+    rm(in + "/domain_socket");
+    cmp();
+}
+
+
+TEST_CASE("include link to domain socket") {
+    clean();
+    pick("a");
+    sys("timeout 0.1 nc -lU " + in + "/domain_socket");
+    lf(in + "/link_to_domain_socket", in + "/domain_socket");
+    ex("-m1",in, full);
+    ex("-R", full, out);
+    rm(in + "/domain_socket");
+    cmp();
+}
+
+TEST_CASE("skip link to domain socket") {
+    clean();
+    pick("a");
+    sys("timeout 0.1 nc -lU " + in + "/domain_socket");
+    lf(in + "/link_to_domain_socket", in + "/domain_socket");
+    ex("-m1 -h",in, full);
+    ex("-R", full, out);
+    rm(in + "/domain_socket");
+    rm(in + "/link_to_domain_socket");
+    cmp();
+}
+
+
 #endif

@@ -1911,7 +1911,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_l
     // first process files
     for (uint32_t j = 0; j < items.size(); j++) {
         STRING sub = base_dir + items.at(j);
-        if (!ISDIR(attributes.at(j)) && !(ISLINK(attributes.at(j)) && !follow_symlinks) && include(sub, top_level)) {
+        if ((!ISDIR(attributes.at(j)) && !ISSOCK(attributes.at(j))) && !(ISLINK(attributes.at(j)) && !follow_symlinks) && include(sub, top_level)) {
             save_directory(base_dir, left(items.at(j)) + (left(items.at(j)) == UNITXT("") ? UNITXT("") : DELIM_STR), true);
             STRING u = items.at(j);
             STRING s = right(u) == UNITXT("") ? u : right(u);
