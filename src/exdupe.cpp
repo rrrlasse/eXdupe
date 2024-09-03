@@ -1107,7 +1107,7 @@ Restore differential backup:
   [flags] -RD <full backup file> <diff backup file> <dest dir | -stdout> [items]
 
 List contents:
-  -L <full backup file to show>
+  -L <full backup file to list>
   -LD <full backup file> <diff backup file to list>
 
 Show build info: -B
