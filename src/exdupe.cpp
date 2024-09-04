@@ -1008,6 +1008,7 @@ void parse_files(void) {
         abort(inputfiles.at(0) == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdin") || (inputfiles.at(0) == UNITXT("-stdin") && argc < 3 + flags_exist) || (inputfiles.at(0) != UNITXT("-stdin") && argc < 3 + flags_exist),
               UNITXT("Syntax error in source or destination. "));
     } else if (compress_flag && diff_flag) {
+        // exdupe -D -stdin full diff < payload.txt
         for (int i = flags_exist + 1; i < argc - 2; i++) {
             add_item(argv.at(i));
         }
@@ -1016,15 +1017,18 @@ void parse_files(void) {
         full = argv.at(argc - 2);
         diff = argv.at(argc - 1);
         if (inputfiles.at(0) == UNITXT("-stdin")) {
-            abort(argc - 1 < flags_exist + 4, UNITXT("Missing arguments. "));
-            name = argv.at(flags_exist + 2);
+            abort(argc - 1 < flags_exist + 3, UNITXT("Missing arguments. "));
+            name = argv.at(flags_exist + 1);
         }
-        abort(inputfiles.at(0) == UNITXT("-stdin") && argc < 5 + flags_exist, UNITXT(".full file from -stdin not supported. "));
+        abort(inputfiles.at(0) == UNITXT("-stdin") && argc < 4 + flags_exist, UNITXT(".full file from -stdin not supported. "));
 
         abort(full == UNITXT("-stdin"), UNITXT(".full file from -stdin not supported. "));
 
-        abort(inputfiles.at(0) == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdout") || (inputfiles.at(0) == UNITXT("-stdin") && argc < 3 + flags_exist) || (inputfiles.at(0) != UNITXT("-stdin") && argc < 3 + flags_exist),
+        abort(full == UNITXT("-stdout") || diff == UNITXT("-stdout") || (inputfiles.at(0) == UNITXT("-stdin") && argc < 2 + flags_exist) || (inputfiles.at(0) != UNITXT("-stdin") && argc < 3 + flags_exist),
               UNITXT("Syntax error in source or destination. "));
+
+        abort(inputfiles.at(0) == UNITXT("-stdin") && argc - 1 > flags_exist + 3, UNITXT("Too many arguments. "));
+
     } else if (!compress_flag && !diff_flag && !list_flag) {
         abort(argc - 1 < flags_exist + 2, UNITXT("Missing arguments. "));
         full = argv.at(1 + flags_exist);
@@ -1097,11 +1101,11 @@ Full backup:
 
 Restore full backup:
   [flags] -R <full backup file> <dest dir | -stdout> [items]
-  [flags] -R <-stdin> <dest dir>
+  [flags] -R -stdin <dest dir>
 
 Differential backup:
   [flags] -D <sources> <full backup file> <dest file | -stdout>
-  [flags] -D <-stdin> <filename to assign> <full backup file> <dest file>
+  [flags] -D -stdin <full backup file> <dest file>
   
 Restore differential backup:
   [flags] -RD <full backup file> <diff backup file> <dest dir | -stdout> [items]
@@ -1150,15 +1154,15 @@ More examples:
 
     std::string short_help = R"(Full backup:
   [flags] <sources> <dest file | -stdout>
-  [flags] <-stdin> <filename to assign> <dest file>
+  [flags] -stdin <dest file>
 
 Restore full backup:
   [flags] -R <full backup file> <dest dir | -stdout>
-  [flags] -R <-stdin> <dest dir>
+  [flags] -R -stdin <dest dir>
 
 Differential backup:
   [flags] -D <sources> <full backup file> <dest file | -stdout>
-  [flags] -D <-stdin> <filename to assign> <full backup file> <dest file>
+  [flags] -D -stdin <full backup file> <dest file>
   
 Restore differential backup:
   [flags] -RD <full backup file> <diff backup file> <dest dir | -stdout>
