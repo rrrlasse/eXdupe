@@ -11,7 +11,7 @@ Each day we can then create a new backup that only stores the changes compared t
 `exdupe -D d:\ d.full d2.diff`<br>
 
 Identical data blocks as small as 4 KB are being searched at byte grannularity positions across terabytes. Example of a backup of a Windows and a Linux virtual machine of 57,776 MB in total:
-|               | exdupe36 | zpaq64 | 7-Zip-flzma2 | restic | tar+zstd |
+|               | exdupe37 | zpaq64 | 7-Zip-flzma2 | restic | tar+zstd |
 |---------------|--------------:|-------:|--------------:|-------:|---------:|
 | **Size**          |     28,005 MB | 29,633 MB |     32,331 MB | 33,518 MB | 35,982 MB |
 | **Time**          |          24 s |    366 s |         562 s |     72 s |     35 s |
@@ -19,8 +19,8 @@ Identical data blocks as small as 4 KB are being searched at byte grannularity p
 
 Try the latest development version (backwards compatibility broken often) that doubles the speed and improves compression ratio compared to 1.0.0:
 
-&nbsp;&nbsp;&nbsp;[exdupe36.exe](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe36.exe)
-<br>&nbsp;&nbsp;&nbsp;[exdupe36_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe36_linux_amd64.tar.gz)
+&nbsp;&nbsp;&nbsp;[exdupe37.exe](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe37.exe)
+<br>&nbsp;&nbsp;&nbsp;[exdupe37_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe37_linux_amd64.tar.gz)
 
 Stable version:
 
