@@ -1214,6 +1214,7 @@ unchanged.
 Examples:
   -v0 -u"print('added ' .. path .. ': ' .. size); return true"
   -u"return year >= 2024"
+  -u"return size < 1000000 or is_dir"
   -u"return not contains({'tmp', 'temp'}, lower(ext))")del";
 
     statusbar.print(0, tostring(lua_help).c_str());
