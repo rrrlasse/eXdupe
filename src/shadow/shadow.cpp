@@ -195,14 +195,14 @@ int shadow(vector<STRING> volumes)
 
 		}
 	}
-
+  abort(FAILED(hr), UNITXT("Snapshot failed to start at StartSnapshotSet(). Wait a few minutes. See interfering snapshots with 'vssadmin list writers' or 'vssadmin list shadows'"));
 
   async.Release();
   hr = comp->PrepareForBackup(&async);
   if (SUCCEEDED(hr))
     hr = async->Wait();
 
-  abort(FAILED(hr), UNITXT("Snapshot failed at PrepareForBackup(). Wait 10 minutes."));
+  abort(FAILED(hr), UNITXT("Snapshot failed at PrepareForBackup(). Wait a few minutes. See interfering snapshots with 'vssadmin list writers' or 'vssadmin list shadows'"));
 
   async.Release();
   hr = comp->DoSnapshotSet(&async);

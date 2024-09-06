@@ -1120,26 +1120,26 @@ Show build info: -B
 paths to restore, written as printed by the -L flag.
 
 Flags:
-   -f Overwrite existing files (default is to abort)
-   -c Continue if a source file cannot be read (default is to abort)
-   -w Read contents of files during differential backup to determine if they
-      have changed (default is to look at timestamps only)
-  -tn Use n threads (default = 8)
-  -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
-      of input data for best result. Use -mn to specify MB instead.
-  -xn Use compression level n after deduplication (0 = none, 1 = zstd-1
-      (default), 2 = zstd-10, 3 = zstd-19)
-   -- Prefix items in the <sources> list with "--" to exclude them
-   -p Include named pipes
-   -h Follow symlinks (default is to store symlink only)
-   -a Store absolute and complete paths (default is to identify and remove
-      any common parent path of the items passed on the command line).
--s"x" Use Volume Shadow Copy Service for local drive x: (Windows only)
--u"s" Filter files using a script, s, written in the Lua language. See more
-      with -u? flag.
-  -z  Use slower cryptographic hash BLAKE3. Default is xxHash128
- -vn  Verbosity n (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
-  -k  Show deduplication statistics at the end
+    -f Overwrite existing files (default is to abort)
+    -c Continue if a source file cannot be read (default is to abort)
+    -w Read contents of files during differential backup to determine if they
+       have changed (default is to look at timestamps only)
+   -tn Use n threads (default = 8)
+   -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
+       of input data for best result. Use -mn to specify MB instead.
+   -xn Use compression level n after deduplication (0 = none, 1 = zstd-1
+       (default), 2 = zstd-10, 3 = zstd-19)
+    -- Prefix items in the <sources> list with "--" to exclude them
+    -p Include named pipes
+    -h Follow symlinks (default is to store symlink only)
+    -a Store absolute and complete paths (default is to identify and remove
+       any common parent path of the items passed on the command line).
+-s"x:" Use Volume Shadow Copy Service for local drive x: (Windows only)
+ -u"s" Filter files using a script, s, written in the Lua language. See more
+       with -u? flag.
+   -z  Use slower cryptographic hash BLAKE3. Default is xxHash128
+  -vn  Verbosity n (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
+   -k  Show deduplication statistics at the end
 
 Example of backup, differential backups and restore:
   exdupe my_dir backup.full
@@ -1168,12 +1168,12 @@ Restore differential backup:
   [flags] -RD <full backup file> <diff backup file> <dest dir | -stdout>
 
 Most common flags:
-   -f Overwrite existing files (default is to abort)
-   -c Continue if a source file cannot be read (default is to abort)
-  -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
-      input data for best result
-  -xn Use compression level n after deduplication (0, 1 = default, 2, 3)
-   -? Show complete help)";
+    -f Overwrite existing files (default is to abort)
+    -c Continue if a source file cannot be read (default is to abort)
+   -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
+       input data for best result
+   -xn Use compression level n after deduplication (0, 1 = default, 2, 3)
+    -? Show complete help)";
  
     for (auto &a : {&long_help, &short_help}) {
         *a = std::regex_replace(*a, std::regex("%/"), WIN ? "\\" : "/");
