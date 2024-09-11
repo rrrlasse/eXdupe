@@ -17,7 +17,7 @@ Identical data blocks as small as 4 KB are being searched at byte grannularity p
 | **Time**          |          24 s |    366 s |         562 s |     72 s |     35 s |
 | **Options**       |       -g1 -t10 | -m1 -t12 |       fastest | default |    -1 -T0 |
 
-Try the latest development version (backwards compatibility broken often) that doubles the speed and improves compression ratio compared to 1.0.0:
+Try the latest development version (backwards compatibility broken often) that doubles the speed and improves compression ratio by alot compared to 1.0.0:
 
 &nbsp;&nbsp;&nbsp;[exdupe37.exe](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe37.exe)
 <br>&nbsp;&nbsp;&nbsp;[exdupe37_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe37_linux_amd64.tar.gz)
