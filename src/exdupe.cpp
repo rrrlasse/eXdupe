@@ -5,15 +5,19 @@
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
 
-#define VER_MAJOR 1
-#define VER_MINOR 1
+#define VER_MAJOR 2
+#define VER_MINOR 0
 #define VER_REVISION 0
-#define VER_DEV 37
+#define VER_DEV 0
 
 #define Q(x) #x
 #define QUOTE(x) Q(x)
 
+#if VER_DEV > 0
 #define VER QUOTE(VER_MAJOR) "." QUOTE(VER_MINOR) "." QUOTE(VER_REVISION) ".dev" QUOTE(VER_DEV)
+#else
+#define VER QUOTE(VER_MAJOR) "." QUOTE(VER_MINOR) "." QUOTE(VER_REVISION)
+#endif
 
 #define NOMINMAX
 #include <algorithm>
@@ -2127,10 +2131,6 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* arc
     char revision = io.read_ui<uint8_t>(file);
     char dev = io.read_ui<uint8_t>(file);
 
-    if (major == 1 && minor == 1 && revision == 0 && dev == 0) {
-        abort(true, UNITXT("This file was created with eXdupe version 1.1.0.dev-23 or earlier. Please use the exact same dev-version on it"));
-    }
-
     uint64_t id = io.read_ui<uint64_t>(file);
     if(archive_id) {
         *archive_id = id;
@@ -2139,7 +2139,8 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* arc
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-    abort(dev != VER_DEV, UNITXT("This file was created with eXdupe version %d.%d.%d.dev-%d. Please use the exact same version on it"), major, minor, revision, dev);
+    abort(dev != 0, UNITXT("This file was created with eXdupe version %d.%d.%d.dev-%d. Please use the exact same version on it"), major, minor, revision, dev);
+    abort(major != 2, UNITXT("This file was created with eXdupe version %d.%d.%d. Please use %d.x.x on it"), major, minor, revision, major);
 
     hash_flag = io.read_ui<uint8_t>(file) == 1;
     hash_salt = io.read_ui<uint64_t>(file);
