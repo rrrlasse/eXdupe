@@ -11,31 +11,21 @@ Each day we can then create a new backup that only stores the changes compared t
 `exdupe -D d:\ d.full d2.diff`<br>
 
 Identical data blocks as small as 4 KB are being searched at byte grannularity positions across terabytes. Example of a backup of a Windows and a Linux virtual machine of 57,776 MB in total:
-|               | exdupe37 | zpaq64 | 7-Zip-flzma2 | restic | tar+zstd |
+|               | exdupe | zpaq64 | 7-Zip-flzma2 | restic | tar+zstd |
 |---------------|--------------:|-------:|--------------:|-------:|---------:|
 | **Size**          |     28,005 MB | 29,633 MB |     32,331 MB | 33,518 MB | 35,982 MB |
 | **Time**          |          24 s |    366 s |         562 s |     72 s |     35 s |
 | **Options**       |       -g1 -t10 | -m1 -t12 |       fastest | default |    -1 -T0 |
 
-Try the latest development version (backwards compatibility broken often) that doubles the speed and improves compression ratio by alot compared to 1.0.0:
+## Download
 
-&nbsp;&nbsp;&nbsp;[exdupe37.exe](https://github.com/rrrlasse/exdupe/raw/stuff/beta/exdupe37.exe)
-<br>&nbsp;&nbsp;&nbsp;[exdupe37_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/raw/stuff/beta/exdupe37_linux_amd64.tar.gz)
+&nbsp;&nbsp;&nbsp;[exdupe.exe](https://github.com/rrrlasse/eXdupe/releases/download/v2.0.0/exdupe.exe)
+<br>&nbsp;&nbsp;&nbsp;[exdupe_2.0.0_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/releases/download/v2.0.0/exdupe_2.0.0_linux_amd64.tar.gz)
 
-Stable version:
-
-&nbsp;&nbsp;&nbsp;[1.0.0](https://github.com/rrrlasse/eXdupe/releases/tag/v1.0.0)
-## Building
-### Linux
+## Building on Linux
     wget https://github.com/rrrlasse/eXdupe/archive/refs/heads/main.tar.gz
     tar -zxf main.tar.gz
     cmake eXdupe-main/src/
     make
-### Visual Studio
-Install support for C++ and CMake. Then, from a Developer Command Prompt, run this from the source code root directory:
-
-    mkdir out
-    cd out
-    cmake ..\src
-    make
-<br><img src="https://github.com/rrrlasse/exdupe/blob/stuff/cmd.webp" width="90%">
+## Screen shot
+<img src="https://github.com/rrrlasse/exdupe/blob/stuff/cmd.webp" width="90%">
