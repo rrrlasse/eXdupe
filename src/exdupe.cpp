@@ -1101,7 +1101,7 @@ void print_usage(bool show_long) {
 
 Full backup:
   [flags] <sources> <dest file | -stdout>
-  [flags] <-stdin> <dest file>
+  [flags] -stdin <dest file>
 
 Restore full backup:
   [flags] -R <full backup file> <dest dir | -stdout> [items]
