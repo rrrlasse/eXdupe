@@ -6,7 +6,7 @@
 // 2010 - 2024: Lasse Mikkel Reinhold
 
 #define VER_MAJOR 2
-#define VER_MINOR 0
+#define VER_MINOR 1
 #define VER_REVISION 0
 #define VER_DEV 0
 
@@ -119,12 +119,12 @@ const size_t DISK_READ_CHUNK = 1 * M;
 // Restore takes part by resolving a tree structure of backwards references in
 // past data. Resolve RESTORE_CHUNKSIZE bytes of payload at a time (too large
 // value can potentially expand a too huge tree; too small value can be slow)
-const size_t RESTORE_CHUNKSIZE = 128 * K;
+const size_t RESTORE_CHUNKSIZE = 1 * M;
 
 // Keep the last RESTORE_BUFFER bytes of resolved data in memory, so that we
 // don't have to seek on the disk while building above mentioned tree. Todo,
 // this was benchmarked in 2010, test if still valid today
-const size_t RESTORE_BUFFER = 64 * M;
+const size_t RESTORE_BUFFER = 256 * M;
 
 #define compile_assert(x) extern int __dummy[(int)x];
 
@@ -197,6 +197,9 @@ STRING output_file;
 bool output_file_mine = false;
 void *hashtable;
 uint32_t file_id_counter = 0;
+
+std::vector<unsigned char> restore_buffer_in;
+std::vector<unsigned char> restore_buffer_out;
 
 Bytebuffer bytebuffer(RESTORE_BUFFER);
 
@@ -480,9 +483,6 @@ uint64_t find_reference(uint64_t payload) {
 }
 
 bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FILE *fdiff, uint64_t splitpay) {
-    std::vector<unsigned char> vin;
-    std::vector<unsigned char> vout;
-
     size_t bytes_resolved = 0;
 
     while (bytes_resolved < size) {
@@ -513,24 +513,24 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
                 uint64_t orig = io.tell(f);
                 uint64_t ao = references.at(rr).archive_offset;
                 io.seek(f, ao, SEEK_SET);
-                vin.resize(DUP_HEADER_LEN, 'c');
-                io.try_read_buf(vin.data(), DUP_HEADER_LEN, f);
-                size_t lenc = dup_size_compressed(vin.data());
-                size_t lend = dup_size_decompressed(vin.data());
-                vin.resize(lenc + M - DUP_HEADER_LEN, 'c');
-                vout.resize(lend + M, 'c');
-                io.try_read_buf(vin.data() + DUP_HEADER_LEN, lenc - DUP_HEADER_LEN, f);
+                restore_buffer_in.resize(DUP_HEADER_LEN);
+                io.try_read_buf(restore_buffer_in.data(), DUP_HEADER_LEN, f);
+                size_t lenc = dup_size_compressed(restore_buffer_in.data());
+                size_t lend = dup_size_decompressed(restore_buffer_in.data());
+                restore_buffer_in.resize(lenc + M - DUP_HEADER_LEN);
+                restore_buffer_out.resize(lend + M);
+                io.try_read_buf(restore_buffer_in.data() + DUP_HEADER_LEN, lenc - DUP_HEADER_LEN, f);
                 uint64_t p;
-                int r = dup_decompress(vin.data(), vout.data(), &lenc, &p);
+                int r = dup_decompress(restore_buffer_in.data(), restore_buffer_out.data(), &lenc, &p);
 
                 if (r != 0 && r != 1) {
                     abort(true, UNITXT("Internal error, dup_decompress() = %d"), r);
                 }
 
-                bytebuffer.buffer_add(vout.data(), references.at(rr).payload, references.at(rr).length);
+                bytebuffer.buffer_add(restore_buffer_out.data(), references.at(rr).payload, references.at(rr).length);
 
                 io.seek(f, orig, SEEK_SET);
-                memcpy(dst + bytes_resolved, vout.data() + prior, ref_has);
+                memcpy(dst + bytes_resolved, restore_buffer_out.data() + prior, ref_has);
             }
         }
         bytes_resolved += ref_has;
