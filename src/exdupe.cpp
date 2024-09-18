@@ -249,6 +249,12 @@ typedef struct {
 vector<reference_t> references;
 vector<reference_t> read_ahead;
 
+template<class T> void ensure_size(std::vector<T> &v, size_t min_size) {
+    if (v.size() < min_size) {
+        v.resize(min_size);
+    }
+}
+
 void move_cursor_up() {
 #ifdef _WIN32
     CONSOLE_SCREEN_BUFFER_INFO csbi;
@@ -513,12 +519,12 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
                 uint64_t orig = io.tell(f);
                 uint64_t ao = references.at(rr).archive_offset;
                 io.seek(f, ao, SEEK_SET);
-                restore_buffer_in.resize(DUP_HEADER_LEN);
+                ensure_size(restore_buffer_in, DUP_HEADER_LEN);
                 io.try_read_buf(restore_buffer_in.data(), DUP_HEADER_LEN, f);
                 size_t lenc = dup_size_compressed(restore_buffer_in.data());
                 size_t lend = dup_size_decompressed(restore_buffer_in.data());
-                restore_buffer_in.resize(lenc + M - DUP_HEADER_LEN);
-                restore_buffer_out.resize(lend + M);
+                ensure_size(restore_buffer_in, lenc + M - DUP_HEADER_LEN);
+                ensure_size(restore_buffer_out, lend + M);
                 io.try_read_buf(restore_buffer_in.data() + DUP_HEADER_LEN, lenc - DUP_HEADER_LEN, f);
                 uint64_t p;
                 int r = dup_decompress(restore_buffer_in.data(), restore_buffer_out.data(), &lenc, &p);
