@@ -14,13 +14,17 @@ Bytebuffer::Bytebuffer(size_t max_size) {
     m_buffer.resize(max_size);
 }
 
-void Bytebuffer::buffer_add(const unsigned char *src, uint64_t payload, size_t len) {
-    char *insert_at = 0;
+void Bytebuffer::buffer_add(const char *src, uint64_t payload, size_t len) {
+    if (len > m_buffer.size()) {
+        return;
+    }
+
+    size_t insert_at = -1;
 
     if (m_buffers.size() == 0) {
-        insert_at = m_buffer.data();
+        insert_at = 0;
     } 
-    else if (m_buffers.back().buffer_offset - m_buffer.data() + m_buffers.back().len + len <= m_buffer.size()) {
+    else if (m_buffers.back().buffer_offset + m_buffers.back().len + len <= m_buffer.size()) {
         insert_at = m_buffers.back().buffer_offset + m_buffers.back().len;
         unsigned int del = 0;
         while (m_buffers.size() > 0 && m_buffers.size() > del && m_buffers[del].buffer_offset < insert_at + len && m_buffers[del].buffer_offset >= insert_at) {
@@ -30,10 +34,10 @@ void Bytebuffer::buffer_add(const unsigned char *src, uint64_t payload, size_t l
             m_buffers.erase(m_buffers.begin(), m_buffers.begin() + del);
         }
     } 
-    else if (m_buffers.back().buffer_offset - m_buffer.data() + m_buffers.back().len + len > m_buffer.size()) {
-        insert_at = m_buffer.data();
+    else if (m_buffers.back().buffer_offset + m_buffers.back().len + len > m_buffer.size()) {
+        insert_at = 0;
         int del = 0;
-        while (m_buffers[del].buffer_offset != m_buffer.data()) {
+        while (m_buffers[del].buffer_offset != 0) {
             del++;
         }
         if (del > 0) {
@@ -41,7 +45,7 @@ void Bytebuffer::buffer_add(const unsigned char *src, uint64_t payload, size_t l
         }
 
         del = 0;
-        while (m_buffers[del].buffer_offset < insert_at + len + 1024 * 1024) {
+        while (m_buffers[del].buffer_offset < insert_at + len) {
             del++;
         }
 
@@ -49,12 +53,12 @@ void Bytebuffer::buffer_add(const unsigned char *src, uint64_t payload, size_t l
             m_buffers.erase(m_buffers.begin(), m_buffers.begin() + del);
         }
     }
-    abort(insert_at == 0, UNITXT("insert_at == 0"));
 
     buffer_t b;
     b.pay = payload;
     b.buffer_offset = insert_at;
-    memcpy(insert_at, src, len);
+    abort(insert_at + len > m_buffer.size(), UNITXT("Internal error at buffer_add"));
+    memcpy(m_buffer.data() + insert_at, src, len);    
     b.len = len;
     m_buffers.push_back(b);
 }
@@ -66,7 +70,8 @@ char *Bytebuffer::buffer_find(uint64_t payload, size_t len) {
             if (payload > m_buffers[i].pay) {
                 off = payload - m_buffers[i].pay;
             }
-            return m_buffers[i].buffer_offset + off;
+            abort(m_buffers[i].buffer_offset + off + len > m_buffer.size(), UNITXT("Internal error at buffer_find"));
+            return m_buffer.data() + m_buffers[i].buffer_offset + off;
         }
     }
     return 0;

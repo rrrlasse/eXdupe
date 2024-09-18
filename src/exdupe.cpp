@@ -527,7 +527,7 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
                     abort(true, UNITXT("Internal error, dup_decompress() = %d"), r);
                 }
 
-                bytebuffer.buffer_add(restore_buffer_out.data(), references.at(rr).payload, references.at(rr).length);
+                bytebuffer.buffer_add((char*)restore_buffer_out.data(), references.at(rr).payload, references.at(rr).length);
 
                 io.seek(f, orig, SEEK_SET);
                 memcpy(dst + bytes_resolved, restore_buffer_out.data() + prior, ref_has);
@@ -2142,7 +2142,7 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* arc
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-    abort(dev != 0, UNITXT("This file was created with eXdupe version %d.%d.%d.dev-%d. Please use the exact same version on it"), major, minor, revision, dev);
+//    abort(dev != VER_DEV, UNITXT("This file was created with eXdupe version %d.%d.%d.dev-%d. Please use the exact same version on it"), major, minor, revision, dev);
     abort(major != 2, UNITXT("This file was created with eXdupe version %d.%d.%d. Please use %d.x.x on it"), major, minor, revision, major);
 
     hash_flag = io.read_ui<uint8_t>(file) == 1;

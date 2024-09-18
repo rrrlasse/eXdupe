@@ -13,13 +13,13 @@
 typedef struct {
     uint64_t pay;
     size_t len;
-    char *buffer_offset;
+    size_t buffer_offset;
 } buffer_t;
 
 class Bytebuffer {
   public:
     Bytebuffer(size_t size);
-    void buffer_add(const unsigned char *src, uint64_t payload, size_t len);
+    void buffer_add(const char *src, uint64_t payload, size_t len);
     char *buffer_find(uint64_t payload, size_t len);
 
   private:
