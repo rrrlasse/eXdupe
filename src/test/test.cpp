@@ -7,6 +7,7 @@
 
 #include "../utilities.hpp"
 #include "../ui.hpp"
+#include "../bytebuffer.h"
 
 void abort(bool b, const CHR *fmt, ...) {}
 
@@ -40,6 +41,49 @@ std::wstring term(const std::wstring& source) {
     return destination;
 }
 
+TEST_CASE("bytebuffer") {
+
+    Bytebuffer buf(10);
+
+    auto add = [&](std::string s, uint64_t off, size_t len) {
+        buf.buffer_add((const char*)s.c_str(), off, len); 
+    };
+
+    
+    add("aaa", 10, 3);
+    add("bbb", 20, 3);
+    add("ccc", 30, 3);
+    
+    auto a = buf.buffer_find(10, 3);
+    auto b = buf.buffer_find(20, 3);
+    auto c = buf.buffer_find(30, 3);
+
+    REQUIRE(a);
+    REQUIRE(b);
+    REQUIRE(c);
+
+    add("ddd", 40, 3);
+
+    a = buf.buffer_find(10, 3);
+    b = buf.buffer_find(20, 3);
+    c = buf.buffer_find(30, 3);
+    auto d = buf.buffer_find(40, 3);
+
+    REQUIRE(!a);
+    REQUIRE(b);
+    REQUIRE(c);
+    REQUIRE(d);
+
+    if (b) {
+        REQUIRE(string(b, 3) == "bbb");
+    }
+    if (c) {
+        REQUIRE(string(c, 3) == "ccc");
+    }
+    if (d) {
+        REQUIRE(string(d, 3) == "ddd");
+    }
+}
 
 TEST_CASE("checksum") {
     {   
