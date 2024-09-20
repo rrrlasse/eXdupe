@@ -1157,10 +1157,12 @@ size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_r
 
         size_t req = size + 3 * LARGE_BLOCK;
         if(jobs[f].source_capacity < req) {
+            // todo, use vector
             free(jobs[f].source);
             free(jobs[f].destination);
             jobs[f].source = (unsigned char*)malloc(size_t(1.5 * req));
             jobs[f].destination = (unsigned char*)malloc(size_t(1.5 * req));
+            jobs[f].source_capacity = size_t(1.5 * req);
         }
         memcpy(jobs[f].source, src, size);
         jobs[f].payload = global_payload;
