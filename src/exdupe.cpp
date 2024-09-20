@@ -8,7 +8,7 @@
 #define VER_MAJOR 2
 #define VER_MINOR 1
 #define VER_REVISION 0
-#define VER_DEV 1
+#define VER_DEV 2
 
 #define Q(x) #x
 #define QUOTE(x) Q(x)
@@ -2139,6 +2139,7 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* arc
     char minor = io.read_ui<uint8_t>(file);
     char revision = io.read_ui<uint8_t>(file);
     char dev = io.read_ui<uint8_t>(file);
+    (void)dev;
 
     uint64_t id = io.read_ui<uint64_t>(file);
     if(archive_id) {
