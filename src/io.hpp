@@ -39,8 +39,6 @@ class Cio {
     FILE *open(STRING file, char mode);
     uint64_t tell(FILE *_File);
     int seek(FILE *_File, int64_t _Offset, int Origin);
-    bool write_date(struct tm *t, FILE *_File);
-    bool read_date(struct tm *t, FILE *_File);
     size_t read(void *_DstBuf, size_t _Count, FILE *_File);
     size_t write(const void *_Str, size_t _Count, FILE *_File);
     size_t try_write(const void *Str, size_t Count, FILE *_File);
@@ -73,6 +71,57 @@ class Cio {
             value |= static_cast<T>(buf[size - 1 - i]);
         }     
         return value;
+    }
+
+    template <typename T> requires std::is_unsigned_v<T> size_t encode_compact(T value, uint8_t* encodedBytes) {
+        size_t size = 0;
+        while (value >= 0x80) {
+            encodedBytes[size++] = static_cast<uint8_t>(value & 0x7F) | 0x80;
+            value >>= 7;
+        }
+        encodedBytes[size++] = static_cast<uint8_t>(value);
+        return size;
+    }
+
+    template <typename T> requires std::is_unsigned_v<T> T decode_compact(const uint8_t* encodedBytes) {
+        T result = 0;
+        int shift = 0;
+
+        for (uint8_t byte : encodedBytes) {
+            result |= (static_cast<T>(byte & 0x7F) << shift);
+            shift += 7;
+
+            if ((byte & 0x80) == 0) {
+                break;
+            }
+        }
+
+        return result;
+    }
+
+
+    template <typename T> requires std::is_unsigned_v<T> void write_compact(T value, FILE* f) {
+        uint8_t buf[20];
+        size_t size = encode_compact(value, buf);
+        try_write(buf, size, f);
+    }
+
+    template <typename T> requires std::is_unsigned_v<T> T read_compact(FILE* f) {
+        T result = 0;
+        int shift = 0;
+
+        for(;;) {
+            uint8_t byte;
+            try_read_buf(&byte, 1, f);
+            result |= (static_cast<T>(byte & 0x7F) << shift);
+            shift += 7;
+
+            if ((byte & 0x80) == 0) {
+                break;
+            }
+        }
+
+        return result;
     }
 
     static bool stdin_tty();
