@@ -302,20 +302,20 @@ STRING date2str(time_t date) {
 
 void write_contents_item(FILE *file, contents_t *c) {
     uint64_t written = io.write_count;
-    io.write_ui<uint8_t>(c->unchanged ? 1 : 0, file);
-    io.write_ui<uint32_t>(c->file_id, file);
+    uint8_t type = ((c->directory ? 1 : 0) << 0) | ((c->symlink ? 1 : 0) << 1) | ((c->unchanged ? 1 : 0) << 2);
+    io.write_ui<uint8_t>(type, file);
+    io.write_compact<uint32_t>(c->file_id, file);
+
     if(!c->unchanged) {
         io.writestr(c->abs_path, file);
-        io.write_ui<uint64_t>(c->payload, file);
+        io.write_compact<uint64_t>(c->payload, file);
         io.writestr(c->name, file);
         io.writestr(c->link, file);
-        io.write_ui<uint64_t>(c->size, file);
+        io.write_compact<uint64_t>(c->size, file);
         io.write_ui<uint32_t>(c->checksum, file);
         io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_c_time), file);
         io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_modified), file);
-        io.write_ui<uint32_t>(c->attributes, file);
-        io.write_ui<uint8_t>(c->directory ? 1 : 0, file);
-        io.write_ui<uint8_t>(c->symlink ? 1 : 0, file);
+        io.write_ui<uint32_t>(c->attributes, file);      
     }
     contents_size += io.write_count - written;
 }
@@ -667,22 +667,25 @@ STRING validchars(STRING filename) {
 }
 
 void read_content_item(FILE *file, contents_t *c) {
-    c->unchanged = io.read_ui<uint8_t>(file) == 0 ? false : true;
-    c->file_id = io.read_ui<uint32_t>(file);
+    uint8_t type = io.read_ui<uint8_t>(file);
+    c->directory = ((type >> 0) & 1) == 1;
+    c->symlink = ((type >> 1) & 1) == 1;
+    c->unchanged = ((type >> 2) & 1) == 1;
+
+    c->file_id = io.read_compact<uint32_t>(file);
     if(c->unchanged) {
         return;
     }
     c->abs_path = slashify(io.readstr(file));
-    c->payload = io.read_ui<uint64_t>(file);
+    c->payload = io.read_compact<uint64_t>(file);
     c->name = slashify(io.readstr(file));
     c->link = slashify(io.readstr(file));
-    c->size = io.read_ui<uint64_t>(file);
+    c->size = io.read_compact<uint64_t>(file);
     c->checksum = io.read_ui<uint32_t>(file);
     c->file_c_time = io.read_ui<uint32_t>(file);
     c->file_modified = io.read_ui<uint32_t>(file);
-    c->attributes = io.read_ui<uint32_t>(file);
-    c->directory = io.read_ui<uint8_t>(file) == 0 ? false : true;
-    c->symlink = io.read_ui<uint8_t>(file) == 0 ? false : true;
+    c->attributes = io.read_ui<uint32_t>(file);   
+
     if (!c->directory) {
         STRING i = c->name;
         c->name = slashify(validchars(c->name));

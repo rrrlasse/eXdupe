@@ -126,35 +126,9 @@ size_t Cio::read_valid_length(void *DstBuf, size_t Count, FILE *_File, STRING na
     return w;
 }
 
-bool Cio::write_date(tm *t, FILE *_File) {
-    write_ui<uint8_t>(t->tm_hour, _File);
-    write_ui<uint8_t>(t->tm_isdst, _File);
-    write_ui<uint8_t>(t->tm_mday, _File);
-    write_ui<uint8_t>(t->tm_min, _File);
-    write_ui<uint8_t>(t->tm_mon, _File);
-    write_ui<uint8_t>(t->tm_sec, _File);
-    write_ui<uint8_t>(t->tm_wday, _File);
-    write_ui<uint16_t>(t->tm_yday, _File);
-    write_ui<uint16_t>(t->tm_year, _File);
-    return true;
-}
-
-bool Cio::read_date(tm *t, FILE *_File) {
-    t->tm_hour = read_ui<uint8_t>(_File);
-    t->tm_isdst = read_ui<uint8_t>(_File);
-    t->tm_mday = read_ui<uint8_t>(_File);
-    t->tm_min = read_ui<uint8_t>(_File);
-    t->tm_mon = read_ui<uint8_t>(_File);
-    t->tm_sec = read_ui<uint8_t>(_File);
-    t->tm_wday = read_ui<uint8_t>(_File);
-    t->tm_yday = read_ui<uint16_t>(_File);
-    t->tm_year = read_ui<uint16_t>(_File);
-    return true;
-}
-
 
 STRING Cio::readstr(FILE *_File) {
-    int t = read_ui<uint16_t>(_File);
+    int t = read_compact<uint16_t>(_File);
     std::string tmp = try_read(t, _File);
 #ifdef WINDOWS
     int req = MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(), -1, nullptr, 0);
@@ -174,7 +148,7 @@ void Cio::writestr(STRING str, FILE *_File) {
     std::vector<char> v(req, L'c');
     WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, &v[0], static_cast<int>(req), 0, 0);
     req--; // WideCharToMultiByte() adds trailing zero
-    write_ui<uint16_t>(static_cast<uint16_t>(req), _File); // todo, gsl::narrow
+    write_compact<uint16_t>(static_cast<uint16_t>(req), _File); // todo, gsl::narrow
     try_write(&v[0], req, _File);
 #else
     write_ui<uint16_t>(str.size(), _File);
