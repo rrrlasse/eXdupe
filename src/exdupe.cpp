@@ -1623,16 +1623,19 @@ void compress_symlink(const STRING &link, const STRING &target) {
 
 uint64_t payload_compressed = 0; // Total payload returned by dup_compress() and flush_pend()
 uint64_t payload_read = 0;       // Total payload read from disk
-string payload_queue;            // Queue of payload read from disk. Can contain multiple small files
+
+std::vector<char> payload_queue; // Queue of payload read from disk. Can contain multiple small files
+size_t payload_queue_size = 0;
+
 vector<contents_t> file_queue;
 
 // NOTE! Remember to call with flush = true after, or with the last file! If you flush, then passing a file is optional
 // and you can leave the string parameters empty.
 void compress_file(const STRING &input_file, const STRING &filename, const bool flush) {
     auto empty_q = [&]() {
-        if (payload_queue.size() > 0) {
+        if (payload_queue_size > 0) {
             uint64_t pay;
-            size_t cc = dup_compress(payload_queue.c_str(), (char *)out, payload_queue.size(), &pay);
+            size_t cc = dup_compress(payload_queue.data(), (char *)out, payload_queue_size, &pay);
             payload_compressed += pay;
             if (cc > 0) {
                 io.try_write("A", 1, ofile);
@@ -1640,7 +1643,7 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
                 io.try_write(out, cc, ofile);
                 io.try_write("B", 1, ofile);
             }
-            payload_queue.clear();
+            payload_queue_size = 0;
         }
     };
 
@@ -1749,19 +1752,25 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
         tmp.abs_path.clear();
         write_contents_item(ofile, &tmp);
     }
-    if (file_size > DISK_READ_CHUNK - payload_queue.size()) {
+    if (file_size > DISK_READ_CHUNK - payload_queue_size) {
         empty_q();
 
         while (file_read < file_size) {
             update_statusbar_backup(input_file);
-            size_t r = io.read_valid_length(in, minimum(file_size - file_read, DISK_READ_CHUNK), ifile, input_file);
+
+            size_t read = minimum(file_size - file_read, DISK_READ_CHUNK);
+            ensure_size(payload_queue, payload_queue_size + read);
+            char *read_to = payload_queue.data() + payload_queue_size;
+            size_t r = io.read_valid_length(read_to, read, ifile, input_file);
+
             if (input_file == UNITXT("-stdin") && r == 0) {
                 break;
             }
+            payload_queue_size += read;
+
             file_read += r;
             payload_read += r;
-            checksum(in, r, &file_meta.ct);
-            payload_queue += string((char *)in, r);
+            checksum((unsigned char *)read_to, r, &file_meta.ct);
 
             if (file_read == file_size && file_size > 0) {
                 // No CRC block for 0-sized files
@@ -1773,11 +1782,16 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
         }
         file_queue.clear();
     } else {
-        assert(file_size <= DISK_READ_CHUNK - payload_queue.size());
-        size_t r = io.read_valid_length(in, file_size, ifile, input_file);
+        assert(file_size <= DISK_READ_CHUNK - payload_queue_size);
+
+        ensure_size(payload_queue, payload_queue_size + file_size);
+        payload_queue_size = payload_queue_size + file_size;
+        char *read_to = payload_queue.data() + payload_queue_size - file_size;
+        size_t r = io.read_valid_length(read_to, file_size, ifile, input_file);
+
         file_read += r;
         payload_read += r;
-        checksum(in, r, &file_meta.ct);
+        checksum((unsigned char *)(read_to), r, &file_meta.ct);
         assert(file_read == file_size);
         if (file_read == file_size && file_size > 0) {
             // No CRC block for 0-sized files
@@ -1785,7 +1799,6 @@ void compress_file(const STRING &input_file, const STRING &filename, const bool 
             file_meta.checksum = file_meta.ct.result;
             io.write_ui<uint32_t>(file_meta.ct.result, ofile);
         }
-        payload_queue += string((char *)in, r);
     }
 
     fclose(ifile);
