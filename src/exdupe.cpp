@@ -1015,7 +1015,7 @@ void parse_files(void) {
             name = argv.at(flags_exist + 2);
         }
 
-        abort(inputfiles.at(0) == UNITXT("-stdout") || name == UNITXT("-stdin") || name == UNITXT("-stdout") || full == UNITXT("-stdin") || (inputfiles.at(0) == UNITXT("-stdin") && argc < 3 + flags_exist) || (inputfiles.at(0) != UNITXT("-stdin") && argc < 3 + flags_exist),
+        abort(inputfiles.at(0) == UNITXT("-stdout") || name == UNITXT("-stdin") || full == UNITXT("-stdin") || (inputfiles.at(0) == UNITXT("-stdin") && argc < 3 + flags_exist) || (inputfiles.at(0) != UNITXT("-stdin") && argc < 3 + flags_exist),
               UNITXT("Syntax error in source or destination. "));
     } else if (compress_flag && diff_flag) {
         // exdupe -D -stdin full diff < payload.txt
@@ -1106,8 +1106,7 @@ void print_usage(bool show_long) {
     std::string long_help = R"(eXdupe %v file archiver. GPLv2 or later. Copyright 2010 - 2024
 
 Full backup:
-  [flags] <sources> <dest file | -stdout>
-  [flags] -stdin <dest file>
+  [flags] <sources | -stdin> <dest file | -stdout>
 
 Restore full backup:
   [flags] -R <full backup file> <dest dir | -stdout> [items]
@@ -1166,8 +1165,7 @@ More examples:
 2.1.0. Features may be added or removed or have bugs. Use for testing only.
 
 Full backup:
-  [flags] <sources> <dest file | -stdout>
-  [flags] -stdin <dest file>
+  [flags] <sources | -stdin> <dest file | -stdout>
 
 Restore full backup:
   [flags] -R <full backup file> <dest dir | -stdout>
