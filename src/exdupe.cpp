@@ -8,7 +8,7 @@
 #define VER_MAJOR 2
 #define VER_MINOR 1
 #define VER_REVISION 0
-#define VER_DEV 3
+#define VER_DEV 0
 
 #define Q(x) #x
 #define QUOTE(x) Q(x)
@@ -1161,10 +1161,7 @@ More examples:
   exdupe -R backup.full restore_dir dir2%/file.txt
   exdupe file.txt -stdout | exdupe -R -stdin restore_dir)";
 
-    std::string short_help = R"(This is a development version of eXdupe that will eventually lead to version
-2.1.0. Features may be added or removed or have bugs. Use for testing only.
-
-Full backup:
+    std::string short_help = R"(Full backup:
   [flags] <sources | -stdin> <dest file | -stdout>
 
 Restore full backup:
