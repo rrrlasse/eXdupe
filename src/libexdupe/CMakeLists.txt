@@ -33,7 +33,7 @@ add_subdirectory(zstd/build/cmake/lib)
 
 target_link_libraries(libexdupe PRIVATE libzstd_static)
 target_link_libraries(libexdupe PRIVATE blake3)
-target_link_libraries(libexdupe PRIVATE xxhash)
+target_link_libraries(libexdupe PUBLIC xxhash)
 
 if (MSVC)
 	target_link_libraries(libexdupe PRIVATE libpthreadVC3)

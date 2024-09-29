@@ -169,6 +169,12 @@ std::atomic<uint64_t> anomalies_small;
 std::atomic<uint64_t> anomalies_large;
 std::atomic<uint64_t> congested_small;
 std::atomic<uint64_t> congested_large;
+std::atomic<uint64_t> high_entropy;
+
+std::atomic<uint64_t> hits1;
+std::atomic<uint64_t> hits2;
+std::atomic<uint64_t> hits3;
+std::atomic<uint64_t> hits4;
 
 static bool dd_equal(const void *src1, const void *src2, size_t len) {
     char *s1 = (char *)src1;
@@ -286,6 +292,8 @@ typedef struct {
     int id;
     char *zstd;
     bool busy;
+
+    bool entropy; // .jpg, .mpeg, .zip etc
 } job_t;
 
 job_t *jobs;
@@ -521,69 +529,69 @@ static uint32_t quick(unsigned char init1, unsigned char init2, unsigned char in
 
 static uint32_t window(const unsigned char *src, size_t len, const unsigned char **pos) {
     size_t i = 0;
-    size_t slide = len / 8; // slide must be able to fit in hash_t.O. Todo, static assert
-    size_t percent = (len - slide) / 100;
-    int8_t b = static_cast<int8_t>(len > 8 * 1024 ? 1 : (8 * 1024) / len);
-    // len  1k  2k  4k   8k  128k  256k
-    //   b   8   4   2    1     1     1
-    size_t p20 = 20 * percent;
-    size_t p80 = 80 * percent;
-
+    size_t slide = minimum(len / 2, 65536); // slide must be able to fit in hash_t.O. Todo, static assert
+    int8_t b = 42;
     uint64_t match = static_cast<size_t>(-1);
-    b = -128 + b;
 #if 0
 	for (i = 0; i + 32 < slide; i += 32) {
-		__m256i src1 = _mm256_loadu_si256((__m128i*)(&src[i]));
-		__m256i src2 = _mm256_loadu_si256((__m128i*)(&src[i + 20 * percent]));
-		__m256i src3 = _mm256_loadu_si256((__m128i*)(&src[i + 80 * percent]));
-		__m256i src4 = _mm256_loadu_si256((__m128i*)(&src[i + len - slide - 4]));
+		__m256i src1 = _mm256_loadu_si256((__m256i*)(&src[i]));
+		__m256i src2 = _mm256_loadu_si256((__m256i*)(&src[i + 1]));
+		__m256i src3 = _mm256_loadu_si256((__m256i*)(&src[i + slide - 1]));
+		__m256i src4 = _mm256_loadu_si256((__m256i*)(&src[i + slide]));
 		__m256i sum = _mm256_add_epi8(_mm256_add_epi8(src1, src2), _mm256_add_epi8(src3, src4));
-		__m256i comparison = _mm256_cmpgt_epi8(sum, _mm256_set1_epi8(b - 1));
+		__m256i comparison = _mm256_cmpeq_epi8(sum, _mm256_set1_epi8(b));
 		auto larger = _mm256_movemask_epi8(comparison);
-		if (larger != 0xffffffff) {
+		if (larger != 0) {
 #if defined _MSC_VER
-			auto off = _tzcnt_u32(static_cast<unsigned>(~larger));
+			auto off = _tzcnt_u32(static_cast<unsigned>(larger));
 #else
-			auto off = __builtin_ctz(static_cast<unsigned>(~larger));
+			auto off = __builtin_ctz(static_cast<unsigned>(larger));
 #endif
 			match = i + off;
 			break;
 		}
 	}
-
 #else
-
     for (i = 0; i + 16 < slide; i += 16) {
         __m128i src1 = _mm_loadu_si128((__m128i *)(&src[i]));
-        __m128i src2 = _mm_loadu_si128((__m128i *)(&src[i + p20]));
-        __m128i src3 = _mm_loadu_si128((__m128i *)(&src[i + p80]));
-        __m128i src4 = _mm_loadu_si128((__m128i *)(&src[i + len - slide - 4]));
+        __m128i src2 = _mm_loadu_si128((__m128i *)(&src[i + 1]));
+        __m128i src3 = _mm_loadu_si128((__m128i *)(&src[i + slide - 1]));
+        __m128i src4 = _mm_loadu_si128((__m128i *)(&src[i + slide]));
         __m128i sum = _mm_add_epi8(_mm_add_epi8(src1, src2), _mm_add_epi8(src3, src4));
-        __m128i comparison = _mm_cmpgt_epi8(sum, _mm_set1_epi8(b - 1));
+        //sum = _mm_add_epi8(sum, sum);
+
+        __m128i zero_vec = _mm_set1_epi8(b); //  _mm_setzero_si128();
+        __m128i comparison = _mm_cmpeq_epi8(sum, zero_vec);
+
+       // __m128i comparison = _mm_cmpeq_epi8(sum, _mm_set1_epi8(0));
         auto larger = _mm_movemask_epi8(comparison);
-        if (larger != 0xffff) {
+        if (larger != 0) {
 #if defined _MSC_VER
-            auto off = _tzcnt_u32(static_cast<unsigned>(~larger));
+            auto off = _tzcnt_u32(static_cast<unsigned>(larger));
 #else
-            auto off = __builtin_ctz(static_cast<unsigned>(~larger));
+            auto off = __builtin_ctz(static_cast<unsigned>(larger));
 #endif
             match = i + off;
             break;
         }
     }
-
 #endif
 
     if (match == static_cast<uint64_t>(-1)) {
         for (; i < slide; i += 1) {
-            signed char h = static_cast<unsigned char>(src[i] + src[i + p20] + src[i + p80] + src[i + len - slide - 4]);
-            if (h < b) {
+            uint8_t src1 = src[i];
+            uint8_t src2 = src[i + 1];
+            uint8_t src3 = src[i + slide - 1];
+            uint8_t src4 = src[i + slide];
+            uint8_t sum = (src1 + src2) + (src3 + src4);
+            //sum = sum + sum;
+            signed char h = static_cast<unsigned char>(sum);
+            if (h == b) {
                 match = i;
                 break;
             }
         }
     }
-
     if (match == static_cast<uint64_t>(-1)) {
         match = slide;
     }
@@ -596,7 +604,7 @@ static uint32_t window(const unsigned char *src, size_t len, const unsigned char
         return 0;
     }
     else {
-        return 1 + quick(src[match], src[match + p20], src[match + p80], src[match + len - slide - 4], (unsigned char *)src + match, len - slide - 8);
+        return 1 + quick(src[match], src[match + 16], src[match + len - slide - 32], src[match + len - slide - 4], (unsigned char *)src + match, len - slide - 8);
     }
 }
 
@@ -719,10 +727,10 @@ static size_t write_match(size_t length, uint64_t payload, unsigned char *dst) {
     return 0;
 }
 
-static size_t write_literals(const unsigned char *src, size_t length, unsigned char *dst, int thread_id) {
+static size_t write_literals(const unsigned char *src, size_t length, unsigned char *dst, int thread_id, bool entropy) {
     if (length > 0) {
         size_t r;
-        if (level == 0) {
+        if (level == 0 || entropy) {
             dst[32 - (6 + 8)] = '0';
             memcpy(dst + 33 - (6 + 8), src, length);
             r = length + 1;
@@ -836,12 +844,12 @@ static size_t process_chunk(const unsigned char *src, uint64_t pay, size_t lengt
             }
 #endif
             if (match_s == 0) {
-                dst += write_literals(src, upto - src + 1, dst, thread_id);
+                dst += write_literals(src, upto - src + 1, dst, thread_id, false);
                 break;
             } 
             else {
                 if (match_s - src > 0) {
-                    dst += write_literals(src, match_s - src, dst, thread_id);
+                    dst += write_literals(src, match_s - src, dst, thread_id, false);
                 }
                 dst += write_match(minimum(SMALL_BLOCK, upto - match_s + 1), ref_s, dst);
                 src = match_s + SMALL_BLOCK;
@@ -894,14 +902,19 @@ static void *compress_thread(void *arg) {
         pthread_mutex_unlock_wrapper(&me->jobmutex);
 
         int policy = 1;
-        int order = 0;
 
-        if (order == 1) {
-            me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
+
+       // me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
+       // hash_chunk(me->source, me->payload, me->size_source, policy);
+
+        if(!me->entropy) {
             hash_chunk(me->source, me->payload, me->size_source, policy);
-        } else {
-            hash_chunk(me->source, me->payload, me->size_source, policy);
+//            auto t = GetTickCount();
             me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
+//            hits1 += GetTickCount() - t;
+        }
+        else {
+            me->size_destination = write_literals(me->source, me->size_source, me->destination, me->id, true);
         }
 
         pthread_mutex_lock_wrapper(&me->jobmutex);
@@ -1123,9 +1136,14 @@ size_t flush_pend(char *dst, uint64_t *payloadret) {
 
 uint64_t dup_get_flushed() { return flushed; }
 
-size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_returned) {
+size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_returned, bool entropy) {
     char *dst_orig = dst;
     *payload_returned = 0;
+
+    if(entropy) {
+        high_entropy += size;
+    }
+
 
 #if 0 // single threaded naive for debugging
 	if (size > 0)
@@ -1169,6 +1187,7 @@ size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_r
         global_payload += size;
         count_payload += size;
         jobs[f].size_source = size;
+        jobs[f].entropy = entropy;
 
         pthread_cond_signal_wrapper(&jobs[f].cond);
         pthread_mutex_unlock_wrapper(&jobs[f].jobmutex);

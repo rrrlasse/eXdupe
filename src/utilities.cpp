@@ -17,6 +17,9 @@
 #include "unicode.h"
 #include "utilities.hpp"
 
+#include "libexdupe/xxHash/xxh3.h"
+#include "libexdupe/xxHash/xxhash.h"
+
 #ifdef WINDOWS
 #include "Shlwapi.h"
 #else
@@ -382,71 +385,44 @@ void itoa(int n, char s[]) {
     reverse(s);
 }
 
-void checksum_init(checksum_t *t) {
-    t->remainder = 0;
-    t->remainder_len = 0;
-    t->b_val = 0x794e80091e8f2bc7ULL;
-    t->a_val = 0xc20f9a8b761b7e4cULL;
-    t->result = 0;
+
+
+
+std::string checksum_t::result() {
+    hash = XXH3_128bits_digest(&state);
+    return string((char*)&hash, 16);
 }
+
+
+uint32_t checksum_t::hi() {
+    hash = XXH3_128bits_digest(&state);
+    return hash.high64;
+};
+
+uint32_t checksum_t::result32() {
+    hash = XXH3_128bits_digest(&state);
+    return hash.low64;
+};
+
+uint64_t checksum_t::result64() {
+    hash = XXH3_128bits_digest(&state);
+    return hash.low64;
+};
+
+void checksum_init(checksum_t *t) {
+    XXH3_128bits_reset(&t->state);
+}
+
+
 
 void checksum(unsigned char *data, size_t len, checksum_t *t) {
-    if (len == 0) {
-        return;
+    if (XXH3_128bits_update(&t->state, data, len) == XXH_ERROR) {
+        abort(false, UNITXT("xxHash error"));
     }
-
-    while (t->remainder_len < 8 && len > 0) {
-        t->remainder = t->remainder >> 8;
-        t->remainder = t->remainder | (uint64_t)*data << (7 * 8);
-        t->remainder_len++;
-        data++;
-        len--;
-    }
-
-    if (t->remainder_len < 8) {
-        t->result = t->a_val + t->b_val + t->remainder + t->remainder_len;
-        return;
-    }
-
-    t->a_val += t->remainder * t->b_val;
-    t->b_val++;
-    t->remainder_len = 0;
-    t->remainder = 0;
-
-    {
-        uint64_t a = t->a_val;
-        uint64_t b = t->b_val;
-        auto last_data = data + ((len / 8) * 8);
-        len -= ((len / 8) * 8);
-        while (data < last_data) {
-#ifdef X86X64
-            a += (*(uint64_t *)data) * b;
-#else
-            uint64_t l = 0;
-            for (unsigned int i = 0; i < 8; i++) {
-                l = l >> 8;
-                l = l | (uint64_t) * (data + i) << (7 * 8);
-            }
-            a += l * b;
-#endif
-            b++;
-            data += 8;
-        }
-        t->a_val = a;
-        t->b_val = b;
-    }
-
-    while (len > 0) {
-        t->remainder = t->remainder >> 8;
-        t->remainder = t->remainder | (uint64_t)*data << (7 * 8);
-        t->remainder_len++;
-        data++;
-        len--;
-    }
-    t->result = t->a_val + t->b_val + t->remainder + t->remainder_len;
-
     return;
 }
+
+
 
 // No error handling other than returning 0, be aware of where you use this function
 uint64_t filesize(STRING file, bool followlinks = false) {

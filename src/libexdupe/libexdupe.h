@@ -26,7 +26,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
 	     bool crypto_hash, uint64_t hash_seed, uint64_t basepay);
 
 size_t dup_compress(const void *src, char *dst, size_t size,
-		    uint64_t *payloadreturned);
+		    uint64_t *payloadreturned, bool entropy);
 int dup_decompress(const unsigned char *src, unsigned char *dst, size_t *length,
 		   uint64_t *payload);
 int dup_decompress_simulate(const unsigned char *src, size_t *length,
@@ -61,3 +61,9 @@ extern std::atomic<uint64_t> unhashed;
 extern std::atomic<uint64_t> anomalies_large;
 extern std::atomic<uint64_t> anomalies_small;
 extern std::atomic<uint64_t> skipped;
+extern std::atomic<uint64_t> high_entropy;
+
+extern std::atomic<uint64_t> hits1;
+extern std::atomic<uint64_t> hits2;
+extern std::atomic<uint64_t> hits3;
+extern std::atomic<uint64_t> hits4;

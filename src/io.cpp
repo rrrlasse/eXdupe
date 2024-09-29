@@ -128,7 +128,7 @@ size_t Cio::read_valid_length(void *DstBuf, size_t Count, FILE *_File, STRING na
 
 
 STRING Cio::readstr(FILE *_File) {
-    int t = read_compact<uint16_t>(_File);
+    int t = read_compact<uint64_t>(_File);
     std::string tmp = try_read(t, _File);
 #ifdef WINDOWS
     int req = MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(), -1, nullptr, 0);
@@ -144,14 +144,13 @@ STRING Cio::readstr(FILE *_File) {
 void Cio::writestr(STRING str, FILE *_File) {
 #ifdef WINDOWS
     size_t req = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    abort(req > std::numeric_limits<uint16_t>::max(), UNITXT("Internal error, attempted to write a string longer than 65535"));
     std::vector<char> v(req, L'c');
     WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, &v[0], static_cast<int>(req), 0, 0);
     req--; // WideCharToMultiByte() adds trailing zero
-    write_compact<uint16_t>(static_cast<uint16_t>(req), _File); // todo, gsl::narrow
+    write_compact<uint64_t>(static_cast<uint64_t>(req), _File); // fixme, gsl::narrow
     try_write(&v[0], req, _File);
 #else
-    write_ui<uint16_t>(str.size(), _File);
+    write_compact<uint64_t>(str.size(), _File);
     try_write(str.c_str(), str.size(), _File);
 #endif
 }
