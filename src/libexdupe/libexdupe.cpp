@@ -609,7 +609,8 @@ static uint32_t window(const unsigned char *src, size_t len, const unsigned char
 }
 
 // there must be LARGE_BLOCK more valid data after src + len
-const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t len, size_t block, bool large, uint64_t *payload_ref) {
+const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t len, size_t block, uint64_t *payload_ref) {
+    assert(block == LARGE_BLOCK || block == SMALL_BLOCK);
     const unsigned char *w_pos;
     const unsigned char *orig_src = src;
     const unsigned char *last_src = src + len - 1;
@@ -617,7 +618,7 @@ const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t l
     size_t collision_skip = 32;
 
     while (src <= last_src) {
-        hash_t* e = lookup(w, large);
+        hash_t* e = lookup(w, block == LARGE_BLOCK);
 
         // CAUTION: Outside mutex, assume reading garbage and that data changes between reads
         if (w != 0 && e) {
@@ -706,6 +707,8 @@ static bool hashat(const unsigned char *src, uint64_t pay, size_t len, bool larg
 }
 
 static size_t write_match(size_t length, uint64_t payload, unsigned char *dst) {
+   // wcerr << L"match = " << length << L"," << payload << L"\n";
+
     if (length > 0) {
         if(length == LARGE_BLOCK) {
             largehits += length;
@@ -728,6 +731,9 @@ static size_t write_match(size_t length, uint64_t payload, unsigned char *dst) {
 }
 
 static size_t write_literals(const unsigned char *src, size_t length, unsigned char *dst, int thread_id, bool entropy) {
+  //  wcerr << L"literal = " << length << L" ";
+
+
     if (length > 0) {
         size_t r;
         if (level == 0 || entropy) {
@@ -814,51 +820,65 @@ static void hash_chunk(const unsigned char *src, uint64_t pay, size_t length, in
     return;
 }
 
-static size_t process_chunk(const unsigned char *src, uint64_t pay, size_t length, unsigned char *dst, int thread_id) {
-    size_t buffer = length;
-    const unsigned char *last_valid = src + buffer - 1;
-    const unsigned char *upto;
-    const unsigned char *src_orig = src;
-    unsigned char *dst_orig = dst;
-    const unsigned char *last = src + length - 1;
+
+static size_t process_chunk(const unsigned char* src, uint64_t pay, size_t length, unsigned char* dst, int thread_id) {
+    const unsigned char* upto;
+    const unsigned char* src_orig = src;
+    unsigned char* dst_orig = dst;
+    const unsigned char* last = src + length - 1;
 
     while (src <= last) {
         uint64_t ref = 0;
-        const unsigned char *match = 0;
+        const unsigned char* match = 0;
 
-        if (src + LARGE_BLOCK - 1 <= last_valid) {
-            match = dub(src, pay + (src - src_orig), last - src, LARGE_BLOCK, true, &ref);
+        if (src + LARGE_BLOCK - 1 <= last) {
+            match = dub(src, pay + (src - src_orig), last - src, LARGE_BLOCK, &ref);
         }
         upto = (match == 0 ? last : match - 1);
 
         while (src <= upto) {
             uint64_t ref_s = 0;
-            const unsigned char *match_s = 0;
+            const unsigned char* match_s = 0;
+            size_t n = 0;
 
-            if (src + SMALL_BLOCK - 1 <= last_valid) {
-                match_s = dub(src, pay + (src - src_orig), (upto - src), SMALL_BLOCK, false, &ref_s);
+            if (src + SMALL_BLOCK - 1 <= upto) {
+                uint64_t first_ref = pay + (src - src_orig);
+                match_s = dub(src, first_ref, (upto - src), SMALL_BLOCK, &ref_s);
+
+                if (match_s) {
+                    n = 1;
+
+                    while (true && match_s + (n + 1) * SMALL_BLOCK <= upto) {
+                        uint64_t ref_s0 = 0;
+                        auto m = dub(match_s + n * SMALL_BLOCK, pay + ((match_s + n * SMALL_BLOCK) - src_orig), 1, SMALL_BLOCK, &ref_s0);
+                        if (ref_s0 + SMALL_BLOCK < first_ref && m == match_s + n * SMALL_BLOCK && ref_s0 == ref_s + n * SMALL_BLOCK) {
+                            n++;
+                        }
+                        else {
+                            break;
+                        }
+                    }
+                }
             }
-#ifdef HASH_PARTIAL_BLOCKS
-            else if (src + 256 - 1 <= last_valid) {
-                match_s = dub(src, pay + (src - src_orig), (upto - src), last_valid - src + 1, false, &ref_s);
-            }
-#endif
-            if (match_s == 0) {
+
+            if (n == 0) {
                 dst += write_literals(src, upto - src + 1, dst, thread_id, false);
                 break;
-            } 
+            }
             else {
                 if (match_s - src > 0) {
                     dst += write_literals(src, match_s - src, dst, thread_id, false);
                 }
-                dst += write_match(minimum(SMALL_BLOCK, upto - match_s + 1), ref_s, dst);
-                src = match_s + SMALL_BLOCK;
+                auto min = minimum(n * SMALL_BLOCK, upto - match_s + 1);
+                dst += write_match(min, ref_s, dst);
+                src = match_s + min;
             }
         }
 
         if (match == 0) {
             return dst - dst_orig;
-        } else {
+        }
+        else {
             dst += write_match(minimum(LARGE_BLOCK, last - match + 1), ref, dst);
             src = match + LARGE_BLOCK;
         }
@@ -866,6 +886,7 @@ static size_t process_chunk(const unsigned char *src, uint64_t pay, size_t lengt
 
     return dst - dst_orig;
 }
+
 
 // Public interface
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

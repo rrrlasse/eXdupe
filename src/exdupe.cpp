@@ -2489,9 +2489,6 @@ int main(int argc2, char *argv2[])
             s << "hits3 = " << hits3 << "\n";
             s << "hits4 = " << hits4 << "\n";
 
-            s << hits2 / hits1 << "  " << hits4 / hits3 << "\n";
-
-
             STRING str = s2w(s.str());
             statusbar.print(0, UNITXT("%s"), str.c_str());
             wcerr << "Hashtable fillratio:         ";
