@@ -692,14 +692,11 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
 }
 
 size_t write_hashtable(FILE *file) {
-    size_t t = dup_compress_hashtable();
+    size_t t = dup_compress_hashtable(memory_begin);
     io.try_write("HASHTBLE", 8, file);
     io.write_ui<uint64_t>(t, file);
-    io.try_write(hashtable, t, file);
+    io.try_write(memory_begin, t, file);
     io.write_ui<uint64_t>(t + 8, file);
-#ifdef _DEBUG
-    dup_decompress_hashtable(t);
-#endif
     return t;
 }
 
@@ -710,9 +707,11 @@ uint64_t read_hashtable(FILE *file) {
         statusbar.clear_line();
         statusbar.update(BACKUP, 0, 0, (STRING() + UNITXT("Reading hashtable from full backup...\r")).c_str(), false, true);
     }
-    io.try_read_buf(hashtable, s, file);
+
+    io.try_read_buf(memory_end - s, s, file);
     io.seek(file, orig, SEEK_SET);
-    int i = dup_decompress_hashtable(s);
+    int i = dup_decompress_hashtable(memory_end - s);
+
     abort(i != 0, UNITXT("'%s' is corrupted or not a .full file (hash table)"), slashify(full).c_str());
     return 0;
 }
@@ -728,7 +727,6 @@ size_t write_contents(FILE *file) {
     io.write_ui<uint64_t>(io.write_count - w, file);
     return io.write_count - w;
 }
-
 
 vector<contents_t> read_contents(FILE* f) {
     vector<contents_t> ret;

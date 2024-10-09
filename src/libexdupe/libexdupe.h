@@ -38,8 +38,8 @@ size_t dup_size_decompressed(const unsigned char *src);
 void dup_counters_reset(void);
 uint64_t dup_counter_payload(void);
 uint64_t dup_counter_compressed(void);
-size_t dup_compress_hashtable(void);
-int dup_decompress_hashtable(size_t len);
+size_t dup_compress_hashtable(char*);
+int dup_decompress_hashtable(char* src);
 void dup_deinit(void);
 
 void print_fillratio(void);
@@ -49,6 +49,8 @@ void print_profiling(void);
 uint64_t dup_get_flushed(void);
 size_t flush_pend(char *dst, uint64_t *payloadreturned);
 void print_table();
+
+extern size_t memsize;
 
 extern std::atomic<uint64_t> largehits;
 extern std::atomic<uint64_t> smallhits;
@@ -67,3 +69,7 @@ extern std::atomic<uint64_t> hits1;
 extern std::atomic<uint64_t> hits2;
 extern std::atomic<uint64_t> hits3;
 extern std::atomic<uint64_t> hits4;
+
+extern char* memory_begin;
+extern char* memory_table;
+extern char* memory_end;

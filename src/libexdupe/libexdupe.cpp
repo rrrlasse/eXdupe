@@ -135,30 +135,67 @@ int threads;
 int level;
 
 // When compressing the hashtable, worst case is that all entries are in use, in which case it ends up
-// growing COMPRESSED_HASHTABLE_OVERHEAD bytes in size. Tighter upper bound is probably 16 or so.
-#define COMPRESSED_HASHTABLE_OVERHEAD 100
+// growing COMPRESSED_HASHTABLE_OVERHEAD bytes in size.
+#define COMPRESSED_HASHTABLE_OVERHEAD 4096
+
 #define DUP_MATCH "MM"
 #define DUP_LITERAL "TT"
 
+static void ll2str(uint64_t l, char* dst, int bytes) {
+    while (bytes > 0) {
+        *dst = (l & 0xff);
+        dst++;
+        l = l >> 8;
+        bytes--;
+    }
+}
+
+static uint64_t str2ll(const void* src, int bytes) {
+    unsigned char* src2 = (unsigned char*)src;
+    uint64_t l = 0;
+    while (bytes > 0) {
+        bytes--;
+        l = l << 8;
+        l = (l | *(src2 + bytes));
+    }
+    return l;
+}
+
+const uint64_t slots = 8;
+
 #pragma pack(push, 1)
+
 struct hash_t {
     uint64_t offset;
-    uint32_t hash;
     uint16_t slide;
     unsigned char sha[HASH_SIZE];
 };
+
+struct hashblock_t {
+    uint32_t hash[slots];
+    hash_t entry[slots];
+};
+
 #pragma pack(pop)
 
 size_t SMALL_BLOCK;
 size_t LARGE_BLOCK;
 
-const uint64_t slots = 6;
 const uint64_t size_ratio = 32;
 uint64_t small_entries;
 uint64_t large_entries;
-hash_t (*small_table)[slots];
-hash_t (*large_table)[slots];
+
+
+hashblock_t *small_table;
+hashblock_t *large_table;
 }
+
+char* memory_begin;
+char* memory_table;
+char* memory_end;
+
+size_t memsize;
+
 
 // statistics
 std::atomic<uint64_t> largehits;
@@ -176,6 +213,66 @@ std::atomic<uint64_t> hits2;
 std::atomic<uint64_t> hits3;
 std::atomic<uint64_t> hits4;
 
+size_t write_hashblock(hashblock_t* h, char* dst) {
+    char* orig_dst = dst;
+    size_t t;
+
+    if (h->hash[0] == 0) {
+        return 0;
+    }
+
+    for (t = 0; t < slots; t++) {
+
+        ll2str(h->hash[t], dst, 4);
+        if (h->hash[t] == 0) {
+            dst += 4;
+            break;
+        }
+
+        ll2str(h->entry[t].offset, dst + 4, 8);
+        ll2str(h->entry[t].slide, dst + 12, 2);
+        memcpy(dst + 14, h->entry[t].sha, HASH_SIZE);
+        dst += 14 + HASH_SIZE;
+    }
+    return dst - orig_dst;
+}
+
+size_t read_hashblock(hashblock_t* h, char* src) {
+    char* orig_src = src;
+    bool nulls = false;
+    for (size_t t = 0; t < slots; t++) {
+
+        if (!nulls) {
+            h->hash[t] = str2ll(src, 4);
+            src += 4;
+        }
+
+        if (h->hash[t] == 0) {
+            nulls = true;
+        }
+
+        if (nulls) {
+            h->hash[t] = 0;
+            h->entry[t].offset = 0;
+            h->entry[t].slide = 0;
+            memset(h->entry[t].sha, 0, HASH_SIZE);
+        }
+        else {
+            h->entry[t].offset = str2ll(src, 8);
+            h->entry[t].slide = str2ll(src + 8, 2);
+            memcpy(h->entry[t].sha, src + 10, HASH_SIZE);
+            src += 10 + HASH_SIZE;
+        }
+    }
+    return src - orig_src;
+}
+
+void print_hashblock(hashblock_t* h) {
+    for (size_t t = 0; t < slots; t++) {
+        wcerr << L"(" << std::hex << h->hash[t] << std::dec << L"," << h->entry[t].offset << L"," << h->entry[t].slide << L"," << (int)h->entry[t].sha[0] << L") \n";
+    }
+}
+
 static bool dd_equal(const void *src1, const void *src2, size_t len) {
     char *s1 = (char *)src1;
     char *s2 = (char *)src2;
@@ -188,93 +285,48 @@ static bool dd_equal(const void *src1, const void *src2, size_t len) {
 }
 
 
-bool used(hash_t h) { return h.offset != 0 || h.hash != 0; }
-    
-
 hash_t* lookup(uint32_t hash, bool large) {
-    hash_t (*table)[slots] = (large ? large_table : small_table);
-    uint32_t row = hash % ((large ? large_entries : small_entries) / slots);
+    hashblock_t* table = (large ? large_table : small_table);
+    uint32_t row = hash % ((large ? large_entries : small_entries));
+    hashblock_t& e = table[row];
+
     for(uint64_t i = 0; i < slots; i++) {
-        hash_t& e = table[row][i];
-        if(!used(e)) {
+        if (e.hash[i] == 0) {
             return 0;
         }
-        if(e.hash == hash) {
-            return &e;
+        else if(e.hash[i] == hash && hash != 0) {
+            return &e.entry[i];
         }
     }
     return 0;
 }
 
 
-bool add(hash_t value, bool large) {
-    hash_t (*table)[slots] = (large ? large_table : small_table);
-    uint32_t row = value.hash % ((large ? large_entries : small_entries) / slots);
+bool add(hash_t value, uint32_t hash, bool large) {
+    hashblock_t* table = (large ? large_table : small_table);
+    uint32_t row = hash % ((large ? large_entries : small_entries));
+    hashblock_t& e = table[row];
+
     for(uint64_t i = 0; i < slots; i++) {
-        hash_t& e = table[row][i];
-        if(e.hash == value.hash) {
-            return dd_equal(e.sha, value.sha, HASH_SIZE);
+        if(e.hash[i] == hash) {
+            return dd_equal(e.entry[i].sha, value.sha, HASH_SIZE);
         }
-        if(!used(e)) {
-            e = value;
+        if(e.hash[i] == 0 & hash != 0) {
+            e.hash[i] = hash;
+            e.entry[i] = value;
             return true;
         }
     }
     return false;
 }
 
-
 void print_fillratio() {
-    for(uint64_t no = 0; no < 2; no++) {
-        uint64_t count[slots + 1] {0};
-        hash_t (*table)[slots] = (no == 0 ? large_table : small_table);
-        uint64_t rows = (no == 0 ? large_entries : small_entries) / slots;
-        for(uint64_t row = 0; row < rows; row++) {
-            uint64_t c = 0;
-            for(uint64_t j = 0; j < slots; j++) {
-                hash_t& e = table[row][j];
-                if(used(e)) {
-                    c++;
-                }
-            }
-            count[c]++;
-        }   
-        for(uint64_t j = 0; j < slots + 1; j++) {
-            wcerr << int(double(count[j]) / double(rows) * 100) << L" ";
-        }
-        if(no == 0) {
-            wcerr << L"/ ";
-        }
-    }
-    wcerr << L"\n";
-}
 
+}
 
 template <class T, class U> const uint64_t minimum(const T a, const U b) {
     return (static_cast<uint64_t>(a) > static_cast<uint64_t>(b)) ? static_cast<uint64_t>(b) : static_cast<uint64_t>(a);
 }
-
-
-static void ll2str(uint64_t l, char *dst, int bytes) {
-    while (bytes > 0) {
-        *dst = (l & 0xff);
-        dst++;
-        l = l >> 8;
-        bytes--;
-    }
-}
-
-static uint64_t str2ll(const void *src, int bytes) {
-    unsigned char *src2 = (unsigned char *)src;
-    uint64_t l = 0;
-    while (bytes > 0) {
-        bytes--;
-        l = l << 8;
-        l = (l | *(src2 + bytes));
-    }
-    return l;
-}
-
 
 typedef struct {
     pthread_t thread;
@@ -385,125 +437,108 @@ static uint64_t shall(const void *src, size_t len) {
 }
 
 void print_table() {
-#if 0
-    wcerr << L"\nbegin\n";
-    for (uint64_t i = 0; i < hash_rows; i++) {
-        for (int j = 0; j < slots; j++) {
-            wcerr << table[i][j].hash << L"," << table[i][j].slide << L"," << table[i][j].offset << L"," << int(table[i][j].sha[0]) << L"     ";
-        }
-        wcerr << "\n";
+#if 1
+    wcerr << L"\nsmall:\n";
+    for (uint64_t i = 0; i < small_entries; i++) {
+        print_hashblock(&small_table[i]);
     }
-    wcerr << "\nend\n";
+    wcerr << L"\nlarge:\n";
+    for (uint64_t i = 0; i < large_entries; i++) {
+        print_hashblock(&large_table[i]);
+    }
+    wcerr << "\n\n";
 #endif
 }
 
-size_t dup_compress_hashtable(void) {
-//    print_table();
-    hash_t (*table)[slots] = small_table;
-    uint64_t total_entries = small_entries + large_entries;
-    uint64_t hash;
-    char *dst = (char *)table;
-    uint64_t i = 0;
-    size_t siz;
-
-    bool used2 = used(table[0][0]);
-
-    do {
-        uint64_t count = 1;
-        while (i + count < total_entries) {
-            bool used3 = used(table[(i + count) / slots][(i + count) % slots]);
-            if (used2 != used3) {
-                break;
-            }
-            count++;
+bool in_use(size_t i) {
+    for(size_t t = 0; t < slots; t++) {
+        if(small_table[i].hash[t] != 0) {
+            return true;
         }
-
-        if (used2) {
-            for (uint64_t k = 0; k < count; k++) {
-                hash_t h;
-                memcpy(&h, &table[i / slots][i % slots], sizeof(hash_t));
-                ll2str(h.offset, dst, 8);
-                ll2str(h.hash, dst + 8, 4);
-                ll2str(h.slide, dst + 8 + 4, 2);
-                memcpy(dst + 8 + 4 + 2, h.sha, HASH_SIZE);
-                dst += 8 + 4 + 2 + HASH_SIZE;
-                i++;
-            }
-        } else {
-            i += count;
-        }
-        *dst = used2 ? 'Y' : 'N';
-        dst++;
-        ll2str(count, dst, 8);
-        dst += 8;
-        used2 = !used2;
-    } while (i < total_entries);
-
-    siz = dst - (char *)table;
-    hash = shall(table, siz);
-    ll2str(hash, (char *)table + siz, 8);
-    siz += 8;
-
-    return siz;
+    }
+    return false;
 }
 
-int dup_decompress_hashtable(size_t len) {
-    hash_t (*table)[slots] = small_table;
-    uint64_t total_entries = small_entries + large_entries;
-    unsigned char *src = (unsigned char *)table + len - 1;
-    size_t i = total_entries - 1;
-
-    uint64_t hash = str2ll(src - 7, 8);
-    auto g = shall(table, src - (unsigned char *)table + 1 - 8);
-    if (hash != g) {
-        // todo move error handing outside the lib
-        fprintf(stderr, "\neXdupe: Internal error or archive corrupted, at table_expand(), at hashtable\n");
-        return -1;
+size_t equ(size_t start) {
+    bool used = in_use(start);
+    size_t count = 1;
+    size_t total_entries = small_entries + large_entries;
+    while(start + count < total_entries) {
+        if(used != in_use(start + count)) {
+            break;
+        }
+        count++;
     }
+    return count;
+}
 
-    src -= 8 + 8;
+size_t dup_compress_hashtable(char* dst) {
+    char* dst_orig = dst;
+    size_t total_entries = small_entries + large_entries;
+    size_t s = sizeof(hashblock_t) * total_entries;
+    uint64_t crc = shall(&small_table[0], s);
+    size_t block = 0;
+    size_t total_used = 0;
 
-    bool used = *src == 'Y' ? true : false;
-    size_t count = str2ll(src + 1, 8);
+    ll2str(crc, dst, 8);
+    dst += 8;
 
-    while (i > 0) {
-        auto count2 = count;
-        auto used2 = used;
+    do {
+        size_t count = equ(block);
+        bool used = in_use(block);
+        *dst++ = 'C';
+        ll2str(count, dst, 8);
+        ll2str(used ? 1 : 0, dst + 8, 1);
 
-        if (i > count) {
-            unsigned char *next = src;
-            if (used) {
-                next -= (count) * sizeof(hash_t);
-            }
-            next -= 9;
-            used = *(next) == 'Y' ? true : false;
-            count = str2ll((next + 1), 8);
+        if(used) {
+            total_used += count;
         }
 
-        for (uint64_t k = 0; k < count2; k++) {
-            if (used2) {
-                unsigned char temp[100];
-                src -= (8 + 4 + 2 + HASH_SIZE);
-                memcpy(temp, src, 8 + 4 + 2 + HASH_SIZE);
-                table[i / slots][i % slots].offset = str2ll(temp, 8);
-                table[i / slots][i % slots].hash = uint32_t(str2ll(temp + 8, 4));
-                table[i / slots][i % slots].slide = static_cast<uint16_t>(str2ll(temp + 8 + 4, 2));
-                memcpy(table[i / slots][i % slots].sha, temp + 8 + 4 + 2, HASH_SIZE);
-            } else {
-                memset(&table[i / slots][i % slots], 0, sizeof(hash_t));
-            }
-            if (i == 0) {
-                assert(k == count2 - 1);
-                break;
-            }
-            i--;
+        dst += 9;
+
+        for(size_t t = 0; t < count; t++) {
+            size_t s = write_hashblock(&small_table[block], dst);
+            dst += s;
+            block++;
         }
-        src -= 8; // cnt
-        src -= 1; // used
-    }
+    } while (block < total_entries);
 
+    return dst - dst_orig;
+}
 
-    return 0;
+int dup_decompress_hashtable(char* src) {
+    size_t total_entries = small_entries + large_entries;
+    size_t block = 0;
+    uint64_t crc = str2ll(src, 8);
+    src += 8;
+
+    do {
+        char b = *src++;
+        assert(b == 'C');
+        uint64_t count = str2ll(src, 8);
+        bool used = str2ll(src + 8, 1) != 0;
+        src += 9;
+
+        for (size_t h = 0; h < count; h++) {
+            if(used) {
+                size_t s = read_hashblock(&small_table[block], src);
+                src += s;
+            }
+            else {
+                for(size_t i = 0; i < slots; i++) {
+                    small_table[block].entry[i].offset = 0;
+                    small_table[block].entry[i].slide = 0;
+                    memset(&small_table[block].entry[i].sha, 0, HASH_SIZE);
+                    small_table[block].hash[i] = 0;
+                }
+            }
+            block++;
+        }
+    } while(block < total_entries);
+
+    size_t s = sizeof(hashblock_t) * total_entries;
+    uint64_t crc2 = shall(&small_table[0], s);
+    return crc == crc2 ? 0 : 1;
 }
 
 static uint32_t quick(unsigned char init1, unsigned char init2, unsigned char init3, unsigned char init4, const unsigned char *src, size_t len) {
@@ -623,8 +658,9 @@ const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t l
         // CAUTION: Outside mutex, assume reading garbage and that data changes between reads
         if (w != 0 && e) {
 
-            pthread_mutex_lock_wrapper(&table_mutex);
-            if (used(*e) && w_pos - e->slide > src && w_pos - e->slide <= last_src) {
+            pthread_mutex_lock_wrapper(&table_mutex); // todo, can we relax the mutex scope
+            e = lookup(w, block == LARGE_BLOCK);
+            if (e && w_pos - e->slide > src && w_pos - e->slide <= last_src) {
                 src = w_pos - e->slide;
             }
             pthread_mutex_unlock_wrapper(&table_mutex);
@@ -645,8 +681,9 @@ const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t l
                 }
 
                 pthread_mutex_lock_wrapper(&table_mutex);
-
-                if (used(*e) && dd_equal(s, e->sha, HASH_SIZE) && e->hash == w && e->offset + block < pay + (src - orig_src)) {
+                //  e->hash == w && 
+                e = lookup(w, block == LARGE_BLOCK);
+                if (e && e->offset + block < pay + (src - orig_src) && dd_equal(s, e->sha, HASH_SIZE)) {
                     collision_skip = 8;
                     *payload_ref = e->offset;
                     pthread_mutex_unlock_wrapper(&table_mutex);
@@ -685,11 +722,12 @@ static bool hashat(const unsigned char *src, uint64_t pay, size_t len, bool larg
     if(w != 0) {
         pthread_mutex_lock_wrapper(&table_mutex);
         hash_t e;            
-        e.hash = w;
+
+        //e.hash = w;
         e.offset = pay;
         memcpy((unsigned char *)e.sha, hash, HASH_SIZE);
         e.slide = static_cast<uint16_t>(o - src);
-        bool added = add(e, large);
+        bool added = add(e, w, large);
         if(!added) {
             if(large) {
                 congested_large += len;
@@ -958,6 +996,8 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
     // functions.
     //assert(large_block <= 512 * 1024);
 
+    memsize = mem;
+
     count_payload = 0;
     global_payload = basepay;
     flushed = global_payload;
@@ -989,16 +1029,20 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
 
     SMALL_BLOCK = small_block;
     LARGE_BLOCK = large_block;
-    uint64_t total_entries = (mem - COMPRESSED_HASHTABLE_OVERHEAD) / sizeof(hash_t);
-    total_entries = total_entries / (slots * size_ratio) * (slots * size_ratio);
-    large_entries = uint64_t(1. / float(size_ratio) * float(total_entries));
-    small_entries = total_entries - large_entries;
 
-    hash_t (*table)[slots] = (hash_t(*)[slots])space;
-    small_table = table;
-    large_table = table + (small_entries / slots);
+    // Memory: begin, OVERHEAD, small blocks table, large blocks table, OVERHEAD, end
 
+    memory_begin = (char*)space;
+    memory_end = memory_begin + mem;
+    memory_table = memory_begin + COMPRESSED_HASHTABLE_OVERHEAD;
 
+    size_t table_size = memory_end - memory_table - COMPRESSED_HASHTABLE_OVERHEAD;
+    size_t total_blocks = table_size / sizeof(hashblock_t);
+    large_entries = uint64_t(1. / float(size_ratio) * float(total_blocks));
+    small_entries = total_blocks - large_entries;
+
+    small_table = (hashblock_t*)memory_table;;
+    large_table = small_table + small_entries;
 
     memset(space, 0, mem);
 
