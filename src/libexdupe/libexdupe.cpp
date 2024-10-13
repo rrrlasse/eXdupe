@@ -374,16 +374,47 @@ char *zstd_init() {
 }
 
 int64_t zstd_compress(char *inbuf, size_t insize, char *outbuf, size_t outsize, int level, char *workmem) {
-    size_t res;
+    size_t ret = 0;
     zstd_params_s *zstd_params = (zstd_params_s *)workmem;
-    res = ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf, insize, level);
+    int fast = 2048;
+    int slow = 4096;
+
+    if(insize > 128*1024) {
+        if( 
+            ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf + insize / 2, fast, level) >= fast &&
+            ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf + insize / 3 * 0, slow, level) >= slow &&
+            ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf + insize / 3 * 1, slow, level) >= slow &&
+            ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf + insize / 3 * 2, slow, level) >= slow &&
+            ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf + insize - slow, slow, level) >= slow &&
+            true) {
+            *outbuf++ = 'U';
+            ret++;
+            memcpy(outbuf, inbuf, insize);
+            return insize + 1;
+        }            
+    }    
+
+    *outbuf++ = 'C';
+    ret++;
+
+    ret += ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf, insize, level);
     assert(!ZSTD_isError(res));
-    return res;
+    return ret;
 }
 
 int64_t zstd_decompress(char *inbuf, size_t insize, char *outbuf, size_t outsize, size_t, size_t, char *workmem) {
-    zstd_params_s *zstd_params = (zstd_params_s *)workmem;
-    return ZSTD_decompressDCtx(zstd_params->dctx, outbuf, outsize, inbuf, insize);
+    char compressible = *inbuf++;
+
+    if(compressible == 'U') {
+        memcpy(outbuf, inbuf, insize);
+        return insize;
+    }
+    else if(compressible == 'C') {
+        zstd_params_s *zstd_params = (zstd_params_s *)workmem;
+        return ZSTD_decompressDCtx(zstd_params->dctx, outbuf, outsize, inbuf, insize);
+    }
+    
+    return -1;
 }
 
 static void sha(const unsigned char *src, size_t len, unsigned char *dst) {
