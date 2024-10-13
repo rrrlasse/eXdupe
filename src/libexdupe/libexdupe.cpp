@@ -54,8 +54,6 @@
 
 #include "libexdupe.h"
 
-using namespace std;
-
 // #define EXDUPE_THREADTEST
 
 #ifdef EXDUPE_THREADTEST
@@ -129,7 +127,7 @@ uint64_t g_hash_salt = 0;
 pthread_mutex_t table_mutex;
 pthread_cond_t jobdone_cond;
 pthread_mutex_t jobdone_mutex;
-mutex job_info;
+std::mutex job_info;
 
 int threads;
 int level;
@@ -269,7 +267,7 @@ size_t read_hashblock(hashblock_t* h, char* src) {
 
 void print_hashblock(hashblock_t* h) {
     for (size_t t = 0; t < slots; t++) {
-        wcerr << L"(" << std::hex << h->hash[t] << std::dec << L"," << h->entry[t].offset << L"," << h->entry[t].slide << L"," << (int)h->entry[t].sha[0] << L") \n";
+        std::wcerr << L"(" << std::hex << h->hash[t] << std::dec << L"," << h->entry[t].offset << L"," << h->entry[t].slide << L"," << (int)h->entry[t].sha[0] << L") \n";
     }
 }
 
@@ -417,67 +415,41 @@ int64_t zstd_decompress(char *inbuf, size_t insize, char *outbuf, size_t outsize
     return -1;
 }
 
-static void sha(const unsigned char *src, size_t len, unsigned char *dst) {
+static void hash(const void *src, size_t len, uint64_t salt, unsigned char *dst) {
     if (g_crypto_hash) {
-        char salt[sizeof(g_hash_salt)];
-        ll2str(g_hash_salt, salt, sizeof(g_hash_salt));
+        char s[sizeof(salt)];
+        ll2str(salt, s, sizeof(salt));
         blake3_hasher hasher;
         blake3_hasher_init(&hasher);
-        blake3_hasher_update(&hasher, salt, sizeof(salt));
+        blake3_hasher_update(&hasher, s, sizeof(s));
         blake3_hasher_update(&hasher, src, len);
         uint8_t output[BLAKE3_OUT_LEN];
         blake3_hasher_finalize(&hasher, output, BLAKE3_OUT_LEN);
         memcpy(dst, output, HASH_SIZE);
     } else {
-        XXH64_hash_t s{g_hash_salt};
+        XXH64_hash_t s{ salt };
         XXH128_hash_t hash = XXH128(src, len, s);
         memcpy(dst, &hash, HASH_SIZE);
     }
 }
 
-static uint64_t shall(const void *src, size_t len) {
-    char *src2 = (char *)src;
-    uint64_t l = 0;
-    uint64_t a_val = 0xd20f9a8b761b7e4cULL;
-    uint64_t b_val = 0x994e80091d2f0bc3ULL;
-
-    while (len >= 8) {
-#ifdef X86X64
-        a_val += (*(uint64_t *)src2) * b_val;
-#else
-        for (uint32_t i = 0; i < 8; i++) {
-            l = l >> 8;
-            l = l | (uint64_t) * (src2 + i) << (7 * 8);
-        }
-        a_val += l * b_val;
-#endif
-        b_val++;
-        len -= 8;
-        src2 += 8;
-    }
-
-    while (len > 0) {
-        l = l >> 8;
-        l = l | (uint64_t)*src2 << (7 * 8);
-        src2++;
-        len--;
-    }
-    a_val += l * b_val;
-    b_val++;
-    return a_val + b_val;
+static uint64_t hash64(const void* src, size_t len) {
+    unsigned char h[HASH_SIZE];
+    hash(src, len, 0, h);
+    return str2ll(h, 8);
 }
 
 void print_table() {
 #if 1
-    wcerr << L"\nsmall:\n";
+    std::wcerr << L"\nsmall:\n";
     for (uint64_t i = 0; i < small_entries; i++) {
         print_hashblock(&small_table[i]);
     }
-    wcerr << L"\nlarge:\n";
+    std::wcerr << L"\nlarge:\n";
     for (uint64_t i = 0; i < large_entries; i++) {
         print_hashblock(&large_table[i]);
     }
-    wcerr << "\n\n";
+    std::wcerr << "\n\n";
 #endif
 }
 
@@ -507,7 +479,7 @@ size_t dup_compress_hashtable(char* dst) {
     char* dst_orig = dst;
     size_t total_entries = small_entries + large_entries;
     size_t s = sizeof(hashblock_t) * total_entries;
-    uint64_t crc = shall(&small_table[0], s);
+    uint64_t crc = hash64(&small_table[0], s);
     size_t block = 0;
     size_t total_used = 0;
 
@@ -568,7 +540,7 @@ int dup_decompress_hashtable(char* src) {
     } while(block < total_entries);
 
     size_t s = sizeof(hashblock_t) * total_entries;
-    uint64_t crc2 = shall(&small_table[0], s);
+    uint64_t crc2 = hash64(&small_table[0], s);
     return crc == crc2 ? 0 : 1;
 }
 
@@ -704,16 +676,16 @@ const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t l
                     assert(sizeof(tmp) >= LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE);
                     uint32_t k;
                     for (k = 0; k < LARGE_BLOCK / SMALL_BLOCK; k++) {
-                        sha(src + k * SMALL_BLOCK, SMALL_BLOCK, tmp + k * HASH_SIZE);
+                        hash(src + k * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + k * HASH_SIZE);
                     }
-                    sha(tmp, LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, s);
+                    hash(tmp, LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, g_hash_salt, s);
                 } else {
-                    sha(src, block, s);
+                    hash(src, block, g_hash_salt, s);
                 }
 
                 pthread_mutex_lock_wrapper(&table_mutex);
-                //  e->hash == w && 
                 e = lookup(w, block == LARGE_BLOCK);
+
                 if (e && e->offset + block < pay + (src - orig_src) && dd_equal(s, e->sha, HASH_SIZE)) {
                     collision_skip = 8;
                     *payload_ref = e->offset;
@@ -850,7 +822,7 @@ static void hash_chunk(const unsigned char *src, uint64_t pay, size_t length, in
     uint32_t j = 0;
 
     for (j = 0; j < small_blocks; j++) {
-        sha(src + j * SMALL_BLOCK, SMALL_BLOCK, (unsigned char *)tmp + smalls * HASH_SIZE);
+        hash(src + j * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, (unsigned char *)tmp + smalls * HASH_SIZE);
         bool success_small = hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, false, (unsigned char *)tmp + smalls * HASH_SIZE, policy);
         if(!success_small) {
             anomalies_small += SMALL_BLOCK;
@@ -859,7 +831,7 @@ static void hash_chunk(const unsigned char *src, uint64_t pay, size_t length, in
         smalls++;
         if (smalls == LARGE_BLOCK / SMALL_BLOCK) {
             unsigned char tmp2[HASH_SIZE];
-            sha((unsigned char *)tmp, smalls * HASH_SIZE, tmp2);
+            hash((unsigned char *)tmp, smalls * HASH_SIZE, g_hash_salt, tmp2);
             bool success_large = hashat(src + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, pay + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, LARGE_BLOCK, true, (unsigned char *)tmp2, policy);
             if(!success_large) {
                 anomalies_large += SMALL_BLOCK;
