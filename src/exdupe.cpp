@@ -2304,6 +2304,10 @@ int wmain(int argc2, CHR *argv2[])
 int main(int argc2, char *argv2[])
 #endif
 {
+    if(VER_DEV != 0) {
+        statusbar.print(0, UNITXT("UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTA\nBLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE U\n"));
+    }
+
     tidy_args(argc2, argv2);
 
     if (argc2 == 1) {
