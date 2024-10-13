@@ -660,15 +660,18 @@ const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t l
 
         // CAUTION: Outside mutex, assume reading garbage and that data changes between reads
         if (w != 0 && e) {
-
-            pthread_mutex_lock_wrapper(&table_mutex); // todo, can we relax the mutex scope
+            hash_t e_cpy;
+            pthread_mutex_lock_wrapper(&table_mutex);
             e = lookup(w, block == LARGE_BLOCK);
-            if (e && w_pos - e->slide > src && w_pos - e->slide <= last_src) {
-                src = w_pos - e->slide;
+            if(e) {
+                e_cpy = *e;
             }
             pthread_mutex_unlock_wrapper(&table_mutex);
+            if (e && w_pos - e_cpy.slide > src && w_pos - e_cpy.slide <= last_src) {
+                src = w_pos - e_cpy.slide;
+            }
 
-            if (e->offset + block < pay + (src - orig_src)) {
+            if (e && e_cpy.offset + block < pay + (src - orig_src)) {
                 unsigned char s[HASH_SIZE];
 
                 if (block == LARGE_BLOCK) {
@@ -683,13 +686,9 @@ const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t l
                     hash(src, block, g_hash_salt, s);
                 }
 
-                pthread_mutex_lock_wrapper(&table_mutex);
-                e = lookup(w, block == LARGE_BLOCK);
-
-                if (e && e->offset + block < pay + (src - orig_src) && dd_equal(s, e->sha, HASH_SIZE)) {
+                if (e_cpy.offset + block < pay + (src - orig_src) && dd_equal(s, e_cpy.sha, HASH_SIZE)) {
                     collision_skip = 8;
-                    *payload_ref = e->offset;
-                    pthread_mutex_unlock_wrapper(&table_mutex);
+                    *payload_ref = e_cpy.offset;
                     return src;
                 } else {
                     char c;
@@ -700,8 +699,6 @@ const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t l
                         src++;
                     }
                 }
-
-                pthread_mutex_unlock_wrapper(&table_mutex);
             } else {
                 src = w_pos;
             }
