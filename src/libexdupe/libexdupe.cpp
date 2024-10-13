@@ -656,10 +656,9 @@ const static unsigned char *dub(const unsigned char *src, uint64_t pay, size_t l
     size_t collision_skip = 32;
 
     while (src <= last_src) {
-        hash_t* e = lookup(w, block == LARGE_BLOCK);
-
+        hash_t* e;
         // CAUTION: Outside mutex, assume reading garbage and that data changes between reads
-        if (w != 0 && e) {
+        if (w != 0 && (e = lookup(w, block == LARGE_BLOCK))) {
             hash_t e_cpy;
             pthread_mutex_lock_wrapper(&table_mutex);
             e = lookup(w, block == LARGE_BLOCK);
