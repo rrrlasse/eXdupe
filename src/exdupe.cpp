@@ -5,10 +5,10 @@
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
 
-#define VER_MAJOR 2
-#define VER_MINOR 1
+#define VER_MAJOR 3
+#define VER_MINOR 0
 #define VER_REVISION 0
-#define VER_DEV 0
+#define VER_DEV 1
 
 #define Q(x) #x
 #define QUOTE(x) Q(x)
@@ -2275,8 +2275,8 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* arc
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-//    abort(dev != VER_DEV, UNITXT("This file was created with eXdupe version %d.%d.%d.dev-%d. Please use the exact same version on it"), major, minor, revision, dev);
-    abort(major != 2, UNITXT("This file was created with eXdupe version %d.%d.%d. Please use %d.x.x on it"), major, minor, revision, major);
+    abort(major != 3, UNITXT("This file was created with eXdupe version %d.%d.%d. Please use %d.x.x on it"), major, minor, revision, major);
+    abort(dev != VER_DEV, UNITXT("This file was created with eXdupe version %d.%d.%d.dev-%d. Please use the exact same version on it"), major, minor, revision, dev);
 
     hash_flag = io.read_ui<uint8_t>(file) == 1;
     hash_salt = io.read_ui<uint64_t>(file);
