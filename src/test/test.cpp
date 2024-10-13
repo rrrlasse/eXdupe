@@ -91,9 +91,9 @@ TEST_CASE("checksum") {
         checksum_t t;
         checksum_init(&t);
         auto result1 = t.result32();
-        checksum((unsigned char *)"123456789", 9, &t);
+        checksum((char *)"123456789", 9, &t);
         auto result2 = t.result32();
-        checksum((unsigned char *)"123456789", 9, &t);
+        checksum((char *)"123456789", 9, &t);
         auto result3 = t.result32();
 
         REQUIRE(result1 != result2);
@@ -105,19 +105,19 @@ TEST_CASE("checksum") {
         // Associative
         checksum_t t1;
         checksum_init(&t1);
-        checksum((unsigned char *)"123456789 123456789 ", 20, &t1);
+        checksum((char *)"123456789 123456789 ", 20, &t1);
 
         checksum_t t2;
         checksum_init(&t2);
-        checksum((unsigned char *)"123", 3, &t2);
-        checksum((unsigned char *)"456789 123456789 ", 17, &t2);
+        checksum((char *)"123", 3, &t2);
+        checksum((char *)"456789 123456789 ", 17, &t2);
 
         REQUIRE(t1.result32() == t2.result32());
 
         checksum_t t3;
         checksum_init(&t3);
-        checksum((unsigned char *)"123456789 ", 10, &t3);
-        checksum((unsigned char *)"123456789 ", 10, &t3);
+        checksum((char *)"123456789 ", 10, &t3);
+        checksum((char *)"123456789 ", 10, &t3);
 
         REQUIRE(t1.result32() == t3.result32());
     }
@@ -127,13 +127,13 @@ TEST_CASE("checksum") {
         checksum_t t;
         checksum_init(&t);
         auto result = t.result32();
-        checksum((unsigned char *)"", 0, &t);
+        checksum((char *)"", 0, &t);
         REQUIRE(result == t.result32());
 
         checksum_init(&t);
-        checksum((unsigned char *)"123456789", 9, &t);
+        checksum((char *)"123456789", 9, &t);
         result = t.result32();
-        checksum((unsigned char *)"", 0, &t);
+        checksum((char *)"", 0, &t);
         REQUIRE(result == t.result32());
     }
 }

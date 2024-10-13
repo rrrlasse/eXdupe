@@ -203,7 +203,7 @@ FILE *ofile = 0, *ifile = 0;
 Cio io = Cio();
 Statusbar statusbar;
 
-unsigned char *in, *out;
+char *in, *out;
 uint64_t bits;
 
 // various
@@ -215,8 +215,8 @@ bool output_file_mine = false;
 void *hashtable;
 uint64_t file_id_counter = 0;
 
-std::vector<unsigned char> restore_buffer_in;
-std::vector<unsigned char> restore_buffer_out;
+std::vector<char> restore_buffer_in;
+std::vector<char> restore_buffer_out;
 
 Bytebuffer bytebuffer(RESTORE_BUFFER);
 
@@ -436,7 +436,7 @@ uint64_t belongs_to(uint64_t offset) // todo: verify that this algorithm also
     return lower;
 }
 
-void add_references(const unsigned char *src, size_t len, uint64_t archive_offset) {
+void add_references(const char *src, size_t len, uint64_t archive_offset) {
     size_t pos = 0;
     reference_t ref;
     uint64_t payload;
@@ -560,7 +560,7 @@ uint64_t find_reference(uint64_t payload) {
     }
 }
 
-bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FILE *fdiff, uint64_t splitpay) {
+bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff, uint64_t splitpay) {
     size_t bytes_resolved = 0;
 
     while (bytes_resolved < size) {
@@ -605,7 +605,7 @@ bool resolve(uint64_t payload, size_t size, unsigned char *dst, FILE *ifile, FIL
                     abort(true, UNITXT("Internal error, dup_decompress() = %d"), r);
                 }
 
-                bytebuffer.buffer_add((char*)restore_buffer_out.data(), references.at(rr).payload, references.at(rr).length);
+                bytebuffer.buffer_add(restore_buffer_out.data(), references.at(rr).payload, references.at(rr).length);
 
                 io.seek(f, orig, SEEK_SET);
                 memcpy(dst + bytes_resolved, restore_buffer_out.data() + prior, ref_has);
@@ -1415,7 +1415,7 @@ void ensure_relative(const STRING &path) {
 void decompress_individuals(FILE *ffull, FILE *fdiff) {
     FILE *archive_file;
     bool pipe_out = directory == UNITXT("-stdout");
-    std::vector<unsigned char> restore_buffer(RESTORE_CHUNKSIZE, 'c');
+    std::vector<char> restore_buffer(RESTORE_CHUNKSIZE, 'c');
 
     if (diff_flag) {
         archive_file = fdiff;
@@ -1693,14 +1693,14 @@ void empty_q(bool flush, bool entropy) {
         };
 
     if (payload_queue_size > 0) {
-        cc = dup_compress(payload_queue.data(), (char*)out, payload_queue_size, &pay, entropy);
+        cc = dup_compress(payload_queue.data(), out, payload_queue_size, &pay, entropy);
         write_result();
         payload_queue_size = 0;
     }
 
     if (flush) {
         while (payload_compressed < payload_read) {
-            cc = flush_pend((char*)out, &pay);
+            cc = flush_pend(out, &pay);
             write_result();
         }
     }
@@ -1849,7 +1849,7 @@ void compress_file(const STRING &input_file, const STRING &filename) {
 
             file_read += r;
             payload_read += r;
-            checksum((unsigned char *)read_to, r, &file_meta.ct);
+            checksum(read_to, r, &file_meta.ct);
 
             if (file_read == file_size && file_size > 0) {
                 // No CRC block for 0-sized files
@@ -1875,7 +1875,7 @@ void compress_file(const STRING &input_file, const STRING &filename) {
 
         file_read += r;
         payload_read += r;
-        checksum((unsigned char *)(read_to), r, &file_meta.ct);
+        checksum(read_to, r, &file_meta.ct);
         assert(file_read == file_size);
         if (file_read == file_size && file_size > 0) {
             // No CRC block for 0-sized files
@@ -2348,8 +2348,8 @@ int main(int argc2, char *argv2[])
     statusbar.m_verbose_level = verbose_level;
 
     if (restore_flag || compress_flag || list_flag) {
-        in = static_cast<unsigned char *>(tmalloc(DISK_READ_CHUNK + M));
-        out = static_cast<unsigned char *>(tmalloc((threads + 1) * DISK_READ_CHUNK + M)); // todo, compute exact to save memory
+        in = static_cast<char *>(tmalloc(DISK_READ_CHUNK + M));
+        out = static_cast<char *>(tmalloc((threads + 1) * DISK_READ_CHUNK + M)); // todo, compute exact to save memory
     }
 
     if (list_flag) {

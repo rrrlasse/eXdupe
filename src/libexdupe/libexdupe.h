@@ -27,13 +27,13 @@ int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
 
 size_t dup_compress(const void *src, char *dst, size_t size,
 		    uint64_t *payloadreturned, bool entropy);
-int dup_decompress(const unsigned char *src, unsigned char *dst, size_t *length,
+int dup_decompress(const char *src, char *dst, size_t *length,
 		   uint64_t *payload);
-int dup_decompress_simulate(const unsigned char *src, size_t *length,
+int dup_decompress_simulate(const char *src, size_t *length,
 			    uint64_t *payload);
 
-size_t dup_size_compressed(const unsigned char *src);
-size_t dup_size_decompressed(const unsigned char *src);
+size_t dup_size_compressed(const char *src);
+size_t dup_size_decompressed(const char *src);
 
 void dup_counters_reset(void);
 uint64_t dup_counter_payload(void);

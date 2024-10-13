@@ -45,7 +45,7 @@ public:
                 checksum_init(&c);
                 for (size_t r; r = io.read(buf.data(), buf.size(), ifile); r > 0) {
                     func(r, file);
-                    checksum((unsigned char*)buf.data(), r, &c);
+                    checksum((char*)buf.data(), r, &c);
                 }
 
                 auto crc = c.result();
@@ -60,5 +60,5 @@ public:
 
 private:
 	unordered_map<uint32_t, contents_t> all_file_hashes;
-    std::vector<unsigned char> buf;
+    std::vector<char> buf;
 };

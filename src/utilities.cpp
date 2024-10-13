@@ -415,7 +415,7 @@ void checksum_init(checksum_t *t) {
 
 
 
-void checksum(unsigned char *data, size_t len, checksum_t *t) {
+void checksum(char *data, size_t len, checksum_t *t) {
     if (XXH3_128bits_update(&t->state, data, len) == XXH_ERROR) {
         abort(false, UNITXT("xxHash error"));
     }

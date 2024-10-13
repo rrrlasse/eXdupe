@@ -131,7 +131,7 @@ struct checksum_t {
     uint64_t result64();
 };
 
-void checksum(unsigned char *data, size_t len, checksum_t *t);
+void checksum(char *data, size_t len, checksum_t *t);
 void checksum_init(checksum_t *t);
 STRING abs_path(STRING source);
 bool exists(STRING file);
