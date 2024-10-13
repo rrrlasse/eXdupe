@@ -311,7 +311,7 @@ bool add(hash_t value, uint32_t hash, bool large) {
         if(e.hash[i] == hash) {
             return dd_equal(e.entry[i].sha, value.sha, HASH_SIZE);
         }
-        if(e.hash[i] == 0 & hash != 0) {
+        if(e.hash[i] == 0 && hash != 0) {
             e.hash[i] = hash;
             e.entry[i] = value;
             return true;
