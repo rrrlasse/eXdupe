@@ -141,6 +141,7 @@ const size_t IDENTICAL_FILE_SIZE = 4 * 4096;
 compile_assert(sizeof(size_t) == 8);
 
 uint64_t start_time = GetTickCount();
+uint64_t start_time_without_overhead;
 
 using namespace std;
 
@@ -249,6 +250,11 @@ typedef struct {
 vector<reference_t> references;
 vector<reference_t> read_ahead;
 
+uint64_t backup_set_size() {
+    // unchanged and identical are not sent to libexdupe
+    return dup_counter_payload() + unchanged + identical;
+}
+
 // todo, move
 void read_hash(FILE* f, contents_t& c) {
     auto len = io.read_compact<uint64_t>(f);
@@ -304,7 +310,7 @@ void abort(bool b, const CHR *fmt, ...) {
 }
 
 void update_statusbar_backup(STRING file, bool message = false) {
-    statusbar.update(BACKUP, dup_counter_payload() + unchanged + identical, io.write_count, file, false, message);
+    statusbar.update(BACKUP, backup_set_size(), io.write_count, file, false, message);
 }
 
 void update_statusbar_restore(STRING file) {
@@ -2434,6 +2440,8 @@ int main(int argc2, char *argv2[])
         output_file_mine = true; // todo, can this be deleted?
         write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt, archive_id);
 
+        start_time_without_overhead = GetTickCount();
+
         if (inputfiles.size() > 0 && inputfiles.at(0) != UNITXT("-stdin")) {
             compress_args(inputfiles);
         } else if (inputfiles.size() > 0 && inputfiles.at(0) == UNITXT("-stdin")) {
@@ -2442,6 +2450,8 @@ int main(int argc2, char *argv2[])
             compress_file(UNITXT("-stdin"), name); 
             compress_file_finalize();
         }
+
+        uint64_t end_time_without_overhead = GetTickCount();
 
         if (files + dirs == 0) {
             if (no_recursion_flag) {
@@ -2465,13 +2475,19 @@ int main(int argc2, char *argv2[])
         if(verbose_level > 0 && verbose_level < 3) {
             statusbar.clear_line();
         }
-        if (statistics_flag) {  
+
+
+        if (statistics_flag) {
+            uint64_t end_time = GetTickCount();
             std::ostringstream s;
-            uint64_t t = (GetTickCount() - start_time);
-            t = t == 0 ? 1 : t;
-            int sratio = int((double(io.write_count) / double(dup_counter_payload() + unchanged + identical + 1)) * 100.);
+            int sratio = int((double(io.write_count) / double(backup_set_size() + 1)) * 100.);
             sratio = sratio > 999 ? 999 : sratio == 0 ? 1 : sratio;
-            statusbar.print_no_lf(1, UNITXT("Compressed %s B in %s files into %s B (%s%%) at %sB/s\n"), del(dup_counter_payload() + unchanged + identical).c_str(), del(files).c_str(), del(io.write_count).c_str(), s2w(std::to_string(sratio)).c_str(), s2w(format_size((dup_counter_payload() + unchanged + identical) / t * 1000)).c_str());
+
+            s << "Input:                       " << w2s(del(backup_set_size())) << " B in " << w2s(del(files)) << " files\n";
+            s << "Output:                      " << w2s(del(io.write_count)) << " B (" << sratio << "%)\n";
+            s << "Speed:                       " << w2s(del(backup_set_size() / ((end_time - start_time) + 1) * 1000  / 1024 / 1024  )) << " MB/s\n";
+            s << "Speed w/o init overhead:     " << w2s(del(backup_set_size() / ((end_time_without_overhead - start_time_without_overhead ) + 1) * 1000 / 1024 / 1024)) << " MB/s\n";
+
             if(diff_flag) {
                 s << "Stored as untouched files:   " << format_size(unchanged) << "B in " << w2s(del(unchanged_files)) << " files\n";
             }
@@ -2484,8 +2500,6 @@ int main(int argc2, char *argv2[])
             s << "Unhashed anomalies:          " << format_size(anomalies_large) << "B large, " << format_size(anomalies_small) << "B small\n";
             s << "High entropy files:          " << format_size(high_entropy) << "B in " << w2s(del(high_entropy_files)) << " files";
 
-
-
             s << "\nhits1 = " << hits1  << "";
             s << "\nhits2 = " << hits2  << "\n";
             s << "hits3 = " << hits3 << "\n";
@@ -2497,7 +2511,7 @@ int main(int argc2, char *argv2[])
             print_fillratio();            
         }
         else {
-            statusbar.print_no_lf(1, UNITXT("Compressed %s B in %s files into %sB\n"), del(dup_counter_payload() + unchanged + identical).c_str(), del(files).c_str(), s2w(format_size(io.write_count)).c_str());
+            statusbar.print_no_lf(1, UNITXT("Compressed %s B in %s files into %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(format_size(io.write_count)).c_str());
         }
 
         io.close(ofile);
