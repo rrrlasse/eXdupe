@@ -1823,68 +1823,56 @@ void compress_file(const STRING &input_file, const STRING &filename) {
     }
 
     file_queue.push_back(file_meta);
-
     bool entropy = false;
-
     io.seek(ifile, 0, SEEK_SET);
     
-    if (file_size > DISK_READ_CHUNK - payload_queue_size) {
-        empty_q(false, entropy);
+    // todo, simplify - this flag may not be needed
+    bool overflows = file_size > DISK_READ_CHUNK - payload_queue_size;
 
+    if (overflows) {
+        empty_q(false, entropy);
         if (file_size >= IDENTICAL_FILE_SIZE) {
             entropy = file_types.high_entropy(0, filename);
-
             if(entropy) {
                 high_entropy_files++;
             }
         }
+    }
 
-        while (file_read < file_size) {
-            update_statusbar_backup(input_file);
+    while (file_read < file_size) {
+        update_statusbar_backup(input_file);
 
-            size_t read = minimum(file_size - file_read, DISK_READ_CHUNK);
-            size_t r = io.read_vector(payload_queue, read, payload_queue_size, ifile, false);
-            abort(io.stdin_tty() && r != read, (UNITXT("Unexpected midway read error, cannot continue: ") + name).c_str());
-            checksum(payload_queue.data() + payload_queue_size, r, &file_meta.ct);
-
-            if (input_file == UNITXT("-stdin") && r == 0) {
-                break;
-            }
-            payload_queue_size += read;
-
-            file_read += r;
-            payload_read += r;
-
-            if (file_read == file_size && file_size > 0) {
-                // No CRC block for 0-sized files
-                io.write("C", 1, ofile);
-                file_meta.checksum = file_meta.ct.result32();
-                io.write_ui<uint32_t>(file_meta.ct.result32(), ofile);
-            }
-
-            if (file_read >= file_size) {
-                entropy = false;
-            }
-            
-            empty_q(false, entropy);
-        }
-        file_queue.clear();
-    } else {
-        assert(file_size <= DISK_READ_CHUNK - payload_queue_size);
-        size_t r = io.read_vector(payload_queue, file_size, payload_queue_size, ifile, false);
-        abort(io.stdin_tty() && r != file_size, (UNITXT("Unexpected midway read error, cannot continue: ") + name).c_str());
+        size_t read = minimum(file_size - file_read, DISK_READ_CHUNK);
+        size_t r = io.read_vector(payload_queue, read, payload_queue_size, ifile, false);
+        abort(io.stdin_tty() && r != read, (UNITXT("Unexpected midway read error, cannot continue: ") + name).c_str());
         checksum(payload_queue.data() + payload_queue_size, r, &file_meta.ct);
-        payload_queue_size += file_size;
 
+        if (overflows && input_file == UNITXT("-stdin") && r == 0) {
+            break;
+        }
+
+        payload_queue_size += read;
         file_read += r;
         payload_read += r;
-        assert(file_read == file_size);
+
         if (file_read == file_size && file_size > 0) {
             // No CRC block for 0-sized files
             io.write("C", 1, ofile);
             file_meta.checksum = file_meta.ct.result32();
             io.write_ui<uint32_t>(file_meta.ct.result32(), ofile);
         }
+
+        if (overflows && file_read >= file_size) {
+            entropy = false;
+        }
+        
+        if(overflows) {
+            empty_q(false, entropy);
+        }
+    }
+
+    if(overflows) {
+        file_queue.clear();
     }
 
     fclose(ifile);
