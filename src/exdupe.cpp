@@ -258,7 +258,7 @@ uint64_t backup_set_size() {
 // todo, move
 void read_hash(FILE* f, contents_t& c) {
     auto len = io.read_compact<uint64_t>(f);
-    c.hash = io.try_read(len, f); // todo, make std::string reading function
+    c.hash = io.read_bin_string(len, f); // todo, make std::string reading function
 
     if (len > 0) {
         c.first = io.read_ui<uint64_t>(f);
@@ -268,7 +268,7 @@ void read_hash(FILE* f, contents_t& c) {
 
 void write_hash(FILE* f, const contents_t& c) {
     io.write_compact<uint64_t>(c.hash.size(), f);
-    io.try_write(c.hash.data(), c.hash.size(), f);
+    io.write(c.hash.data(), c.hash.size(), f);
 
     if (c.hash.size() > 0) {
         io.write_ui<uint64_t>(c.first, f);
@@ -351,10 +351,10 @@ void read_content_item(FILE* file, contents_t* c) {
     if (c->unchanged) {
         return;
     }
-    c->abs_path = slashify(io.readstr(file));
+    c->abs_path = slashify(io.read_utf8_string(file));
     c->payload = io.read_compact<uint64_t>(file);
-    c->name = slashify(io.readstr(file));
-    c->link = slashify(io.readstr(file));
+    c->name = slashify(io.read_utf8_string(file));
+    c->link = slashify(io.read_utf8_string(file));
     c->size = io.read_compact<uint64_t>(file);
     c->checksum = io.read_ui<uint32_t>(file);
     c->file_c_time = io.read_ui<uint32_t>(file);
@@ -381,10 +381,10 @@ void write_contents_item(FILE *file, contents_t *c) {
     io.write_compact<uint64_t>(c->file_id, file);
 
     if(!c->unchanged) {
-        io.writestr(c->abs_path, file);
+        io.write_utf8_string(c->abs_path, file);
         io.write_compact<uint64_t>(c->payload, file);
-        io.writestr(c->name, file);
-        io.writestr(c->link, file);
+        io.write_utf8_string(c->name, file);
+        io.write_utf8_string(c->link, file);
         io.write_compact<uint64_t>(c->size, file);
         io.write_ui<uint32_t>(c->checksum, file);
         io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_c_time), file);
@@ -473,7 +473,7 @@ void add_references(const char *src, size_t len, uint64_t archive_offset) {
 }
 
 size_t write_references(FILE *file) {
-    io.try_write("REFERENC", 8, file);
+    io.write("REFERENC", 8, file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(references.size(), file);
 
@@ -502,14 +502,14 @@ uint64_t seek_to_header(FILE *file, const string &header) {
     string h = "";
     int i = io.seek(file, -3, SEEK_END);
     abort(i != 0, UNITXT("Archive corrupted or on a non-seekable device"));
-    abort(io.try_read(3, file) != "END", UNITXT("Unexpected end of archive (header end tag)"));
+    abort(io.read_bin_string(3, file) != "END", UNITXT("Unexpected end of archive (header end tag)"));
     io.seek(file, -3, SEEK_END);
 
     while (h != header) {
         abort(io.seek(file, -8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), s2w(header).c_str());
         s = io.read_ui<uint64_t>(file);
         abort(io.seek(file, -8 - s - 8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), s2w(header).c_str());
-        h = io.try_read(8, file);
+        h = io.read_bin_string(8, file);
         abort(io.seek(file, -8, SEEK_CUR) != 0, UNITXT("Cannot find header '%s'"), s2w(header).c_str());
     }
     io.seek(file, 8, SEEK_CUR);
@@ -594,17 +594,15 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
                 }
 
                 // seek and read and decompress literal packet
+                uint64_t p;
                 uint64_t orig = io.tell(f);
                 uint64_t ao = references.at(rr).archive_offset;
                 io.seek(f, ao, SEEK_SET);
-                ensure_size(restore_buffer_in, DUP_HEADER_LEN);
-                io.try_read_buf(restore_buffer_in.data(), DUP_HEADER_LEN, f);
+                io.read_vector(restore_buffer_in, DUP_HEADER_LEN, 0, f, true);
                 size_t lenc = dup_size_compressed(restore_buffer_in.data());
                 size_t lend = dup_size_decompressed(restore_buffer_in.data());
-                ensure_size(restore_buffer_in, lenc + M - DUP_HEADER_LEN);
                 ensure_size(restore_buffer_out, lend + M);
-                io.try_read_buf(restore_buffer_in.data() + DUP_HEADER_LEN, lenc - DUP_HEADER_LEN, f);
-                uint64_t p;
+                io.read_vector(restore_buffer_in, lenc - DUP_HEADER_LEN, DUP_HEADER_LEN, f, true);
                 int r = dup_decompress(restore_buffer_in.data(), restore_buffer_out.data(), &lenc, &p);
 
                 if (r != 0 && r != 1) {
@@ -685,7 +683,7 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
         contents.push_back(c);
 
         if (write && !diff_flag) {
-            io.try_write("I", 1, ofile);
+            io.write("I", 1, ofile);
             write_contents_item(ofile, &c);
         }
 
@@ -699,9 +697,9 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
 
 size_t write_hashtable(FILE *file) {
     size_t t = dup_compress_hashtable(memory_begin);
-    io.try_write("HASHTBLE", 8, file);
+    io.write("HASHTBLE", 8, file);
     io.write_ui<uint64_t>(t, file);
-    io.try_write(memory_begin, t, file);
+    io.write(memory_begin, t, file);
     io.write_ui<uint64_t>(t + 8, file);
     return t;
 }
@@ -714,7 +712,7 @@ uint64_t read_hashtable(FILE *file) {
         statusbar.update(BACKUP, 0, 0, (STRING() + UNITXT("Reading hashtable from full backup...\r")).c_str(), false, true);
     }
 
-    io.try_read_buf(memory_end - s, s, file);
+    io.read(memory_end - s, s, file);
     io.seek(file, orig, SEEK_SET);
     int i = dup_decompress_hashtable(memory_end - s);
 
@@ -723,7 +721,7 @@ uint64_t read_hashtable(FILE *file) {
 }
 
 size_t write_contents(FILE *file) {
-    io.try_write("CONTENTS", 8, file);
+    io.write("CONTENTS", 8, file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(contents.size(), file);
     for (size_t i = 0; i < contents.size(); i++) {
@@ -784,7 +782,7 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
 uint64_t dump_contents() {
     FILE* ffile = try_open(full, 'r', true);
     FILE* file = diff_flag ? try_open(diff, 'r', true) : ffile;
-    string header = io.try_read(8, file);
+    string header = io.read_bin_string(8, file);
     abort(header == "EXDUPE D" && !diff_flag, UNITXT("File is a diff backup. Please use -LD <full file> <diff file to list>"));
 
     init_content_maps(ffile);
@@ -1551,18 +1549,18 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
         size_t len2;
         uint64_t payload;
 
-        io.try_read_buf(in, 1, ifile);
+        io.read(in, 1, ifile);
 
         if (*in == 'B') {
             return;
         }
 
-        io.try_read_buf(in + 1, 7, ifile);
+        io.read(in + 1, 7, ifile);
         assert((in[0] == 'T' && in[1] == 'T') || (in[0] == 'M' && in[1] == 'M'));
 
-        io.try_read_buf(in + 8, DUP_HEADER_LEN - 8, ifile);
+        io.read(in + 8, DUP_HEADER_LEN - 8, ifile);
         len = dup_size_compressed(in);
-        io.try_read_buf(in + DUP_HEADER_LEN, len - DUP_HEADER_LEN, ifile);
+        io.read(in + DUP_HEADER_LEN, len - DUP_HEADER_LEN, ifile);
         int r = dup_decompress(in, out, &len, &payload);
         abort(r == -1 || r == -2, UNITXT("Internal error, dup_decompress() = %p"), r);
 
@@ -1579,8 +1577,8 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
                     size_t fo = belongs_to(payload + resolved);
                     int j = io.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
                     abort(j != 0, UNITXT("Internal error 1 or non-seekable device: seek(%s, %p, %p)"), infiles.at(fo).filename.c_str(), payload, payload_orig);
-                    len2 = io.read(out + resolved, len - resolved, ofile);
-                    abort(len2 != len - resolved, UNITXT("Internal error 2: read(%s, %p, %p)"), infiles.at(fo).filename.c_str(), len, len2);
+                    len2 = io.read(out + resolved, len - resolved, ofile, false);
+                    abort(len2 != len - resolved, UNITXT("Internal error: Reference points to a block in the current output file but exceeds its file length: read(%s, %p, %p)"), infiles.at(fo).filename.c_str(), len, len2);
                     resolved += len2;
                     io.seek(ofile, 0, SEEK_END);
                 } else {
@@ -1592,7 +1590,8 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
                         int j = io.seek(ifile2, payload + resolved - infiles.at(fo).offset, SEEK_SET);
                         abort(j != 0, UNITXT("Internal error 9 or destination is a non-seekable device: seek(%s, %p, %p)"), infiles.at(fo).filename.c_str(), payload, infiles.at(fo).offset);
                     }
-                    len2 = io.read(out + resolved, len - resolved, ifile2);
+                    // FIXME only request to read exact amount, so that we can call with read_exact = true
+                    len2 = io.read(out + resolved, len - resolved, ifile2, false);
                     resolved += len2;
                     fclose(ifile2);
                 }
@@ -1621,7 +1620,7 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
             auto has = minimum(missing, len - src_consumed);
             curfile_written += has;
             update_statusbar_restore(destfile);
-            io.try_write(out + src_consumed, has, ofile);
+            io.write(out + src_consumed, has, ofile);
             checksum(out + src_consumed, has, &decompress_checksum);
 
             payload_written += has;
@@ -1658,7 +1657,7 @@ void compress_symlink(const STRING &link, const STRING &target) {
     }
 
     update_statusbar_backup(link + UNITXT(" -> ") + STRING(abs_path(tmp)));
-    io.try_write("L", 1, ofile);
+    io.write("L", 1, ofile);
 
     files++;
 
@@ -1690,10 +1689,10 @@ void empty_q(bool flush, bool entropy) {
     size_t cc;
     auto write_result = [&]() {
         if (cc > 0) {
-            io.try_write("A", 1, ofile);
+            io.write("A", 1, ofile);
             add_references(out, cc, io.write_count);
-            io.try_write(out, cc, ofile);
-            io.try_write("B", 1, ofile);
+            io.write(out, cc, ofile);
+            io.write("B", 1, ofile);
         }
         payload_compressed += pay;
         };
@@ -1799,7 +1798,7 @@ void compress_file(const STRING &input_file, const STRING &filename) {
 
             if (!diff_flag) {
                 // todo clear abs_path?
-                io.try_write("U", 1, ofile);
+                io.write("U", 1, ofile);
                 write_contents_item(ofile, &file_meta);
             }
 
@@ -1817,7 +1816,7 @@ void compress_file(const STRING &input_file, const STRING &filename) {
     checksum_init(&file_meta.ct);
 
     if(!diff_flag) {
-        io.try_write("F", 1, ofile);
+        io.write("F", 1, ofile);
         contents_t tmp = file_meta;
         tmp.abs_path.clear(); // todo why is this cleared?
         write_contents_item(ofile, &tmp);
@@ -1844,9 +1843,9 @@ void compress_file(const STRING &input_file, const STRING &filename) {
             update_statusbar_backup(input_file);
 
             size_t read = minimum(file_size - file_read, DISK_READ_CHUNK);
-            ensure_size(payload_queue, payload_queue_size + read);
-            char *read_to = payload_queue.data() + payload_queue_size;
-            size_t r = io.read_valid_length(read_to, read, ifile, input_file);
+            size_t r = io.read_vector(payload_queue, read, payload_queue_size, ifile, false);
+            abort(io.stdin_tty() && r != read, (UNITXT("Unexpected midway read error, cannot continue: ") + name).c_str());
+            checksum(payload_queue.data() + payload_queue_size, r, &file_meta.ct);
 
             if (input_file == UNITXT("-stdin") && r == 0) {
                 break;
@@ -1855,11 +1854,10 @@ void compress_file(const STRING &input_file, const STRING &filename) {
 
             file_read += r;
             payload_read += r;
-            checksum(read_to, r, &file_meta.ct);
 
             if (file_read == file_size && file_size > 0) {
                 // No CRC block for 0-sized files
-                io.try_write("C", 1, ofile);
+                io.write("C", 1, ofile);
                 file_meta.checksum = file_meta.ct.result32();
                 io.write_ui<uint32_t>(file_meta.ct.result32(), ofile);
             }
@@ -1873,19 +1871,17 @@ void compress_file(const STRING &input_file, const STRING &filename) {
         file_queue.clear();
     } else {
         assert(file_size <= DISK_READ_CHUNK - payload_queue_size);
-
-        ensure_size(payload_queue, payload_queue_size + file_size);
-        payload_queue_size = payload_queue_size + file_size;
-        char *read_to = payload_queue.data() + payload_queue_size - file_size;
-        size_t r = io.read_valid_length(read_to, file_size, ifile, input_file);
+        size_t r = io.read_vector(payload_queue, file_size, payload_queue_size, ifile, false);
+        abort(io.stdin_tty() && r != file_size, (UNITXT("Unexpected midway read error, cannot continue: ") + name).c_str());
+        checksum(payload_queue.data() + payload_queue_size, r, &file_meta.ct);
+        payload_queue_size += file_size;
 
         file_read += r;
         payload_read += r;
-        checksum(read_to, r, &file_meta.ct);
         assert(file_read == file_size);
         if (file_read == file_size && file_size > 0) {
             // No CRC block for 0-sized files
-            io.try_write("C", 1, ofile);
+            io.write("C", 1, ofile);
             file_meta.checksum = file_meta.ct.result32();
             io.write_ui<uint32_t>(file_meta.ct.result32(), ofile);
         }
@@ -2155,7 +2151,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
     for (;;) {
         char w;
 
-        r = io.try_read_buf(&w, 1, ifile);
+        r = io.read(&w, 1, ifile);
         abort(r == 0, UNITXT("Unexpected end of archive (block tag)"));
 
         if (w == 'I') {
@@ -2223,7 +2219,7 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
 
         auto ofile = create_file(dst);
         auto ifile = try_open(src, 'r', true);
-        for(size_t r; r = io.read(buf.data(), DISK_READ_CHUNK, ifile);) {
+        for(size_t r; r = io.read(buf.data(), DISK_READ_CHUNK, ifile, false);) {
             io.write(buf.data(), r, ofile);
             tot_res += r;
             update_statusbar_restore(dst);
@@ -2237,9 +2233,9 @@ void decompress_sequential(const STRING &extract_dir, bool add_files) {
 
 void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt, uint64_t archive_id) {
     if (s == BACKUP) {
-        io.try_write("EXDUPE F", 8, file);
+        io.write("EXDUPE F", 8, file);
     } else if (s == DIFF_BACKUP) {
-        io.try_write("EXDUPE D", 8, file);
+        io.write("EXDUPE D", 8, file);
     } else {
         abort(true, UNITXT("Internal error 25"));
     }
@@ -2261,7 +2257,7 @@ void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t
 }
 
 uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* archive_id = nullptr) {
-    string header = io.try_read(8, file);
+    string header = io.read_bin_string(8, file);
     if (action == BACKUP) {
         abort(header != "EXDUPE F", UNITXT("'%s' is not a .full file"), filename.c_str());
 
@@ -2391,7 +2387,7 @@ int main(int argc2, char *argv2[])
 
         // read remainder of file like content section, etc, to avoid error from OS
         vector<std::byte> tmp(32 * 1024, {});
-        while (ifile == stdin && io.read(tmp.data(), 32 * 1024, stdin)) {
+        while (ifile == stdin && io.read(tmp.data(), 32 * 1024, stdin, false)) {
         }
     }
 
@@ -2462,7 +2458,7 @@ int main(int argc2, char *argv2[])
             }
         }
 
-        io.try_write("X", 1, ofile);
+        io.write("X", 1, ofile);
         write_contents(ofile);
         size_t hashtable_size = 0;
 
@@ -2471,7 +2467,7 @@ int main(int argc2, char *argv2[])
         }
 
         size_t references_size = write_references(ofile);
-        io.try_write("END", 3, ofile);
+        io.write("END", 3, ofile);
         if(verbose_level > 0 && verbose_level < 3) {
             statusbar.clear_line();
         }

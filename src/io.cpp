@@ -60,76 +60,53 @@ uint64_t Cio::tell(FILE *_File) { return _ftelli64(_File); }
 
 int Cio::seek(FILE *_File, int64_t _Offset, int Origin) { return _fseeki64(_File, _Offset, Origin); }
 
-size_t Cio::read(void *_DstBuf, size_t _Count, FILE *_File) {
-    size_t r = fread(_DstBuf, 1, _Count, _File);
-    read_count += r;
-    return r;
-}
-
-size_t Cio::write(const void *_Str, size_t _Count, FILE *_File) {
-#if 0
-	for (int i = 0; i < _Count; i++) {
-		unsigned char c = ((unsigned char*)_Str)[i];
-		if (c >= 32) {
-			std::cerr << c;
-		}
-		else {
-			std::cerr << ".";
-		}
-	}
-#endif
-
-    size_t w = fwrite(_Str, 1, _Count, _File);
-    write_count += w;
-    return w;
-}
-
-size_t Cio::try_write(const void *Str, size_t Count, FILE *_File) {
+size_t Cio::write(const void *Str, size_t Count, FILE *_File) {
     size_t c = 0;
     while (c < Count) {
-        size_t w = minimum(Count - c, 512 * 1024);
-        size_t r = Cio::write((char *)Str + c, w, _File);
+        size_t w = minimum(Count - c, 1024 * 1024);
+        size_t r = fwrite((char*)Str + c, 1, w, _File);
+        write_count += r;
         abort(r != w, UNITXT("Disk full or write denied while writing destination file"));
         c += r;
     }
     return Count;
 }
 
-std::string Cio::try_read(size_t Count, FILE *_File) {
+size_t Cio::read(void* DstBuf, size_t Count, FILE* _File, bool read_exact) {
+    size_t c = 0;
+    for(;;) {
+        size_t r = minimum(Count - c, 1024 * 1024);
+        size_t w = fread((char*)DstBuf + c, 1, r, _File);
+        read_count += w;
+        abort(read_exact && stdin_tty() && w != r, UNITXT("Unexpected end of source file"));
+        c += w;
+        if(c == Count || w != r) {
+            break;
+        }
+    }
+    return c;
+}
+
+size_t Cio::read_vector(std::vector<char>& dst, size_t count, size_t offset, FILE* f, bool read_exact) {
+    if(dst.size() < count + offset) {
+        dst.resize(count + offset);
+    }
+    return read(dst.data() + offset, count, f, read_exact);
+}
+
+
+std::string Cio::read_bin_string(size_t Count, FILE *_File) {
     std::string str(Count, 'c');
     if(Count > 0) {
-        size_t r = Cio::try_read_buf(&str[0], Count, _File);
+        size_t r = Cio::read(&str[0], Count, _File);
         abort(stdin_tty() && r != Count, UNITXT("Unexpected end of source file"));
     }
     return str;
 }
 
-size_t Cio::try_read_buf(void *DstBuf, size_t Count, FILE *_File) {
-    size_t c = 0;
-    while (c < Count) {
-        size_t r = minimum(Count - c, 512 * 1024);
-        size_t w = Cio::read((char *)DstBuf + c, r, _File);
-        abort(stdin_tty() && w != r, UNITXT("Unexpected end of source file"));
-        c += r;
-    }
-    return Count;
-}
-
-// Call if you have prior tested that the file is long enough that the read will not exceed it
-size_t Cio::read_valid_length(void *DstBuf, size_t Count, FILE *_File, STRING name) {
-    size_t w = Cio::read((char *)DstBuf, Count, _File);
-    // Can be caused by region-locked files if on Windows, where it can occur anywhere inside
-    // the file. We do not want to attempt to discard compressed data that has already been written
-    // to the destination file (this is even impossible if compressing to stdout). So just abort. 
-    abort(stdin_tty() && w != Count, (UNITXT("Error reading file that has been opened successfully for reading - cannot recover: ") + name).c_str());
-
-    return w;
-}
-
-
-STRING Cio::readstr(FILE *_File) {
+STRING Cio::read_utf8_string(FILE *_File) {
     int t = read_compact<uint64_t>(_File);
-    std::string tmp = try_read(t, _File);
+    std::string tmp = read_bin_string(t, _File);
 #ifdef WINDOWS
     int req = MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(), -1, nullptr, 0);
     wstring res(req, 'c');
@@ -141,16 +118,16 @@ STRING Cio::readstr(FILE *_File) {
 #endif
 }
 
-void Cio::writestr(STRING str, FILE *_File) {
+void Cio::write_utf8_string(STRING str, FILE *_File) {
 #ifdef WINDOWS
     size_t req = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, nullptr, 0, nullptr, nullptr);
     std::vector<char> v(req, L'c');
     WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, &v[0], static_cast<int>(req), 0, 0);
     req--; // WideCharToMultiByte() adds trailing zero
     write_compact<uint64_t>(static_cast<uint64_t>(req), _File); // fixme, gsl::narrow
-    try_write(&v[0], req, _File);
+    write(&v[0], req, _File);
 #else
     write_compact<uint64_t>(str.size(), _File);
-    try_write(str.c_str(), str.size(), _File);
+    write(str.c_str(), str.size(), _File);
 #endif
 }

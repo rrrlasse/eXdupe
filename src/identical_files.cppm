@@ -25,13 +25,13 @@ public:
         checksum_t c;
 
         io.seek(ifile, 0, SEEK_SET);
-        io.read(buf.data(), 1024, ifile);
+        io.read(buf.data(), 1024, ifile, false);
         checksum_init(&c);
         checksum(buf.data(), 1024, &c);
         file_meta.first = c.result64();
 
         io.seek(ifile, -1024, SEEK_END);
-        io.read(buf.data(), 1024, ifile);
+        io.read(buf.data(), 1024, ifile, false);
         checksum_init(&c);
         checksum(buf.data(), 1024, &c);
         file_meta.last = c.result64();
@@ -43,7 +43,7 @@ public:
             if (cont.size == file_meta.size && cont.first == file_meta.first && cont.last == file_meta.last) {
                 io.seek(ifile, 0, SEEK_SET);
                 checksum_init(&c);
-                for (size_t r; r = io.read(buf.data(), buf.size(), ifile); r > 0) {
+                for (size_t r; r = io.read(buf.data(), buf.size(), ifile, false); r > 0) {
                     func(r, file);
                     checksum((char*)buf.data(), r, &c);
                 }
