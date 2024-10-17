@@ -15,6 +15,8 @@ if (MSVC)
 	set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/pthread/cmake")
 	include_directories(pthread)
 	add_subdirectory(pthread)
+else()
+	target_compile_options(libexdupe PRIVATE -mavx2)
 endif(MSVC)
 
 apply_compile_options_to_files("libexdupe.cpp" "${flags_to_apply}")

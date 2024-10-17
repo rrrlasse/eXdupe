@@ -715,7 +715,7 @@ uint64_t read_hashtable(FILE *file) {
     io.read(memory_end - s, s, file);
     io.seek(file, orig, SEEK_SET);
     int i = dup_decompress_hashtable(memory_end - s);
-
+    // FIXME, this make an archive file non-portable
     abort(i != 0, UNITXT("'%s' is corrupted or not a .full file (hash table)"), slashify(full).c_str());
     return 0;
 }

@@ -168,6 +168,7 @@ struct hash_t {
     uint64_t offset;
     uint16_t slide;
     char sha[HASH_SIZE];
+    uint8_t first_byte;
 };
 
 struct hashblock_t {
@@ -230,8 +231,11 @@ size_t write_hashblock(hashblock_t* h, char* dst) {
 
         ll2str(h->entry[t].offset, dst + 4, 8);
         ll2str(h->entry[t].slide, dst + 12, 2);
-        memcpy(dst + 14, h->entry[t].sha, HASH_SIZE);
-        dst += 14 + HASH_SIZE;
+        ll2str(h->entry[t].first_byte, dst + 14, 1);
+
+        memcpy(dst + 15, h->entry[t].sha, HASH_SIZE);
+
+        dst += 15 + HASH_SIZE;
     }
     return dst - orig_dst;
 }
@@ -254,13 +258,15 @@ size_t read_hashblock(hashblock_t* h, char* src) {
             h->hash[t] = 0;
             h->entry[t].offset = 0;
             h->entry[t].slide = 0;
+            h->entry[t].first_byte = 0;
             memset(h->entry[t].sha, 0, HASH_SIZE);
         }
         else {
             h->entry[t].offset = str2ll(src, 8);
             h->entry[t].slide = str2ll(src + 8, 2);
-            memcpy(h->entry[t].sha, src + 10, HASH_SIZE);
-            src += 10 + HASH_SIZE;
+            h->entry[t].first_byte = str2ll(src + 10, 1);
+            memcpy(h->entry[t].sha, src + 11, HASH_SIZE);
+            src += 11 + HASH_SIZE;
         }
     }
     return src - orig_src;
@@ -531,6 +537,7 @@ int dup_decompress_hashtable(char* src) {
                 for(size_t i = 0; i < slots; i++) {
                     small_table[block].entry[i].offset = 0;
                     small_table[block].entry[i].slide = 0;
+                    small_table[block].entry[i].first_byte = 0;
                     memset(&small_table[block].entry[i].sha, 0, HASH_SIZE);
                     small_table[block].hash[i] = 0;
                 }
@@ -544,105 +551,84 @@ int dup_decompress_hashtable(char* src) {
     return crc == crc2 ? 0 : 1;
 }
 
-static uint32_t quick(char init1, char init2, char init3, char init4, const char *src, size_t len) {
-    uint32_t r1 = init1;
-    r1 += *reinterpret_cast<const uint8_t *>(src);
-    r1 += *reinterpret_cast<const uint8_t *>(src + len - 4);
- 
-    uint32_t r2 = init2;
-    r2 += *reinterpret_cast<const uint8_t *>(src + len / 8 * 2);
-    r2 += *reinterpret_cast<const uint8_t *>(src + len / 8 * 3);
-
-    uint32_t r3 = init3;
-    r3 += *reinterpret_cast<const uint8_t *>(src + len / 8 * 4);
-    r3 += *reinterpret_cast<const uint8_t *>(src + len / 8 * 5);
-
-    uint32_t r4 = init4;
-    r4 += *reinterpret_cast<const uint8_t *>(src + len / 8 * 6);
-    r4 += *reinterpret_cast<const uint8_t *>(src + len / 8 * 7);
-
-    // No need to mix upper bits because we later modulo an odd value
-    return r1 ^ (r2 << 8) ^ (r3 << 16) ^ (r4 << 24);
+static uint32_t quick(const char* src, size_t len) {
+    uint64_t res = 0;
+    res += *(uint64_t*)&src[0];
+    res += *(uint64_t*)&src[len / 3 * 1 - 1];
+    res += *(uint64_t*)&src[len / 3 * 2 - 2];
+    res += *(uint64_t*)&src[len - 8 - 3];
+    res = res + (res >> 32);
+    return res;
 }
 
-static uint32_t window(const char *src, size_t len, const char **pos) {
+static uint32_t window(const char* src, size_t len, const char** pos) {
     size_t i = 0;
     size_t slide = minimum(len / 2, 65536); // slide must be able to fit in hash_t.O. Todo, static assert
-    int8_t b = 42;
-    uint64_t match = static_cast<size_t>(-1);
-#if 0
-	for (i = 0; i + 32 < slide; i += 32) {
-		__m256i src1 = _mm256_loadu_si256((__m256i*)(&src[i]));
-		__m256i src2 = _mm256_loadu_si256((__m256i*)(&src[i + 1]));
-		__m256i src3 = _mm256_loadu_si256((__m256i*)(&src[i + slide - 1]));
-		__m256i src4 = _mm256_loadu_si256((__m256i*)(&src[i + slide]));
-		__m256i sum = _mm256_add_epi8(_mm256_add_epi8(src1, src2), _mm256_add_epi8(src3, src4));
-		__m256i comparison = _mm256_cmpeq_epi8(sum, _mm256_set1_epi8(b));
-		auto larger = _mm256_movemask_epi8(comparison);
-		if (larger != 0) {
-#if defined _MSC_VER
-			auto off = _tzcnt_u32(static_cast<unsigned>(larger));
-#else
-			auto off = __builtin_ctz(static_cast<unsigned>(larger));
-#endif
-			match = i + off;
-			break;
-		}
-	}
-#else
-    for (i = 0; i + 16 < slide; i += 16) {
-        __m128i src1 = _mm_loadu_si128((__m128i *)(&src[i]));
-        __m128i src2 = _mm_loadu_si128((__m128i *)(&src[i + 1]));
-        __m128i src3 = _mm_loadu_si128((__m128i *)(&src[i + slide - 1]));
-        __m128i src4 = _mm_loadu_si128((__m128i *)(&src[i + slide]));
-        __m128i sum = _mm_add_epi8(_mm_add_epi8(src1, src2), _mm_add_epi8(src3, src4));
-        //sum = _mm_add_epi8(sum, sum);
+    size_t block = len - slide;
+    int16_t b = len >= LARGE_BLOCK ? 32767 - 32 : 32767 - 256;
+    size_t none = static_cast<size_t>(-1);
+    size_t match = none;
 
-        __m128i zero_vec = _mm_set1_epi8(b); //  _mm_setzero_si128();
-        __m128i comparison = _mm_cmpeq_epi8(sum, zero_vec);
+    for (i = 0; i + 32 < slide; i += 32) {
+        __m256i src1 = _mm256_loadu_si256((__m256i*)(&src[i]));
+        __m256i src2 = _mm256_loadu_si256((__m256i*)(&src[i + block - 32 - 1]));
+        __m256i sum1 = _mm256_add_epi16(src1, src2);
 
-       // __m128i comparison = _mm_cmpeq_epi8(sum, _mm_set1_epi8(0));
-        auto larger = _mm_movemask_epi8(comparison);
+        __m256i src3 = _mm256_loadu_si256((__m256i*)(&src[i + 1]));
+        __m256i src4 = _mm256_loadu_si256((__m256i*)(&src[i + block - 32]));
+        __m256i sum2 = _mm256_add_epi16(src3, src4);
+
+        sum1 = _mm256_mullo_epi16(sum1, sum1);
+        sum2 = _mm256_mullo_epi16(sum2, sum2);
+
+        __m256i comparison1 = _mm256_cmpgt_epi16(sum1, _mm256_set1_epi16(b));
+        __m256i comparison2 = _mm256_cmpgt_epi16(sum2, _mm256_set1_epi16(b));
+        __m256i comparison = _mm256_or_si256(comparison1, comparison2);
+
+        auto larger = _mm256_movemask_epi8(comparison);
+
         if (larger != 0) {
+            auto b1 = _mm256_movemask_epi8(comparison1); 
+            auto b2 = _mm256_movemask_epi8(comparison2);
 #if defined _MSC_VER
-            auto off = _tzcnt_u32(static_cast<unsigned>(larger));
+            unsigned int off1 = _tzcnt_u32(static_cast<unsigned int>(b1));
+            unsigned int off2 = 1 + _tzcnt_u32(static_cast<unsigned int>(b2));
 #else
-            auto off = __builtin_ctz(static_cast<unsigned>(larger));
+            unsigned int off1 = __builtin_ctz(static_cast<unsigned int>(b1));
+            unsigned int off2 = 1 + __builtin_ctz(static_cast<unsigned int>(b2));
 #endif
+            unsigned int off = minimum(off1, off2);
             match = i + off;
             break;
         }
     }
-#endif
 
-    if (match == static_cast<uint64_t>(-1)) {
+    if (match == none) {
         for (; i < slide; i += 1) {
-            uint8_t src1 = src[i];
-            uint8_t src2 = src[i + 1];
-            uint8_t src3 = src[i + slide - 1];
-            uint8_t src4 = src[i + slide];
-            uint8_t sum = (src1 + src2) + (src3 + src4);
-            //sum = sum + sum;
-            signed char h = static_cast<char>(sum);
-            if (h == b) {
+            int16_t src1 = *(int16_t*)&src[i];
+            int16_t src2 = *(int16_t*)&src[i + block - 32 - 1];
+            int16_t sum = src1 + src2;
+            sum = sum * sum;
+            if (sum > b) {
                 match = i;
                 break;
             }
         }
     }
-    if (match == static_cast<uint64_t>(-1)) {
+
+    if (match == none) {
         match = slide;
     }
 
     if (pos != 0) {
         *pos = src + match;
-    }        
+    }
 
-    if(match == slide) {
+    if (match == slide) {
         return 0;
     }
     else {
-        return 1 + quick(src[match], src[match + 16], src[match + len - slide - 32], src[match + len - slide - 4], src + match, len - slide - 8);
+        return 1 + quick(src + match, len - slide - 8);
     }
 }
 
@@ -653,7 +639,7 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
     const char *orig_src = src;
     const char *last_src = src + len - 1;
     uint32_t w = window(src, block, &w_pos);
-    size_t collision_skip = 32;
+    const char* collision = 0;
 
     while (src <= last_src) {
         hash_t* e;
@@ -670,7 +656,7 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
                 src = w_pos - e_cpy.slide;
             }
 
-            if (e && e_cpy.offset + block < pay + (src - orig_src)) {
+            if (e && e_cpy.first_byte == (uint8_t)src[0] && e_cpy.offset + block < pay + (src - orig_src)) {
                 char s[HASH_SIZE];
 
                 if (block == LARGE_BLOCK) {
@@ -686,17 +672,16 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
                 }
 
                 if (e_cpy.offset + block < pay + (src - orig_src) && dd_equal(s, e_cpy.sha, HASH_SIZE)) {
-                    collision_skip = 8;
+                    collision = 0; // prevent skipping data now because more matches may be near by
                     *payload_ref = e_cpy.offset;
                     return src;
                 } else {
-                    char c;
-                    src += collision_skip;
-                    collision_skip = collision_skip * 2 > SMALL_BLOCK ? SMALL_BLOCK : collision_skip * 2;
-                    c = *src;
+                    src += collision > src - 1024 ? 1024 : 32;
+                    char c = *src;
                     while (src <= last_src && *src == c) {
                         src++;
                     }
+                    collision = src;
                 }
             } else {
                 src = w_pos;
@@ -721,8 +706,7 @@ static bool hashat(const char *src, uint64_t pay, size_t len, bool large, char *
     if(w != 0) {
         pthread_mutex_lock_wrapper(&table_mutex);
         hash_t e;            
-
-        //e.hash = w;
+        e.first_byte = (uint8_t)src[0];
         e.offset = pay;
         memcpy(e.sha, hash, HASH_SIZE);
         e.slide = static_cast<uint16_t>(o - src);
