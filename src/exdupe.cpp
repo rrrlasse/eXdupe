@@ -1676,36 +1676,47 @@ void compress_symlink(const STRING &link, const STRING &target) {
     return;
 }
 
+// todo, move all this compression into a module or other structure
+
 uint64_t payload_compressed = 0; // Total payload returned by dup_compress() and flush_pend()
 uint64_t payload_read = 0;       // Total payload read from disk
 
-std::vector<char> payload_queue; // Queue of payload read from disk. Can contain multiple small files
-size_t payload_queue_size = 0;
+std::vector<std::vector<char>> payload_queue; // Queue of payload read from disk. Can contain multiple small files
+std::vector<size_t> payload_queue_size;
+size_t current_queue = 0;
+
+std::vector<std::vector<char>> out_payload_queue;
+std::vector<size_t> out_payload_queue_size;
+size_t out_current_queue = 0;
 
 vector<contents_t> file_queue;
 
 void empty_q(bool flush, bool entropy) {
     uint64_t pay;
     size_t cc;
+    char* out_result;
+
     auto write_result = [&]() {
         if (cc > 0) {
             io.write("A", 1, ofile);
-            add_references(out, cc, io.write_count);
-            io.write(out, cc, ofile);
+            add_references(out_result, cc, io.write_count);
+            io.write(out_result, cc, ofile);
             io.write("B", 1, ofile);
         }
         payload_compressed += pay;
-        };
+    };
 
-    if (payload_queue_size > 0) {
-        cc = dup_compress(payload_queue.data(), out, payload_queue_size, &pay, entropy);
+    if (payload_queue_size[current_queue] > 0) {
+        cc = dup_compress(payload_queue[current_queue].data(), out_payload_queue[out_current_queue].data(), payload_queue_size[current_queue], &pay, entropy, out_result);
         write_result();
-        payload_queue_size = 0;
+        current_queue = (current_queue + 1) % out_payload_queue.size();
+        payload_queue_size[current_queue] = 0;
+        out_current_queue = (out_current_queue + 1) % out_payload_queue.size();;
     }
 
     if (flush) {
         while (payload_compressed < payload_read) {
-            cc = flush_pend(out, &pay);
+            cc = flush_pend(&pay, out_result);
             write_result();
         }
     }
@@ -1715,7 +1726,7 @@ void compress_file_finalize() {
     empty_q(true, false);
 }
 
-void compress_file(const STRING &input_file, const STRING &filename) {
+void compress_file(const STRING& input_file, const STRING& filename) {
 
     if (input_file != UNITXT("-stdin") && ISNAMEDPIPE(get_attributes(input_file, follow_symlinks)) && !named_pipes) {
         statusbar.print(2, UNITXT("Skipped, no -p flag for named pipes: %s"), input_file.c_str());
@@ -1827,7 +1838,7 @@ void compress_file(const STRING &input_file, const STRING &filename) {
     io.seek(ifile, 0, SEEK_SET);
     
     // todo, simplify - this flag may not be needed
-    bool overflows = file_size > DISK_READ_CHUNK - payload_queue_size;
+    bool overflows = file_size > DISK_READ_CHUNK - payload_queue_size[current_queue];
 
     if (overflows) {
         empty_q(false, entropy);
@@ -1843,15 +1854,15 @@ void compress_file(const STRING &input_file, const STRING &filename) {
         update_statusbar_backup(input_file);
 
         size_t read = minimum(file_size - file_read, DISK_READ_CHUNK);
-        size_t r = io.read_vector(payload_queue, read, payload_queue_size, ifile, false);
+        size_t r = io.read_vector(payload_queue[current_queue], read, payload_queue_size[current_queue], ifile, false);
         abort(io.stdin_tty() && r != read, (UNITXT("Unexpected midway read error, cannot continue: ") + name).c_str());
-        checksum(payload_queue.data() + payload_queue_size, r, &file_meta.ct);
+        checksum(payload_queue[current_queue].data() + payload_queue_size[current_queue], r, &file_meta.ct);
 
         if (overflows && input_file == UNITXT("-stdin") && r == 0) {
             break;
         }
 
-        payload_queue_size += read;
+        payload_queue_size[current_queue] += read;
         file_read += r;
         payload_read += r;
 
@@ -2338,8 +2349,15 @@ int main(int argc2, char *argv2[])
     statusbar.m_verbose_level = verbose_level;
 
     if (restore_flag || compress_flag || list_flag) {
-        in = static_cast<char *>(tmalloc(DISK_READ_CHUNK + M));
-        out = static_cast<char *>(tmalloc((threads + 1) * DISK_READ_CHUNK + M)); // todo, compute exact to save memory
+        // todo, remove these which are now for decompression only. todo, create constants for mem usage
+        in = static_cast<char*>(tmalloc(DISK_READ_CHUNK + M));
+        out = static_cast<char*>(tmalloc((threads + 1) * DISK_READ_CHUNK + M));
+        for (uint32_t i = 0; i < threads + 1; i++) {
+            payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
+            payload_queue_size.push_back(0);
+            out_payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
+            out_payload_queue_size.push_back(0);
+        }
     }
 
     if (list_flag) {

@@ -1161,15 +1161,16 @@ int dup_decompress_simulate(const char *src, size_t *length, uint64_t *payload) 
     }
 }
 
-size_t flush_pend(char *dst, uint64_t *payloadret) {
-    char *orig_dst = dst;
+size_t flush_pend(uint64_t *payloadret, char*&retval_start) {
+    size_t res = 0;
     *payloadret = 0;
     int i;
     for (i = 0; i < threads; i++) {
         pthread_mutex_lock_wrapper(&jobs[i].jobmutex);
         if (!jobs[i].busy && jobs[i].size_destination > 0 && jobs[i].payload == flushed) {
-            memcpy(dst, jobs[i].destination, jobs[i].size_destination);
-            dst += jobs[i].size_destination;
+
+            res = jobs[i].size_destination;
+            retval_start = jobs[i].destination;
             flushed += jobs[i].size_source;
             jobs[i].size_destination = 0;
             *payloadret = jobs[i].size_source;
@@ -1179,13 +1180,17 @@ size_t flush_pend(char *dst, uint64_t *payloadret) {
         }
         pthread_mutex_unlock_wrapper(&jobs[i].jobmutex);
     }
-    return dst - orig_dst;
+    return res;
 }
 
 uint64_t dup_get_flushed() { return flushed; }
 
-size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_returned, bool entropy) {
-    char *dst_orig = dst;
+// (src, size): 'packet' of payload you want to compress
+// dst: point to where you want the compressed result of this particular packet written to
+// if return value > 0: a compressed packet was finished and written to retval_start, and compressed
+// size equals return value. retval_start will equal one of the 'dst' pointers you passed earlier.
+size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_returned, bool entropy, char*&retval_start) {
+    size_t ret = 0;
     *payload_returned = 0;
 
     if(entropy) {
@@ -1211,10 +1216,10 @@ size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_r
         int f = -1;
         pthread_mutex_lock_wrapper(&jobdone_mutex);
         do {
-            dst += flush_pend(dst, payload_returned);
+            ret = flush_pend(payload_returned, retval_start);
             f = get_free();
 
-            assert(!(dst != dst_orig && f == -1));
+           // assert(!(dst != dst_orig && f == -1));
 
             if (f == -1) {
                 pthread_cond_wait_wrapper(&jobdone_cond, &jobdone_mutex);
@@ -1222,25 +1227,18 @@ size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_r
         } while (f == -1);
 
         size_t req = size + 3 * LARGE_BLOCK;
-        if(jobs[f].source_capacity < req) {
-            // todo, use vector
-            free(jobs[f].source);
-            free(jobs[f].destination);
-            jobs[f].source = (char*)malloc(size_t(1.5 * req));
-            jobs[f].destination = (char*)malloc(size_t(1.5 * req));
-            jobs[f].source_capacity = size_t(1.5 * req);
-        }
-        memcpy(jobs[f].source, src, size);
         jobs[f].payload = global_payload;
         global_payload += size;
         count_payload += size;
         jobs[f].size_source = size;
         jobs[f].entropy = entropy;
+        jobs[f].source = (char*)src;
+        jobs[f].destination = (char*)dst;
 
         pthread_cond_signal_wrapper(&jobs[f].cond);
         pthread_mutex_unlock_wrapper(&jobs[f].jobmutex);
         pthread_mutex_unlock_wrapper(&jobdone_mutex);
     }
 
-    return dst - dst_orig;
+    return ret;
 }

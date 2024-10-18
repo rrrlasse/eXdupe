@@ -26,7 +26,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
 	     bool crypto_hash, uint64_t hash_seed, uint64_t basepay);
 
 size_t dup_compress(const void *src, char *dst, size_t size,
-		    uint64_t *payloadreturned, bool entropy);
+		    uint64_t *payloadreturned, bool entropy, char*& retval_start);
 int dup_decompress(const char *src, char *dst, size_t *length,
 		   uint64_t *payload);
 int dup_decompress_simulate(const char *src, size_t *length,
@@ -47,7 +47,7 @@ void print_fillratio(void);
 void reset_profiling(void);
 void print_profiling(void);
 uint64_t dup_get_flushed(void);
-size_t flush_pend(char *dst, uint64_t *payloadreturned);
+size_t flush_pend(uint64_t *payloadreturned, char*&retval_start);
 void print_table();
 
 extern size_t memsize;
