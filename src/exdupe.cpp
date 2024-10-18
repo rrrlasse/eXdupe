@@ -8,7 +8,7 @@
 #define VER_MAJOR 3
 #define VER_MINOR 0
 #define VER_REVISION 0
-#define VER_DEV 2
+#define VER_DEV 3
 
 #define Q(x) #x
 #define QUOTE(x) Q(x)
@@ -1218,11 +1218,11 @@ Most common flags:
         *a = std::regex_replace(*a, std::regex("%v"), VER);
     }
 
-    if (VER_DEV != 0) {
-        statusbar.print(0, UNITXT("UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTA\nBLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE UNSTABLE U\n"));
-    }
-
     statusbar.print(0, show_long ? tostring(long_help).c_str() : tostring(short_help).c_str());
+
+    if (VER_DEV != 0) {
+        statusbar.print(0, UNITXT("\nUNSTABLE DEVELOPMENT VERSION"));
+    }
 }
 
 void print_e_help() {
