@@ -18,7 +18,7 @@ function(apply_compile_options_to_files files_list options)
 endfunction()
 
 file(GLOB MODULES *.cppm)
-file(GLOB EXDUPE *.cppm *.h *.hpp *.cpp)
+file(GLOB EXDUPE *.h *.hpp *.cpp)
 file(GLOB TREX ${CMAKE_CURRENT_SOURCE_DIR}/trex/*.cpp  ${CMAKE_CURRENT_SOURCE_DIR}/trex/*.h)
 file(GLOB LUA ${CMAKE_CURRENT_SOURCE_DIR}/lua/*.c ${CMAKE_CURRENT_SOURCE_DIR}/lua/*.h)
 
@@ -39,10 +39,10 @@ endif()
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${TREX})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SHADOW})
 
-list (APPEND SOURCES ${EXDUPE} ${LUA} ${TREX})
+list (APPEND SOURCES ${MODULES} ${EXDUPE} ${LUA} ${TREX})
 
-apply_compile_options_to_files("${EXDUPE}" "${flags_to_apply}")
-apply_compile_options_to_files("${MODULES}" "-xc++")
+set_source_files_properties(${EXDUPE} PROPERTIES COMPILE_FLAGS "-std=c++20 -fmodules-ts -x c++-system-header chrono")
+set_source_files_properties(${MODULES} PROPERTIES COMPILE_FLAGS "-std=c++20 -fmodules-ts -x c++-system-header chrono -xc++")
 
 add_executable(exdupe ${SOURCES})
 

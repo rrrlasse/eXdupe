@@ -8,8 +8,7 @@
 #ifndef UNICODE_H
 #define UNICODE_H
 
-#include <string>
-using std::string;
+//#include <string>
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
 #define WINDOWS2

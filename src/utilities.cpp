@@ -174,7 +174,7 @@ void replace_stdstr(std::string &str, const std::string &oldStr, const std::stri
 }
 
 void set_date(STRING file, time_ms_t date) {
-    time_t t = date / 1000;
+    time_t t = std::chrono::system_clock::to_time_t(date);
     tm *timeInfo = gmtime(&t);
 #ifdef WINDOWS
     FILETIME ft;
@@ -248,25 +248,27 @@ bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_di
 #endif
 }
 
-time_ms_t cur_date() {
-    auto current = std::chrono::system_clock::now();
-    auto since_epoch = std::chrono::time_point_cast<std::chrono::milliseconds>(current).time_since_epoch();
-    return since_epoch.count();
-}
-
-std::tm local_time_tm(const time_ms_t &t) {
-    std::tm localTime;
-    time_t t_s = t / 1000;
+struct tm local_time_tm(const time_ms_t &t) {
+    struct tm localTime;
+    time_t t_s = std::chrono::system_clock::to_time_t(t);
 #if defined(_MSC_VER) || defined(__MINGW32__)
     localtime_s(&localTime, &t_s);
 #else
-    std::tm *tmp = localtime(&t_s);
+    struct tm *tmp = localtime(&t_s);
     if (tmp)
         localTime = *tmp;
 #endif
 
     return localTime;
 }
+
+#ifdef WINDOWS
+std::chrono::time_point<std::chrono::system_clock> filetime_to_timepoint(const FILETIME& ft) {
+    std::chrono::file_clock::duration d{ (static_cast<int64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime };
+    std::chrono::system_clock::time_point tp{ d };
+    return tp;
+}
+#endif
 
 // Returns {created time, modified time} on Windows and {status change time, modified time} on nix
 pair<time_ms_t, time_ms_t> get_date(STRING file) {
@@ -277,14 +279,9 @@ pair<time_ms_t, time_ms_t> get_date(STRING file) {
     HANDLE hFile = CreateFile(file.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT , NULL);
     if (hFile != INVALID_HANDLE_VALUE) {
         if (GetFileTime(hFile, &fileTimeCreated, nullptr, &fileTimeModified)) {
-            ULARGE_INTEGER modified;
-            ULARGE_INTEGER created;
-            created.LowPart = fileTimeCreated.dwLowDateTime;
-            created.HighPart = fileTimeCreated.dwHighDateTime;
-            modified.LowPart = fileTimeModified.dwLowDateTime;
-            modified.HighPart = fileTimeModified.dwHighDateTime;
-            CloseHandle(hFile);
-            return {static_cast<time_ms_t>((created.QuadPart - 116444736000000000ull) / 10000ull), static_cast<time_ms_t>((modified.QuadPart - 116444736000000000ull) / 10000ull)};
+            auto created_tp = filetime_to_timepoint(fileTimeCreated);
+            auto modified_tp = filetime_to_timepoint(fileTimeModified);
+            return {created_tp, modified_tp};
         } else {
             return {};
         }
@@ -300,7 +297,13 @@ pair<time_ms_t, time_ms_t> get_date(STRING file) {
     } else {
         stat(file.c_str(), &attrib);
     }
-    return {attrib.st_ctime * 1000, attrib.st_mtime * 1000};
+
+
+    auto duration = std::chrono::seconds(attrib.st_mtim.tv_sec) + std::chrono::nanoseconds(attrib.st_mtim.tv_nsec);
+    auto m = std::chrono::time_point<std::chrono::system_clock>(duration);
+
+
+    return {m, m};
 #endif
 }
 
@@ -700,9 +703,7 @@ bool create_directory(STRING path) {
 
 bool create_directories(STRING path, time_ms_t t) {
     bool b = std::filesystem::create_directories(path);
-    if(t != 0) {
-        set_date(path, t);
-    }
+    set_date(path, t);
     return b;
 }
 
@@ -727,7 +728,7 @@ bool same2(char *src, size_t len) {
     return true;
 }
 
-std::STRING del(int64_t l, size_t width) {
+std::STRING del(int64_t l, size_t width = 0) {
     CHR s[50], d[50];
     unsigned int i, j = 0;
 

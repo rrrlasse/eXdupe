@@ -5,12 +5,10 @@
 #include <thread>
 #include <array>
 #include <iostream>
-#include <format>
 #include <map>
 #include <regex>
 #include <vector>
 #include <filesystem>
-#include <format>
 #include <fstream>
 
 #ifdef _WIN32

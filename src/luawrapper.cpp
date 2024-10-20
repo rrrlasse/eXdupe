@@ -22,7 +22,6 @@ extern "C" {
 #include <time.h>
 #include <vector>
 #include <regex>
-#include <format>
 #include <iostream>
 
 #ifdef _WIN32
@@ -135,9 +134,9 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
     
         luaMemFile luaMF;
 
-        if (date < 0) {
-            date = 0;
-        }
+        //if (date < 0) {
+         //   date = 0;
+        //}
 
         // clang-format off
         auto_script = "function contains(i, l);\nfor _,v in pairs(i) do;if v == l then;return true;end;end;return false;\nend\n";
@@ -183,7 +182,7 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
     lua_pushinteger(L, size);
     lua_pushstring(L, escape_lua_string(ext).c_str());
     
-    lua_pushinteger(L, date);
+    lua_pushinteger(L, std::chrono::system_clock::to_time_t(date));
     tm t = local_time_tm(date);
     int year = t.tm_year + 1900;
     int month = t.tm_mon;

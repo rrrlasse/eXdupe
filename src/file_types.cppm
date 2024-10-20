@@ -2,9 +2,6 @@ module;
 
 #include "utilities.hpp"
 
-#include <string>
-#include <vector>
-
 export module FileTypes;
 
 export class FileTypes

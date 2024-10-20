@@ -24,8 +24,11 @@
 #define X86X64
 #endif
 
+#include <chrono>
+
+
 #include <string.h>
-#include <string>
+//#include <string>
 #include <vector>
 #if defined(__SVR4) && defined(__sun)
 #include <thread.h>
@@ -35,16 +38,16 @@
 #include <unistd.h>
 #endif
 #include <algorithm>
-#include <ctime>
 #include <stdarg.h>
 #include <stdint.h>
-#include <stdio.h>
+//#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <vector>
 #include <tuple>
+
 #ifdef WINDOWS
 #define CASESENSE(str) lcase(str)
 #include <windows.h>
@@ -69,19 +72,18 @@ enum { FILE_TYPE, DIR_TYPE, SYMLINK_TYPE, ERROR_TYPE };
 enum status_t { BACKUP, DIFF_BACKUP, RESTORE, DIFF_RESTORE, LIST, DIFF_LIST };
 
 // milliseconds since epoch
-typedef long long time_ms_t; 
+using time_ms_t = std::chrono::time_point<std::chrono::system_clock>;
 
-std::tm local_time_tm(const time_ms_t &t);
-std::string format_size(uint64_t size);
+struct tm local_time_tm(const time_ms_t &t);
+std::string format_size(std::uint64_t size);
 void clear_line();
-uint64_t rnd64();
+std::uint64_t rnd64();
 bool is_valid_utf8(const std::string& input) ;
 STRING string2wstring(string str);
 string wstring2string(STRING wstr);
 void replace_stdstr(std::string &str, const std::string &oldStr, const std::string &newStr);
 void replace_str(std::STRING &str, const std::STRING &oldStr, const std::STRING &newStr);
 STRING replace2(STRING orig, STRING src, STRING dst);
-time_ms_t cur_date();
 bool is_symlink(STRING file);
 bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir);
 bool is_named_pipe(STRING file);
@@ -98,7 +100,7 @@ STRING remove_delimitor(STRING path);
 STRING remove_leading_delimitor(STRING path);
 void abort(bool b, const CHR *fmt, ...);
 STRING get_pid(void);
-uint64_t filesize(STRING file, bool followlinks);
+std::uint64_t filesize(STRING file, bool followlinks);
 bool same_path(STRING p1, STRING p2);
 
 STRING s2w(const std::string &s);
@@ -119,17 +121,17 @@ bool create_directory(STRING path);
 bool create_directories(STRING path, time_ms_t t);
 size_t longest_common_prefix(vector<STRING> strings, bool case_sensitive);
 
-template <class T, class U> const uint64_t minimum(const T a, const U b) {
-    return (static_cast<uint64_t>(a) > static_cast<uint64_t>(b)) ? static_cast<uint64_t>(b) : static_cast<uint64_t>(a);
+template <class T, class U> const std::uint64_t minimum(const T a, const U b) {
+    return (static_cast<std::uint64_t>(a) > static_cast<std::uint64_t>(b)) ? static_cast<std::int64_t>(b) : static_cast<std::uint64_t>(a);
 }
 
 struct checksum_t {
     XXH3_state_t state;
     XXH128_hash_t hash;
     std::string result();
-    uint32_t hi();
-    uint32_t result32();
-    uint64_t result64();
+    std::uint32_t hi();
+    std::uint32_t result32();
+    std::uint64_t result64();
 };
 
 void checksum(char *data, size_t len, checksum_t *t);
@@ -137,13 +139,13 @@ void checksum_init(checksum_t *t);
 STRING abs_path(STRING source);
 bool exists(STRING file);
 bool is_dir(STRING path);
-std::string s(uint64_t l);
+std::string s(std::uint64_t l);
 
 #ifndef WINDOWS
 unsigned int GetTickCount();
 #endif
 
-std::STRING del(int64_t l, size_t width = 0);
+std::STRING del(std::int64_t l, size_t width);
 bool equal2(const void *src1, const void *src2, size_t len);
 bool same2(CHR *src, size_t len);
 void *tmalloc(size_t size);
@@ -161,7 +163,7 @@ typedef struct {
     unsigned char tm_isdst; /* daylight savings time flag */
 } short_tm;
 
-void tm_to_short(short_tm *s, tm *l);
-void tm_to_long(short_tm *s, tm *l);
+void tm_to_short(short_tm *s, struct tm *l);
+void tm_to_long(short_tm *s, struct tm *l);
 
 #endif

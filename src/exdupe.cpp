@@ -22,7 +22,6 @@
 #define NOMINMAX
 #include <algorithm>
 #include <assert.h>
-#include <chrono>
 #include <cmath>
 #include <errno.h>
 #include <filesystem>
@@ -33,7 +32,7 @@
 #include <regex>
 #include <stdarg.h>
 #include <stdint.h>
-#include <stdio.h>
+//#include <stdio.h>
 #include <stdlib.h>
 #include <string>
 #include <sys/stat.h>
@@ -41,6 +40,7 @@
 #include <utility>
 #include <vector>
 #include <unordered_map>
+
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
 #define WINDOWS
@@ -98,9 +98,12 @@ const bool WIN = false;
 #include "libexdupe/xxHash/xxh3.h"
 #include "libexdupe/xxHash/xxhash.h"
 
-import FileTypes;
 import IdenticalFiles;
 import UntouchedFiles;
+import FileTypes;
+
+#include <chrono>
+
 
 #ifdef _WIN32
 #pragma warning(disable : 4459) // todo
@@ -142,8 +145,6 @@ compile_assert(sizeof(size_t) == 8);
 
 uint64_t start_time = GetTickCount();
 uint64_t start_time_without_overhead;
-
-using namespace std;
 
 // command line flags
 uint64_t memory_usage = 2 * G;
@@ -318,6 +319,7 @@ void update_statusbar_restore(STRING file) {
 }
 
 STRING date2str(time_ms_t date) {
+/*
     date = date / 1000;
     if (date == 0) {
         return UNITXT("                ");
@@ -326,7 +328,8 @@ STRING date2str(time_ms_t date) {
     CHR dst[1000];
     tm date2 = local_time_tm(date);
     SPRINTF(dst, UNITXT("%04u-%02u-%02u %02u:%02u"), date2.tm_year + 1900, date2.tm_mon + 1, date2.tm_mday, date2.tm_hour, date2.tm_min);
-    return STRING(dst);
+    */
+    return {};// STRING(dst);
 }
 
 STRING validchars(STRING filename) {
@@ -358,8 +361,10 @@ void read_content_item(FILE* file, contents_t* c) {
     c->link = slashify(io.read_utf8_string(file));
     c->size = io.read_compact<uint64_t>(file);
     c->checksum = io.read_ui<uint32_t>(file);
-    c->file_c_time = io.read_compact<uint64_t>(file);
-    c->file_modified = io.read_compact<uint64_t>(file);
+    int64_t ms_epoch = io.read_compact<uint64_t>(file);
+    c->file_c_time = std::chrono::time_point<std::chrono::system_clock>(std::chrono::milliseconds(ms_epoch));
+    ms_epoch = io.read_compact<uint64_t>(file);
+    c->file_modified = std::chrono::time_point<std::chrono::system_clock>(std::chrono::milliseconds(ms_epoch));
     c->attributes = io.read_ui<uint32_t>(file);
     c->dublicate = io.read_compact<uint64_t>(file);
 
@@ -387,8 +392,10 @@ void write_contents_item(FILE *file, contents_t *c) {
         io.write_utf8_string(c->link, file);
         io.write_compact<uint64_t>(c->size, file);
         io.write_ui<uint32_t>(c->checksum, file);
-        io.write_compact<uint64_t>(c->file_c_time, file);
-        io.write_compact<uint64_t>(c->file_modified, file);
+        auto t = std::chrono::duration_cast<std::chrono::milliseconds>(c->file_c_time.time_since_epoch()).count(); //  system_clock::to_time_t(c->file_c_time);
+        io.write_compact<uint64_t>(t, file);
+        t = std::chrono::duration_cast<std::chrono::milliseconds>(c->file_modified.time_since_epoch()).count(); //  system_clock::to_time_t(c->file_c_time);
+        io.write_compact<uint64_t>(t, file);
         io.write_ui<uint32_t>(c->attributes, file);
         io.write_compact<uint64_t>(c->dublicate, file);
         write_hash(file, *c);
@@ -619,7 +626,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
     return false;
 }
 // clang-format off
-void print_file(STRING filename, uint64_t size, time_ms_t file_modified = 0, int attributes = 0) {
+void print_file(STRING filename, uint64_t size, time_ms_t file_modified, int attributes = 0) {
 #ifdef WINDOWS
     statusbar.print_no_lf(0, UNITXT("%s  %s  %s\n"), 
         size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 19).c_str(),
@@ -1426,7 +1433,7 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
     }
 
     if (!exists(directory)) {
-        create_directories(directory, 0);
+        create_directories(directory, {});
     }
 
     uint64_t payload = 0;
@@ -1775,7 +1782,8 @@ void compress_file(const STRING& input_file, const STRING& filename) {
         attributes = get_attributes(input_file, follow_symlinks);
         io.seek(ifile, 0, SEEK_SET);
     } else {
-        file_time = {cur_date(), cur_date()};
+        std::chrono::system_clock::time_point n = std::chrono::system_clock::now();
+        file_time = {n, n};
         file_size = std::numeric_limits<uint64_t>::max();
     }
 

@@ -19,7 +19,7 @@ public:
         auto it = contents_full.find(CASESENSE(abs_path(fullpath)));
         // The "it->second.name == filename" is for Windows where we decide to do a full backup of a file even if its only change was a case-rename. Note that
         // drive-letter casing can apparently fluctuate randomly on Windows, so don't compare full paths
-        bool ret = (it != contents_full.end() && it->second.file_c_time == t.first && it->second.file_modified == t.second && it->second.name == name_part);
+        bool ret = (it != contents_full.end() && eq(it->second.file_c_time, t.first) && eq(it->second.file_modified, t.second) && it->second.name == name_part);
         if(ret) {
             return it->second;
         }
@@ -51,6 +51,13 @@ public:
     }
 
 private:
+    bool eq(auto tp1, auto tp2) {
+        // timestamps are only saved with ms precision in the .full file
+        auto ms1 = std::chrono::duration_cast<std::chrono::milliseconds>(tp1.time_since_epoch());
+        auto ms2 = std::chrono::duration_cast<std::chrono::milliseconds>(tp2.time_since_epoch());
+        return ms1 == ms2;
+    }
+
 	unordered_map<STRING, contents_t> contents_full; // {abs_path, contents}
 	unordered_map<uint32_t, STRING> contents_full_ids; // {file_id, abs_path}
 };
