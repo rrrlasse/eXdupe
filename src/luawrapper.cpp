@@ -122,7 +122,7 @@ static int lua_panic(lua_State *L) {
 }
 */
 
-bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t size, STRING ext2, uint32_t attrib, time_t date, bool top_level) {
+bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t size, STRING ext2, uint32_t attrib, time_ms_t date, bool top_level) {
     user_script = utf8e(user_script2);
     string path = utf8e(remove_delimitor(path2));
     string name = utf8e(name2);

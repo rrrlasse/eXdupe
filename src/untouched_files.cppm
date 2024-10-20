@@ -15,7 +15,7 @@ export class UntouchedFiles
 {
 public:
     // todo, remove name_part and extract it from fullpath
-	optional<contents_t> exists(STRING fullpath, STRING name_part, pair<time_t, time_t> t) {
+	optional<contents_t> exists(STRING fullpath, STRING name_part, pair<time_ms_t, time_ms_t>& t) {
         auto it = contents_full.find(CASESENSE(abs_path(fullpath)));
         // The "it->second.name == filename" is for Windows where we decide to do a full backup of a file even if its only change was a case-rename. Note that
         // drive-letter casing can apparently fluctuate randomly on Windows, so don't compare full paths

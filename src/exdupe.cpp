@@ -317,7 +317,8 @@ void update_statusbar_restore(STRING file) {
     statusbar.update(RESTORE, 0, tot_res, file);
 }
 
-STRING date2str(time_t date) {
+STRING date2str(time_ms_t date) {
+    date = date / 1000;
     if (date == 0) {
         return UNITXT("                ");
     }
@@ -357,10 +358,9 @@ void read_content_item(FILE* file, contents_t* c) {
     c->link = slashify(io.read_utf8_string(file));
     c->size = io.read_compact<uint64_t>(file);
     c->checksum = io.read_ui<uint32_t>(file);
-    c->file_c_time = io.read_ui<uint32_t>(file);
-    c->file_modified = io.read_ui<uint32_t>(file);
+    c->file_c_time = io.read_compact<uint64_t>(file);
+    c->file_modified = io.read_compact<uint64_t>(file);
     c->attributes = io.read_ui<uint32_t>(file);
-
     c->dublicate = io.read_compact<uint64_t>(file);
 
     read_hash(file, *c);
@@ -387,12 +387,10 @@ void write_contents_item(FILE *file, contents_t *c) {
         io.write_utf8_string(c->link, file);
         io.write_compact<uint64_t>(c->size, file);
         io.write_ui<uint32_t>(c->checksum, file);
-        io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_c_time), file);
-        io.write_ui<uint32_t>(static_cast<uint32_t>(c->file_modified), file);
+        io.write_compact<uint64_t>(c->file_c_time, file);
+        io.write_compact<uint64_t>(c->file_modified, file);
         io.write_ui<uint32_t>(c->attributes, file);
-
         io.write_compact<uint64_t>(c->dublicate, file);
-
         write_hash(file, *c);
     }
     contents_size += io.write_count - written;
@@ -621,7 +619,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
     return false;
 }
 // clang-format off
-void print_file(STRING filename, uint64_t size, time_t file_modified = 0, int attributes = 0) {
+void print_file(STRING filename, uint64_t size, time_ms_t file_modified = 0, int attributes = 0) {
 #ifdef WINDOWS
     statusbar.print_no_lf(0, UNITXT("%s  %s  %s\n"), 
         size == std::numeric_limits<uint64_t>::max() ? UNITXT("                   ") : del(size, 19).c_str(),
@@ -1644,7 +1642,7 @@ void compress_symlink(const STRING &link, const STRING &target) {
     bool is_dir;
     STRING tmp;
 
-    time_t file_modified = get_date(link).second;
+    time_ms_t file_modified = get_date(link).second;
     int t = symlink_target(link.c_str(), tmp, is_dir) ? 0 : -1;
 
     if (t == -1) {
@@ -1733,7 +1731,7 @@ void compress_file(const STRING& input_file, const STRING& filename) {
         return;
     }
 
-    pair<time_t, time_t> file_time;
+    pair<time_ms_t, time_ms_t> file_time;
     int attributes = 0;
     checksum_t file_checksum;
     checksum_init(&file_checksum);
@@ -1910,7 +1908,7 @@ bool lua_test(STRING path, const STRING &script, bool top_level) {
     STRING ext;
     STRING name;
     uint32_t attrib = 0;
-    time_t date;
+    time_ms_t date;
     int type;
 
 #ifdef WINDOWS

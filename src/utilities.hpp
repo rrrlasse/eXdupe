@@ -68,11 +68,12 @@ using namespace std; // fixme, remove
 enum { FILE_TYPE, DIR_TYPE, SYMLINK_TYPE, ERROR_TYPE };
 enum status_t { BACKUP, DIFF_BACKUP, RESTORE, DIFF_RESTORE, LIST, DIFF_LIST };
 
-std::tm local_time_tm(const time_t &t);
+// milliseconds since epoch
+typedef long long time_ms_t; 
 
+std::tm local_time_tm(const time_ms_t &t);
 std::string format_size(uint64_t size);
 void clear_line();
-
 uint64_t rnd64();
 bool is_valid_utf8(const std::string& input) ;
 STRING string2wstring(string str);
@@ -80,12 +81,12 @@ string wstring2string(STRING wstr);
 void replace_stdstr(std::string &str, const std::string &oldStr, const std::string &newStr);
 void replace_str(std::STRING &str, const std::STRING &oldStr, const std::STRING &newStr);
 STRING replace2(STRING orig, STRING src, STRING dst);
-time_t cur_date();
+time_ms_t cur_date();
 bool is_symlink(STRING file);
 bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir);
 bool is_named_pipe(STRING file);
-void set_date(STRING file, time_t date);
-pair<time_t, time_t> get_date(STRING file);
+void set_date(STRING file, time_ms_t date);
+pair<time_ms_t, time_ms_t> get_date(STRING file);
 STRING slashify(STRING path);
 STRING slashify(STRING path);
 vector<STRING> split_string(STRING str, STRING delim);
@@ -115,7 +116,7 @@ int get_attributes(STRING path, bool follow);
 bool set_attributes(STRING path, int attributes);
 
 bool create_directory(STRING path);
-bool create_directories(STRING path, time_t t);
+bool create_directories(STRING path, time_ms_t t);
 size_t longest_common_prefix(vector<STRING> strings, bool case_sensitive);
 
 template <class T, class U> const uint64_t minimum(const T a, const U b) {

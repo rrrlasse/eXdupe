@@ -14,8 +14,8 @@ public:
     uint64_t size;
     uint64_t payload;
     uint32_t checksum;
-    time_t file_modified;
-    time_t file_c_time; // created on Windows, status change on nix
+    time_ms_t file_modified;
+    time_ms_t file_c_time; // created on Windows, status change on nix
     int attributes;
     bool directory;
     bool symlink;
