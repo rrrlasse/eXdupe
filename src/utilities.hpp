@@ -96,7 +96,8 @@ STRING lcase(STRING str);
 STRING remove_leading_curdir(STRING path);
 STRING remove_delimitor(STRING path);
 STRING remove_leading_delimitor(STRING path);
-void abort(bool b, const CHR *fmt, ...);
+void abort(bool b, const CHR* fmt, ...);
+void abort(bool b, int, const CHR* fmt, ...);
 STRING get_pid(void);
 uint64_t filesize(STRING file, bool followlinks);
 bool same_path(STRING p1, STRING p2);
@@ -119,7 +120,7 @@ bool create_directory(STRING path);
 bool create_directories(STRING path, time_ms_t t);
 size_t longest_common_prefix(vector<STRING> strings, bool case_sensitive);
 
-template <class T, class U> const uint64_t minimum(const T a, const U b) {
+template <class T, class U> uint64_t minimum(T a, U b) {
     return (static_cast<uint64_t>(a) > static_cast<uint64_t>(b)) ? static_cast<uint64_t>(b) : static_cast<uint64_t>(a);
 }
 
@@ -163,5 +164,7 @@ typedef struct {
 
 void tm_to_short(short_tm *s, tm *l);
 void tm_to_long(short_tm *s, tm *l);
+
+std::string regx(std::string str, std::string pat);
 
 #endif

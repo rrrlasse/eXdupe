@@ -14,14 +14,14 @@ public:
         buf.resize(1024*1024);
     }
 
-	void add(contents_t c) {
+    void add(contents_t c) {
         // todo, maybe it should be caller's job to decide what to accept
-		if (c.size > 4096 && !c.dublicate && !c.unchanged && !c.directory) {
-			all_file_hashes[c.first] = c;
-		}
-	}
+        if (c.size > 4096 && !c.dublicate && !c.unchanged && !c.directory) {
+            all_file_hashes[c.first] = c;
+        }
+    }
 
-	contents_t identical_to(FILE* ifile, contents_t& file_meta, Cio& io, void (*func)(uint64_t read, STRING file), STRING file) {
+    contents_t identical_to(FILE* ifile, contents_t& file_meta, Cio& io, void (*func)(uint64_t read, STRING file), STRING file) {
         checksum_t c;
 
         io.seek(ifile, 0, SEEK_SET);
@@ -43,7 +43,7 @@ public:
             if (cont.size == file_meta.size && cont.first == file_meta.first && cont.last == file_meta.last) {
                 io.seek(ifile, 0, SEEK_SET);
                 checksum_init(&c);
-                for (size_t r; r = io.read(buf.data(), buf.size(), ifile, false); r > 0) {
+                for (size_t r; r = io.read(buf.data(), buf.size(), ifile, false);) {
                     func(r, file);
                     checksum((char*)buf.data(), r, &c);
                 }
@@ -56,9 +56,9 @@ public:
         }
 
         return {};
-	}
+    }
 
 private:
-	unordered_map<uint32_t, contents_t> all_file_hashes;
+    unordered_map<uint64_t, contents_t> all_file_hashes;
     std::vector<char> buf;
 };

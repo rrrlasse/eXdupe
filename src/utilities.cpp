@@ -14,6 +14,8 @@
 #include <time.h>
 #include <assert.h>
 #include <tuple>
+#include <regex>
+
 #include "unicode.h"
 #include "utilities.hpp"
 
@@ -44,13 +46,13 @@ namespace fs = std::filesystem;
 #endif
 
 #ifdef WINDOWS
-#define CURDIR UNITXT(".\\")
-#define DELIM_STR UNITXT("\\")
+#define CURDIR L(".\\")
+#define DELIM_STR L("\\")
 #define DELIM_CHAR '\\'
 #else
-#define CURDIR UNITXT("./")
-#define DELIM_STR UNITXT("/")
-#define DELIM_CHAR UNITXT('/')
+#define CURDIR L("./")
+#define DELIM_STR L("/")
+#define DELIM_CHAR L('/')
 #endif
 
 bool is_valid_utf8(const std::string& input) {
@@ -121,20 +123,20 @@ STRING s2w(const std::string &s) { return STRING(s.begin(), s.end()); }
 string w2s(const STRING &s) { return string(s.begin(), s.end()); }
 
 STRING left(const STRING &s) {
-    const size_t t = s.find_last_of(UNITXT("/\\"));
+    const size_t t = s.find_last_of(L("/\\"));
     if (t != string::npos) {
         return s.substr(0, t);
     } else {
-        return UNITXT("");
+        return L("");
     }
 }
 
 STRING right(const STRING &s) {
-    const size_t t = s.find_last_of(UNITXT("/\\"));
+    const size_t t = s.find_last_of(L("/\\"));
     if (t != string::npos) {
         return s.substr(t + 1);
     } else {
-        return UNITXT("");
+        return L("");
     }
 }
 
@@ -309,7 +311,7 @@ STRING abs_path(STRING source) {
     CHR *r;
 #ifdef WINDOWS
     r = _wfullpath(destination, source.c_str(), 5000);
-    return r == 0 ? UNITXT("") : destination;
+    return r == 0 ? L("") : destination;
 #else
     if (fs::is_symlink(source)) {
         fs::path p(source);
@@ -324,7 +326,7 @@ STRING abs_path(STRING source) {
     }
 
     r = realpath(source.c_str(), destination);
-    return r == 0 ? UNITXT("") : destination;
+    return r == 0 ? L("") : destination;
 #endif
 }
 
@@ -418,7 +420,7 @@ void checksum_init(checksum_t *t) {
 
 void checksum(char *data, size_t len, checksum_t *t) {
     if (XXH3_128bits_update(&t->state, data, len) == XXH_ERROR) {
-        abort(false, UNITXT("xxHash error"));
+        abort(false, L("xxHash error"));
     }
     return;
 }
@@ -428,9 +430,9 @@ void checksum(char *data, size_t len, checksum_t *t) {
 // No error handling other than returning 0, be aware of where you use this function
 uint64_t filesize(STRING file, bool followlinks = false) {
     // If the user has set followlinks then the directory-traversal, which happens *early*,
-    // will resolve linksand treat them as files from that point. So a requirement to have
+    // will resolve links and treat them as files from that point. So a requirement to have
     // knowlege about the flag should not propagate down to here
-    assert(followlinks == false);
+    abort(followlinks != false, L("Internal error, followlinks == true in filesize()"));
 
     try {
         if (fs::is_symlink(file)) {
@@ -459,7 +461,7 @@ bool exists(STRING file) {
 
 
 STRING remove_leading_curdir(STRING path) {
-    if ((path.length() >= 2 && (path.substr(0, 2) == UNITXT(".\\"))) || path.substr(0, 2) == UNITXT("./")) {
+    if ((path.length() >= 2 && (path.substr(0, 2) == L(".\\"))) || path.substr(0, 2) == L("./")) {
         return path.substr(2, path.length() - 2);
     } else {
         return path;
@@ -467,7 +469,7 @@ STRING remove_leading_curdir(STRING path) {
 }
 
 STRING remove_delimitor(STRING path) {
-    size_t r = path.find_last_of(UNITXT("/\\"));
+    size_t r = path.find_last_of(L("/\\"));
     if (r == path.length() - 1) {
         return path.substr(0, r);
     } else {
@@ -476,7 +478,7 @@ STRING remove_delimitor(STRING path) {
 }
 
 STRING remove_leading_delimitor(STRING path) {
-    if (path.starts_with(UNITXT("\\")) || path.starts_with(UNITXT("/"))) {
+    if (path.starts_with(L("\\")) || path.starts_with(L("/"))) {
         path.erase(path.begin());
     }
     return path;
@@ -530,8 +532,8 @@ int get_attributes(STRING path, bool follow) {
     }
 
     (void)follow;
-    if (path.length() == 2 && path.substr(1, 1) == UNITXT(":")) {
-        path = path + UNITXT("\\");
+    if (path.length() == 2 && path.substr(1, 1) == L(":")) {
+        path = path + L("\\");
     }
 
     DWORD attributes = GetFileAttributesW(path.c_str());
@@ -584,7 +586,7 @@ std::string s(uint64_t l) { return std::to_string(l); }
 void *tmalloc(size_t size) {
     void *p = malloc(size);
 
-    abort(p == 0, UNITXT("Error at malloc() of %d MB. System out of memory."), (int)(size >> 20));
+    abort(p == 0, L("Error at malloc() of %d MB. System out of memory."), (int)(size >> 20));
     return p;
 }
 
@@ -597,14 +599,14 @@ int DeleteDirectory(const TCHAR *sPath) {
     TCHAR FileName[MAX_PATH_LEN];
 
     wcscpy(DirPath, sPath);
-    wcscat(DirPath, UNITXT("\\"));
+    wcscat(DirPath, L("\\"));
     wcscpy(FileName, sPath);
-    wcscat(FileName, UNITXT("\\*")); // searching all files
+    wcscat(FileName, L("\\*")); // searching all files
 
     hFind = FindFirstFile(FileName, &FindFileData); // find the first file
     if (hFind != INVALID_HANDLE_VALUE) {
         do {
-            if (FindFileData.cFileName == STRING(UNITXT(".")) || FindFileData.cFileName == STRING(UNITXT(".."))) {
+            if (FindFileData.cFileName == STRING(L(".")) || FindFileData.cFileName == STRING(L(".."))) {
                 continue;
             }
 
@@ -645,7 +647,7 @@ int delete_directory(STRING base_dir) {
     // process files
     if ((dir = opendir(base_dir.c_str())) != 0) {
         while ((entry = readdir(dir))) {
-            if (STRING(entry->d_name) != UNITXT(".") && STRING(entry->d_name) != UNITXT("..")) {
+            if (STRING(entry->d_name) != L(".") && STRING(entry->d_name) != L("..")) {
                 path = base_dir + DELIM_STR + STRING(entry->d_name);
                 if (!is_dir(path)) {
                     REMOVE(path.c_str());
@@ -662,7 +664,7 @@ int delete_directory(STRING base_dir) {
         while ((entry = readdir(dir))) {
             path = base_dir + DELIM_STR + STRING(entry->d_name);
 
-            if (is_dir(path) && STRING(entry->d_name) != UNITXT(".") && STRING(entry->d_name) != UNITXT("..")) {
+            if (is_dir(path) && STRING(entry->d_name) != L(".") && STRING(entry->d_name) != L("..")) {
                 delete_directory(path);
                 rmdir(path.c_str());
             }
@@ -739,9 +741,9 @@ std::STRING del(int64_t l, size_t width) {
     }
 
 #ifdef WINDOWS
-    SPRINTF(s, UNITXT("%I64d"), l);
+    SPRINTF(s, L("%I64d"), l);
 #else
-    SPRINTF(s, UNITXT("%llu"), static_cast<unsigned long long>(l));
+    SPRINTF(s, L("%llu"), static_cast<unsigned long long>(l));
 #endif
     for (i = 0; i < STRLEN(s); i++) {
         if ((STRLEN(s) - i) % 3 == 0 && i != 0) {
@@ -752,8 +754,8 @@ std::STRING del(int64_t l, size_t width) {
         j++;
     }
 
-    std::STRING t = std::STRING(width > STRLEN(d) ? width - STRLEN(d) : 0, CHR(' '));
-    t.append(std::STRING(d));
+    STRING t = STRING(width > STRLEN(d) ? width - STRLEN(d) : 0, CHR(' '));
+    t.append(STRING(d));
     return t;
 }
 
@@ -768,7 +770,7 @@ size_t longest_common_prefix(vector<STRING> strings, bool case_sensitive) {
 
     size_t pos = 0;
     for (;;) {
-        STRING c = UNITXT(""), d = UNITXT("");
+        STRING c = L(""), d = L("");
         for (unsigned int i = 0; i < strings.size(); i++) {
             if (strings[i].length() < pos + 1) {
                 return pos;
@@ -818,9 +820,9 @@ void set_bold(bool bold) {
     }
 #else
     if (bold) {
-        FPRINTF(stderr, UNITXT("\033[1m"));
+        FPRINTF(stderr, L("\033[1m"));
     } else {
-        FPRINTF(stderr, UNITXT("\033[0m"));
+        FPRINTF(stderr, L("\033[0m"));
     }
 
 #endif
@@ -848,4 +850,13 @@ void tm_to_long(short_tm *s, tm *l) {
     l->tm_wday = s->tm_wday;
     l->tm_yday = s->tm_yday;
     l->tm_isdst = s->tm_isdst;
+}
+
+string regx(std::string input, std::string pattern) {
+    std::regex regexPattern(pattern);
+    std::smatch matchResult;
+    if (std::regex_search(input, matchResult, regexPattern)) {
+        return matchResult[0].str();
+    }
+    return {};
 }

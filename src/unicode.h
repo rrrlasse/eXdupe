@@ -21,7 +21,7 @@ using std::string;
 #define VSPRINTF vswprintf
 #define VFPRINTF vfwprintf
 #define FPRINTF fwprintf
-#define UNITXT(s) TEXT(s)
+#define L(s) TEXT(s)
 #define STRING wstring
 #define CHR wchar_t
 #define REMOVE _wremove
@@ -34,7 +34,7 @@ using std::string;
 #define VSPRINTF vsnprintf
 #define VFPRINTF vfprintf
 #define FPRINTF fprintf
-#define UNITXT(s) s
+#define L(s) s
 #define STRING string
 #define CHR char
 #define REMOVE remove

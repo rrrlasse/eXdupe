@@ -17,9 +17,9 @@ if (MSVC)
 	add_subdirectory(pthread)
 else()
 	target_compile_options(libexdupe PRIVATE -mavx2)
+	apply_compile_options_to_files("libexdupe.cpp" "-Wall" "-Wextra" "-pedantic")
 endif(MSVC)
 
-apply_compile_options_to_files("libexdupe.cpp" "${flags_to_apply}")
 
 add_subdirectory(blake3/c)
 add_subdirectory(xxHash/cmake_unofficial)

@@ -116,7 +116,7 @@ std::string utf8e(const STRING &str) {
 static int lua_panic(lua_State *L) {
     string script = auto_script + user_script;
     const char *errorMsg = lua_tostring(L, -1);
-    abort(true, UNITXT("\n=================== Auto generated ======================\n%s\n=================== Your script ========================= \n%s\n\n=================== Lua run-time error message ===========\n%s"), utf8d(auto_script).c_str(), utf8d(user_script).c_str(), utf8d(errorMsg).c_str());
+    abort(true, LIT("\n=================== Auto generated ======================\n%s\n=================== Your script ========================= \n%s\n\n=================== Lua run-time error message ===========\n%s"), utf8d(auto_script).c_str(), utf8d(user_script).c_str(), utf8d(errorMsg).c_str());
     return 0;
 
 }
@@ -156,7 +156,7 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
 
         if (i != 0) {
             const char *err = lua_tostring(L, lua_gettop(L));
-            abort(i != 0, UNITXT("\n=================== Auto generated ======================\n%s\n=================== Your script ========================= \n%s\n\n=================== Lua load-time error message =========\n%s"), utf8d(auto_script).c_str(), utf8d(user_script).c_str(), utf8d(err).c_str());
+            abort(i != 0, L("\n=================== Auto generated ======================\n%s\n=================== Your script ========================= \n%s\n\n=================== Lua load-time error message =========\n%s"), utf8d(auto_script).c_str(), utf8d(user_script).c_str(), utf8d(err).c_str());
         }
 
         if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
@@ -220,7 +220,7 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
     //lua_call(L, 0, 1);
 
     if (lua_pcall(L, 15 + winargs_count, 1, 0) != LUA_OK) {
-        abort(false, UNITXT("LUA error: %s"), s2w(lua_tostring(L, -1)).c_str());
+        abort(false, L("LUA error: %s"), s2w(lua_tostring(L, -1)).c_str());
         return false;
     }
     

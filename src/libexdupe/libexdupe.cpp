@@ -48,6 +48,7 @@
 #include "blake3/c/blake3.h"
 #include "xxHash/xxh3.h"
 #include "xxHash/xxhash.h"
+#include "../gsl/gsl"
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include "zstd/lib/zstd.h"
@@ -246,7 +247,7 @@ size_t read_hashblock(hashblock_t* h, char* src) {
     for (size_t t = 0; t < slots; t++) {
 
         if (!nulls) {
-            h->hash[t] = str2ll(src, 4);
+            h->hash[t] = gsl::narrow<uint32_t>(str2ll(src, 4));
             src += 4;
         }
 
@@ -263,8 +264,8 @@ size_t read_hashblock(hashblock_t* h, char* src) {
         }
         else {
             h->entry[t].offset = str2ll(src, 8);
-            h->entry[t].slide = str2ll(src + 8, 2);
-            h->entry[t].first_byte = str2ll(src + 10, 1);
+            h->entry[t].slide = gsl::narrow<uint16_t>(str2ll(src + 8, 2));
+            h->entry[t].first_byte = gsl::narrow<uint8_t>(str2ll(src + 10, 1));
             memcpy(h->entry[t].sha, src + 11, HASH_SIZE);
             src += 11 + HASH_SIZE;
         }
@@ -329,8 +330,8 @@ void print_fillratio() {
 
 }
 
-template <class T, class U> const uint64_t minimum(const T a, const U b) {
-    return (static_cast<uint64_t>(a) > static_cast<uint64_t>(b)) ? static_cast<uint64_t>(b) : static_cast<uint64_t>(a);
+template <class T> const T minimum(const T a, const T b) {
+    return a > b ? b : a;
 }
 
 typedef struct {
@@ -381,8 +382,8 @@ char *zstd_init() {
 int64_t zstd_compress(char *inbuf, size_t insize, char *outbuf, size_t outsize, int level, char *workmem) {
     size_t ret = 0;
     zstd_params_s *zstd_params = (zstd_params_s *)workmem;
-    int fast = 2048;
-    int slow = 4096;
+    size_t fast = 2048;
+    size_t slow = 4096;
 
     if(insize > 128*1024) {
         if( 
@@ -523,7 +524,9 @@ int dup_decompress_hashtable(char* src) {
 
     do {
         char b = *src++;
-        assert(b == 'C');
+        if(b != 'C') {
+            return 2;
+        }
         uint64_t count = str2ll(src, 8);
         bool used = str2ll(src + 8, 1) != 0;
         src += 9;
@@ -547,6 +550,7 @@ int dup_decompress_hashtable(char* src) {
     } while(block < total_entries);
 
     size_t s = sizeof(hashblock_t) * total_entries;
+    // todo, add crc of compressed table too
     uint64_t crc2 = hash64(&small_table[0], s);
     return crc == crc2 ? 0 : 1;
 }
@@ -558,12 +562,12 @@ static uint32_t quick(const char* src, size_t len) {
     res += *(uint64_t*)&src[len / 3 * 2 - 2];
     res += *(uint64_t*)&src[len - 8 - 3];
     res = res + (res >> 32);
-    return res;
+    return static_cast<uint32_t>(res);
 }
 
 static uint32_t window(const char* src, size_t len, const char** pos) {
     size_t i = 0;
-    size_t slide = minimum(len / 2, 65536); // slide must be able to fit in hash_t.O. Todo, static assert
+    size_t slide = minimum<size_t>(len / 2, 65536); // slide must be able to fit in hash_t.O. Todo, static assert
     size_t block = len - slide;
     int16_t b = len >= LARGE_BLOCK ? 32767 - 32 : 32767 - 256;
     size_t none = static_cast<size_t>(-1);
@@ -890,7 +894,7 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
                 if (match_s - src > 0) {
                     dst += write_literals(src, match_s - src, dst, thread_id, false);
                 }
-                auto min = minimum(n * SMALL_BLOCK, upto - match_s + 1);
+                auto min = minimum<size_t>(n * SMALL_BLOCK, upto - match_s + 1);
                 dst += write_match(min, ref_s, dst);
                 src = match_s + min;
             }
@@ -900,7 +904,7 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
             return dst - dst_orig;
         }
         else {
-            dst += write_match(minimum(LARGE_BLOCK, last - match + 1), ref, dst);
+            dst += write_match(minimum<size_t>(LARGE_BLOCK, last - match + 1), ref, dst);
             src = match + LARGE_BLOCK;
         }
     }
@@ -1226,7 +1230,6 @@ size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_r
             }
         } while (f == -1);
 
-        size_t req = size + 3 * LARGE_BLOCK;
         jobs[f].payload = global_payload;
         global_payload += size;
         count_payload += size;

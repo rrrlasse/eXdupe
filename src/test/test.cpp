@@ -177,85 +177,85 @@ TEST_CASE("ui") {
         Statusbar s(oss);
         s.m_term_width = 30;
         s.m_verbose_level = 1;
-        s.m_base_dir = UNITXT("d:\\");
+        s.m_base_dir = L("d:\\");
         return s;
     };
 
     {
         // Truncate filename
         auto s = create();
-        s.update(BACKUP, 0, 0, UNITXT("d:\\12345678901234567890123"));
+        s.update(BACKUP, 0, 0, L("d:\\12345678901234567890123"));
         STRING res = term(oss.str());
-        REQUIRE(res == UNITXT("0 B, 0 B, 123456789012345678.."));
+        REQUIRE(res == L("0 B, 0 B, 123456789012345678.."));
     }
 
     {
         // Filename accurately fits, no truncation
         auto s = create();
-        s.update(BACKUP, 0, 0, UNITXT("d:\\12345678901234567890"));
+        s.update(BACKUP, 0, 0, L("d:\\12345678901234567890"));
         STRING res = term(oss.str());
-        REQUIRE(res == UNITXT("0 B, 0 B, 12345678901234567890"));
+        REQUIRE(res == L("0 B, 0 B, 12345678901234567890"));
     }
 
     {
         // Filename shorther, show all
         auto s = create();
-        s.update(BACKUP, 0, 0, UNITXT("d:\\123"));
+        s.update(BACKUP, 0, 0, L("d:\\123"));
         STRING res = term(oss.str());
-        REQUIRE(res == UNITXT("0 B, 0 B, 123"));
+        REQUIRE(res == L("0 B, 0 B, 123"));
     }
 
     {
         // Show KB in right order
         auto s = create();
-        s.update(BACKUP, 1024, 2048, UNITXT("d:\\123"));
+        s.update(BACKUP, 1024, 2048, L("d:\\123"));
         STRING res = term(oss.str());
-        REQUIRE(res == UNITXT("1.00 KB, 2.00 KB, 123"));
+        REQUIRE(res == L("1.00 KB, 2.00 KB, 123"));
     }
 
     {
         // Restore test
         auto s = create();
-        s.update(RESTORE, 0, 1024, UNITXT("d:\\123"));
+        s.update(RESTORE, 0, 1024, L("d:\\123"));
         STRING res = term(oss.str());
-        REQUIRE(res == UNITXT("1.00 KB, 123"));
+        REQUIRE(res == L("1.00 KB, 123"));
     }
 
     {
         // Print long line, then short line. No artifacts must be present at line end
         auto s = create();
-        s.update(BACKUP, 0, 0, UNITXT("d:\\1234567890"));
-        s.update(BACKUP, 0, 0, UNITXT("d:\\1"), true);
+        s.update(BACKUP, 0, 0, L("d:\\1234567890"));
+        s.update(BACKUP, 0, 0, L("d:\\1"), true);
         auto res = term(oss.str());
-        REQUIRE(res == UNITXT("0 B, 0 B, 1"));
+        REQUIRE(res == L("0 B, 0 B, 1"));
     }
 
     {
         // Empty base_dir (files/dirs passed on the command line had no common prefix)
         auto s = create();
-        s.m_base_dir = UNITXT("");
-        s.update(BACKUP, 0, 0, UNITXT("d:\\123"));
+        s.m_base_dir = L("");
+        s.update(BACKUP, 0, 0, L("d:\\123"));
         STRING res = term(oss.str());
-        REQUIRE(res == UNITXT("0 B, 0 B, d:\\123"));
+        REQUIRE(res == L("0 B, 0 B, d:\\123"));
     }
 
     {
         // Verbosity 0
         auto s = create();
         s.m_verbose_level = 0;
-        s.update(BACKUP, 0, 0, UNITXT("d:\\123"));
+        s.update(BACKUP, 0, 0, L("d:\\123"));
         STRING res = term(oss.str());
-        REQUIRE(res == UNITXT(""));
+        REQUIRE(res == L(""));
     }
 
     {
         // Verbosity 3: never truncate, absolute paths, show all files
         auto s = create();
         s.m_verbose_level = 3;
-        s.update(BACKUP, 0, 0, UNITXT("d:\\1234567890123456789012345678901234567890"));
-        s.update(BACKUP, 0, 0, UNITXT("d:\\456"));
+        s.update(BACKUP, 0, 0, L("d:\\1234567890123456789012345678901234567890"));
+        s.update(BACKUP, 0, 0, L("d:\\456"));
         STRING res = term(oss.str());
-        REQUIRE(res == UNITXT("  d:\\1234567890123456789012345678901234567890\n  d:\\456\n"));
+        REQUIRE(res == L("  d:\\1234567890123456789012345678901234567890\n  d:\\456\n"));
     }
 }
 

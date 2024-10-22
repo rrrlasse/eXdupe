@@ -32,6 +32,4 @@ public:
     std::string hash;
     uint64_t first = 0;
     uint64_t last = 0;
-
-
 };

@@ -57,7 +57,7 @@ void Bytebuffer::buffer_add(const char *src, uint64_t payload, size_t len) {
     buffer_t b;
     b.pay = payload;
     b.buffer_offset = insert_at;
-    abort(insert_at + len > m_buffer.size(), UNITXT("Internal error at buffer_add"));
+    abort(insert_at + len > m_buffer.size(), L("Internal error at buffer_add"));
     memcpy(m_buffer.data() + insert_at, src, len);    
     b.len = len;
     m_buffers.push_back(b);
@@ -70,7 +70,7 @@ char *Bytebuffer::buffer_find(uint64_t payload, size_t len) {
             if (payload > m_buffers[i].pay) {
                 off = payload - m_buffers[i].pay;
             }
-            abort(m_buffers[i].buffer_offset + off + len > m_buffer.size(), UNITXT("Internal error at buffer_find"));
+            abort(m_buffers[i].buffer_offset + off + len > m_buffer.size(), L("Internal error at buffer_find"));
             return m_buffer.data() + m_buffers[i].buffer_offset + off;
         }
     }

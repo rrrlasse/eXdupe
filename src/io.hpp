@@ -61,13 +61,13 @@ class Cio {
         const std::size_t size = sizeof(T);
         std::uint8_t buf[size];
         read(buf, size, _File);
-        T value = 0;
+        uint64_t value = 0;
 
         for (std::size_t i = 0; i < size; ++i) {
             value <<= 8;
             value |= static_cast<T>(buf[size - 1 - i]);
         }     
-        return value;
+        return static_cast<T>(value);
     }
 
     template <typename T> requires std::is_unsigned_v<T> size_t encode_compact(T value, uint8_t* encodedBytes) {

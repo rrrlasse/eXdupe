@@ -11,6 +11,7 @@
 #include "io.hpp"
 #include "unicode.h"
 #include "utilities.hpp"
+#include "gsl/gsl"
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
 #include <io.h>
@@ -49,10 +50,10 @@ int Cio::close(FILE *_File) { return fclose(_File); }
 FILE *Cio::open(STRING file, char mode) {
     if (mode == 'r') {
         STRING s = slashify(file);
-        FILE *f = FOPEN(s.c_str(), UNITXT("rb"));
+        FILE *f = FOPEN(s.c_str(), L("rb"));
         return f;
     } else {
-        return FOPEN(file.c_str(), UNITXT("wb+"));
+        return FOPEN(file.c_str(), L("wb+"));
     }
 }
 
@@ -66,7 +67,7 @@ size_t Cio::write(const void *Str, size_t Count, FILE *_File) {
         size_t w = minimum(Count - c, 1024 * 1024);
         size_t r = fwrite((char*)Str + c, 1, w, _File);
         write_count += r;
-        abort(r != w, UNITXT("Disk full or write denied while writing destination file"));
+        abort(r != w, 3, L("Disk full or write denied while writing destination file"));
         c += r;
     }
     return Count;
@@ -78,7 +79,7 @@ size_t Cio::read(void* DstBuf, size_t Count, FILE* _File, bool read_exact) {
         size_t r = minimum(Count - c, 1024 * 1024);
         size_t w = fread((char*)DstBuf + c, 1, r, _File);
         read_count += w;
-        abort(read_exact && stdin_tty() && w != r, UNITXT("Unexpected end of source file"));
+        abort(read_exact && stdin_tty() && w != r, L("Unexpected end of source file"));
         c += w;
         if(c == Count || w != r) {
             break;
@@ -99,18 +100,18 @@ std::string Cio::read_bin_string(size_t Count, FILE *_File) {
     std::string str(Count, 'c');
     if(Count > 0) {
         size_t r = Cio::read(&str[0], Count, _File);
-        abort(stdin_tty() && r != Count, UNITXT("Unexpected end of source file"));
+        abort(stdin_tty() && r != Count, L("Unexpected end of source file"));
     }
     return str;
 }
 
 STRING Cio::read_utf8_string(FILE *_File) {
-    int t = read_compact<uint64_t>(_File);
+    uint64_t t = read_compact<uint64_t>(_File);
     std::string tmp = read_bin_string(t, _File);
 #ifdef WINDOWS
     int req = MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(), -1, nullptr, 0);
     wstring res(req, 'c');
-    MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(), -1, &res[0], t);
+    MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(), -1, &res[0], gsl::narrow<int>(t));
     res.pop_back(); // WideCharToMultiByte() adds trailing zero
     return res;
 #else
@@ -120,11 +121,11 @@ STRING Cio::read_utf8_string(FILE *_File) {
 
 void Cio::write_utf8_string(STRING str, FILE *_File) {
 #ifdef WINDOWS
-    size_t req = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    int req = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, nullptr, 0, nullptr, nullptr);
     std::vector<char> v(req, L'c');
     WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, &v[0], static_cast<int>(req), 0, 0);
     req--; // WideCharToMultiByte() adds trailing zero
-    write_compact<uint64_t>(static_cast<uint64_t>(req), _File); // fixme, gsl::narrow
+    write_compact<uint64_t>(req, _File);
     write(&v[0], req, _File);
 #else
     write_compact<uint64_t>(str.size(), _File);

@@ -14,7 +14,7 @@ project(pthreads4w VERSION ${PTHREADS4W_VERSION} LANGUAGES C CXX)
 set(PTW32_VER ${PROJECT_VERSION_MAJOR}${EXTRAVERSION})
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "MinSizeRel" CACHE STRING "Choose the type of build, options are: Debug, Release, or MinSizeRel." FORCE)
+    set(CMAKE_BUILD_TYPE "MinSizeRel" CACHE STR "Choose the type of build, options are: Debug, Release, or MinSizeRel." FORCE)
     message(STATUS "No build type specified, defaulting to MinSizeRel.")
 endif()
 

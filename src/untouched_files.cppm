@@ -31,19 +31,19 @@ public:
     }
 
     void add_during_restore(contents_t c) {
-        abort((contents_full.find(CASESENSE(c.abs_path)) != contents_full.end()), UNITXT("Internal error at main::contents_full.find(), or diff file doesn't belong to full file"));
+        abort((contents_full.find(CASESENSE(c.abs_path)) != contents_full.end()), L("Internal error at main::contents_full.find(), or diff file doesn't belong to full file"));
         contents_full[CASESENSE(c.abs_path)] = c;
-        abort((contents_full_ids.find(c.file_id) != contents_full_ids.end()), UNITXT("Internal error at main::contents_full_ids.find(), or diff file doesn't belong to full file"));
+        abort((contents_full_ids.find(c.file_id) != contents_full_ids.end()), L("Internal error at main::contents_full_ids.find(), or diff file doesn't belong to full file"));
         contents_full_ids[c.file_id] = CASESENSE(c.abs_path);
     }
 
     void initialize_if_untouched(contents_t& c) {
         if(c.unchanged) {
             auto id_iter = contents_full_ids.find(c.file_id);
-            abort(id_iter == contents_full_ids.end(), UNITXT("Internal error at decompress_individuals::contents_full.find(), or diff file doesn't belong to full file"));
+            abort(id_iter == contents_full_ids.end(), L("Internal error at decompress_individuals::contents_full.find(), or diff file doesn't belong to full file"));
             auto p = id_iter->second;
             auto path_iter = contents_full.find(p);
-            abort(path_iter == contents_full.end(), UNITXT("Internal error at decompress_individuals::contents_full.find(), or diff file doesn't belong to full file"));
+            abort(path_iter == contents_full.end(), L("Internal error at decompress_individuals::contents_full.find(), or diff file doesn't belong to full file"));
             // todo, maybe it's better to remove this and let the payload writer access contents_full directly                
             c = path_iter->second;
             c.unchanged = true;
@@ -52,6 +52,6 @@ public:
 
 private:
 	unordered_map<STRING, contents_t> contents_full; // {abs_path, contents}
-	unordered_map<uint32_t, STRING> contents_full_ids; // {file_id, abs_path}
+	unordered_map<uint64_t, STRING> contents_full_ids; // {file_id, abs_path}
 };
 

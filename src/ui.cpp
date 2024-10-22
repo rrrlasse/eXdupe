@@ -47,7 +47,7 @@ void Statusbar::clear_line() {
         cursor = m_term_width;
     }
     STRING blank_line(cursor, ' ');
-    m_os << UNITXT("\r") << blank_line << UNITXT("\r"); 
+    m_os << L("\r") << blank_line << L("\r"); 
 };
 
 // If is_message, then treat path as a status message and don't prepend a path to it
@@ -63,7 +63,7 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
     if(!is_message) {
         bool can_resolve = abs_path(path).size() > 0;
 
-        if (can_resolve && path != UNITXT("-stdin") && path != UNITXT("-stdout")) {
+        if (can_resolve && path != L("-stdin") && path != L("-stdout")) {
             path = abs_path(path);
         }
 
@@ -79,9 +79,9 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
         m_last_file_print = GetTickCount();
         STRING line;
         if (backup) {
-            line = s2w(format_size(read)) + UNITXT("B, ") + s2w(format_size(written)) + UNITXT("B, ");
+            line = s2w(format_size(read)) + L("B, ") + s2w(format_size(written)) + L("B, ");
         } else {
-            line = s2w(format_size(written)) + UNITXT("B, ");
+            line = s2w(format_size(written)) + L("B, ");
         }
 
         if (!v3) {
@@ -92,14 +92,14 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
             if (v3 && m_lastpath != path) {
                 m_lastpath = path;
                 line += path;
-                m_os << (is_message ? UNITXT("") : UNITXT("  ")) << path << UNITXT("\n");
+                m_os << (is_message ? L("") : L("  ")) << path << L("\n");
             } else if (!v3) {
                 clear_line();
                 if (path.size() > maxpath) {
                     // Some characters and symbols span 2 columns even on monospace fonts, so this may overshoot maxpath.
                     // wcwidth() apparently rarely works on Linux (returns -1 for Korean and many symbols) and can't be used either.
                     // GetStringTypeW() works perfectly but is Windows only. So we'll just accept the issue.
-                    path = path.substr(0, maxpath - 2) + UNITXT("..");
+                    path = path.substr(0, maxpath - 2) + L("..");
                 }
                 line += path;
                 m_os << line;
@@ -119,7 +119,7 @@ void Statusbar::print(int verbosity, const CHR *fmt, ...) {
         STRING s = STRING(m_tmp.data());
         va_end(argv);
         clear_line();
-        m_os << s << UNITXT("\n");
+        m_os << s << L("\n");
     }
 }
 
