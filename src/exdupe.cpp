@@ -410,13 +410,6 @@ void write_contents_item(FILE *file, contents_t *c) {
     contents_size += io.write_count - written;
 }
 
-void add_file(const STRING &file, uint64_t offset) {
-    file_offset_t t;
-    t.filename = file;
-    t.offset = offset;
-    t.handle = 0;
-    infiles.push_back(t);
-}
 
 // **************************************************************************************************************
 //
@@ -1427,8 +1420,10 @@ void ensure_relative(const STRING &path) {
     abort((path.size() >= 2 && path.substr(0, 2) == L("\\\\")) || path.find_last_of(L(":")) != string::npos, s.c_str());
 }
 
+// todo, namespace is a temporary fix to separate things
+namespace decompression {
 
-void decompress_individuals(FILE *ffull, FILE *fdiff) {
+    void decompress_individuals(FILE *ffull, FILE *fdiff) {
     FILE *archive_file;
     bool pipe_out = directory == L("-stdout");
     std::vector<char> restore_buffer(RESTORE_CHUNKSIZE, 'c');
@@ -1541,17 +1536,15 @@ void decompress_individuals(FILE *ffull, FILE *fdiff) {
             }
         }
     }
-
-
 }
 
 uint64_t payload_written = 0;
 uint64_t add_file_payload = 0;
 uint64_t curfile_written = 0;
-uint64_t current_outfile_begin = 0;
 checksum_t decompress_checksum;
+vector<contents_t> file_queue;
 
-void decompress_files(vector<contents_t> &c, bool add_files) {
+void decompress_files(vector<contents_t> &c) {
     STRING destfile;
     STRING last_file = L("");
     uint64_t payload_orig = payload_written;
@@ -1585,7 +1578,7 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
             // dup_decompress() returned a reference into a past written file
             size_t resolved = 0;
             while (resolved < len) {
-                if (payload + resolved >= payload_orig && add_files) {
+                if (payload + resolved >= payload_orig) {
                     size_t fo = belongs_to(payload + resolved);
                     int j = io.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
                     abort(j != 0, L("Internal error 1 or non-seekable device: seek(%s, %p, %p)"), infiles.at(fo).filename.c_str(), payload, payload_orig);
@@ -1619,15 +1612,16 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
                 ofile = create_file(c.at(0).extra);
                 destfile = c.at(0).extra;
                 checksum_init(&decompress_checksum);
-
-                if (add_files) {
-                    add_file(c.at(0).extra, add_file_payload);
+                {
+                    file_offset_t t;
+                    t.filename = c.at(0).extra;
+                    t.offset = add_file_payload;
+                    t.handle = 0;
                     add_file_payload += c.at(0).size;
+                    infiles.push_back(t);
                 }
-
                 curfile_written = 0;
             }
-
             auto missing = c.at(0).size - curfile_written;
             auto has = minimum(missing, len - src_consumed);
             curfile_written += has;
@@ -1639,18 +1633,118 @@ void decompress_files(vector<contents_t> &c, bool add_files) {
             src_consumed += has;
 
             if (curfile_written == c.at(0).size) {
-                current_outfile_begin += c.at(0).size;
-
                 io.close(ofile);
                 ofile = 0;
                 curfile_written = 0;
                 abort(c.at(0).checksum != decompress_checksum.result32(), L("File checksum error"));
-
                 c.erase(c.begin());
             }
         }
     }
 }
+
+
+void decompress_sequential(const STRING& extract_dir) {
+    STRING curdir;
+    size_t r = 0;
+    STRING base_dir = abs_path(extract_dir);
+    statusbar.m_base_dir = base_dir;
+
+    curdir = extract_dir;
+    // ensure_relative(curdir);
+    save_directory(L(""), curdir + DELIM_STR); // initial root
+
+    vector<contents_t> identicals_queue;
+    map<uint64_t, STRING> written;
+
+    for (;;) {
+        char w;
+
+        r = io.read(&w, 1, ifile);
+        abort(r == 0, L("Unexpected end of archive (block tag)"));
+
+        if (w == 'I') {
+            contents_t c;
+            read_content_item(ifile, &c);
+            ensure_relative(c.name);
+            curdir = extract_dir + DELIM_STR + c.name;
+            save_directory(L(""), curdir);
+            create_directories(curdir, c.file_modified);
+        }
+        else if (w == 'U') {
+            contents_t c;
+            files++;
+            read_content_item(ifile, &c);
+            STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
+            c.extra = buf2;
+            identicals_queue.push_back(c);
+        }
+        else if (w == 'F') {
+            contents_t c;
+            files++;
+            read_content_item(ifile, &c);
+            STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
+
+            if (c.size == 0) {
+                // May not have a corrosponding data block ('A' block) to trigger decompress_files()
+                FILE* h = create_file(buf2);
+                files++;
+                io.close(h);
+            }
+            else {
+                c.extra = buf2;
+                c.checksum = 0;
+                file_queue.push_back(c);
+
+                written.insert({ c.file_id, c.extra });
+
+                update_statusbar_restore(buf2);
+                name = c.name;
+            }
+        }
+        else if (w == 'A') {
+            decompress_files(file_queue);
+        }
+        else if (w == 'C') { // crc
+            uint32_t crc = io.read_ui<uint32_t>(ifile);
+            file_queue.at(file_queue.size() - 1).checksum = crc;
+        }
+        else if (w == 'L') { // symlink
+            contents_t c;
+            files++;
+            read_content_item(ifile, &c);
+            STRING buf2 = curdir + DELIM_CHAR + c.name;
+            create_symlink(buf2, c);
+        }
+
+        else if (w == 'X') {
+            break;
+        }
+        else {
+            abort(true, L("Source file corrupted"));
+        }
+    }
+
+    vector<char> buf;
+    buf.resize(DISK_READ_CHUNK);
+    for (auto& i : identicals_queue) {
+        auto dst = i.extra;
+        auto r = written.find(i.dublicate);
+        auto src = r->second;
+
+        auto ofile = create_file(dst);
+        auto ifile = try_open(src, 'r', true);
+        for (size_t r; r = io.read(buf.data(), DISK_READ_CHUNK, ifile, false);) {
+            io.write(buf.data(), r, ofile);
+            tot_res += r;
+            update_statusbar_restore(dst);
+        }
+        io.close(ifile);
+        io.close(ofile);
+    }
+}
+
+} // namespace decompression
 
 void compress_symlink(const STRING &link, const STRING &target) {
     bool is_dir;
@@ -1688,7 +1782,8 @@ void compress_symlink(const STRING &link, const STRING &target) {
     return;
 }
 
-// todo, move all this compression into a module or other structure
+// todo, namespace is a temporary fix to separate things
+namespace compression {
 
 uint64_t payload_compressed = 0; // Total payload returned by dup_compress() and flush_pend()
 uint64_t payload_read = 0;       // Total payload read from disk
@@ -1911,6 +2006,8 @@ void compress_file(const STRING& input_file, const STRING& filename) {
     contents.push_back(file_meta);
 }
 
+} // namespace compression
+
 bool lua_test(STRING path, const STRING &script, bool top_level) {
     if (script == L("")) {
         return true;
@@ -2040,7 +2137,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_l
             save_directory(base_dir, left(items.at(j)) + (left(items.at(j)) == L("") ? L("") : DELIM_STR), true);
             STRING L = items.at(j);
             STRING s = right(L) == L("") ? L : right(L);
-            compress_file(sub, s);
+            compression::compress_file(sub, s);
         }
     }
 
@@ -2116,7 +2213,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_l
 
 void compress(const STRING &base_dir, vector<STRING> items) {
     compress_recursive(base_dir, items, true);
-    compress_file_finalize();
+    compression::compress_file_finalize();
 }
 
 void compress_args(vector<STRING> args) {
@@ -2144,103 +2241,6 @@ void compress_args(vector<STRING> args) {
     compress(base_dir, args);
 }
 
-void decompress_sequential(const STRING &extract_dir, bool add_files) {
-    STRING curdir;
-    size_t r = 0;
-    STRING base_dir = abs_path(extract_dir);
-    statusbar.m_base_dir = base_dir;
-
-    curdir = extract_dir;
-    // ensure_relative(curdir);
-    save_directory(L(""), curdir + DELIM_STR); // initial root
-
-
-    vector<contents_t> identicals_queue;
-    map<uint64_t, STRING> written;
-
-
-    for (;;) {
-        char w;
-
-        r = io.read(&w, 1, ifile);
-        abort(r == 0, L("Unexpected end of archive (block tag)"));
-
-        if (w == 'I') {
-            contents_t c;
-            read_content_item(ifile, &c);
-            ensure_relative(c.name);
-            curdir = extract_dir + DELIM_STR + c.name;
-            save_directory(L(""), curdir);
-            create_directories(curdir, c.file_modified);
-        } else if (w == 'U') {
-            contents_t c;
-            files++;
-            read_content_item(ifile, &c);
-            STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
-            c.extra = buf2;
-            identicals_queue.push_back(c);
-        }
-        else if (w == 'F') {
-            contents_t c;
-            files++;
-            read_content_item(ifile, &c);
-            STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
-
-            if (c.size == 0) {
-                // May not have a corrosponding data block ('A' block) to trigger decompress_files()
-                FILE *h = create_file(buf2);
-                files++;
-                io.close(h);
-            } else {
-                c.extra = buf2;
-                c.checksum = 0;
-                file_queue.push_back(c);
-                
-                written.insert({ c.file_id, c.extra});
-
-                update_statusbar_restore(buf2);
-                name = c.name;
-            }
-        } else if (w == 'A') {
-            decompress_files(file_queue, add_files);
-        } else if (w == 'C') { // crc
-            uint32_t crc = io.read_ui<uint32_t>(ifile);
-            file_queue.at(file_queue.size() - 1).checksum = crc;
-        } else if (w == 'L') { // symlink
-            contents_t c;
-            files++;
-            read_content_item(ifile, &c);
-            STRING buf2 = curdir + DELIM_CHAR + c.name;
-            create_symlink(buf2, c);
-        }
-
-        else if (w == 'X') {
-            break;
-        } else {
-            abort(true, L("Source file corrupted"));
-        }
-    }
-
-    vector<char> buf;
-    buf.resize(DISK_READ_CHUNK);
-    for(auto& i : identicals_queue) {
-        auto dst = i.extra;
-        auto r = written.find(i.dublicate);
-        auto src = r->second;
-
-        auto ofile = create_file(dst);
-        auto ifile = try_open(src, 'r', true);
-        for(size_t r; r = io.read(buf.data(), DISK_READ_CHUNK, ifile, false);) {
-            io.write(buf.data(), r, ofile);
-            tot_res += r;
-            update_statusbar_restore(dst);
-        }
-        io.close(ifile);
-        io.close(ofile);
-    }
-
-
-}
 
 void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt, uint64_t archive_id) {
     if (s == BACKUP) {
@@ -2365,10 +2365,10 @@ int main(int argc2, char *argv2[])
         in = static_cast<char*>(tmalloc(DISK_READ_CHUNK + M));
         out = static_cast<char*>(tmalloc((threads + 1) * DISK_READ_CHUNK + M));
         for (uint32_t i = 0; i < threads + 1; i++) {
-            payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
-            payload_queue_size.push_back(0);
-            out_payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
-            out_payload_queue_size.push_back(0);
+            compression::payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
+            compression::payload_queue_size.push_back(0);
+            compression::out_payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
+            compression::out_payload_queue_size.push_back(0);
         }
     }
 
@@ -2387,11 +2387,11 @@ int main(int argc2, char *argv2[])
             abort(full_id != diff_id, L("The diff file does not belong to the full file. "));
             init_content_maps(ffull);
 
-            decompress_individuals(ffull, fdiff);
+            decompression::decompress_individuals(ffull, fdiff);
         } else {
             ifile = try_open(full, 'r', true);
             read_header(ifile, full, BACKUP);
-            decompress_individuals(ifile, ifile);
+            decompression::decompress_individuals(ifile, ifile);
         }
         wrote_message(tot_res, files);
     } else if ((restore_flag && (full == L("-stdin"))) && restorelist.size() == 0) {
@@ -2399,7 +2399,7 @@ int main(int argc2, char *argv2[])
         STRING s = remove_delimitor(directory);
         ifile = try_open(full, 'r', true);
         read_header(ifile, full, BACKUP);
-        decompress_sequential(s, true);
+        decompression::decompress_sequential(s);
         assert(!diff_flag);
         wrote_message(io.write_count, files);
 
@@ -2461,8 +2461,8 @@ int main(int argc2, char *argv2[])
         } else if (inputfiles.size() > 0 && inputfiles.at(0) == L("-stdin")) {
             name = L("stdin");
 
-            compress_file(L("-stdin"), name); 
-            compress_file_finalize();
+            compression::compress_file(L("-stdin"), name);
+            compression::compress_file_finalize();
         }
 
         uint64_t end_time_without_overhead = GetTickCount();
