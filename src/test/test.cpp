@@ -5,11 +5,10 @@
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
 
+#include "../error_handling.h"
 #include "../utilities.hpp"
 #include "../ui.hpp"
 #include "../bytebuffer.h"
-
-void abort(bool b, const CHR *fmt, ...) {}
 
 // Simulate a terminal and compute what would be seen on the screen
 std::wstring term(const std::wstring& source) {
@@ -139,30 +138,30 @@ TEST_CASE("checksum") {
 }
 
 TEST_CASE("format_size") {
-    REQUIRE(format_size(0) == "0 ");
-    REQUIRE(format_size(1) == "1 ");
-    REQUIRE(format_size(99) == "99 ");
-    REQUIRE(format_size(100) == "100 ");
-    REQUIRE(format_size(101) == "101 ");
-    REQUIRE(format_size(999) == "999 ");
-    REQUIRE(format_size(1000) == "0.97 K");
-    REQUIRE(format_size(1001) == "0.97 K");
+    REQUIRE(suffix(0) == "0 ");
+    REQUIRE(suffix(1) == "1 ");
+    REQUIRE(suffix(99) == "99 ");
+    REQUIRE(suffix(100) == "100 ");
+    REQUIRE(suffix(101) == "101 ");
+    REQUIRE(suffix(999) == "999 ");
+    REQUIRE(suffix(1000) == "0.97 K");
+    REQUIRE(suffix(1001) == "0.97 K");
 
-    REQUIRE(format_size(1023) == "0.99 K");
-    REQUIRE(format_size(1024) == "1.00 K");
-    REQUIRE(format_size(1025) == "1.00 K");
+    REQUIRE(suffix(1023) == "0.99 K");
+    REQUIRE(suffix(1024) == "1.00 K");
+    REQUIRE(suffix(1025) == "1.00 K");
 
-    REQUIRE(format_size(999'999) == "976 K");
-    REQUIRE(format_size(1'000'000) == "976 K");
-    REQUIRE(format_size(1'000'001) == "976 K");
+    REQUIRE(suffix(999'999) == "976 K");
+    REQUIRE(suffix(1'000'000) == "976 K");
+    REQUIRE(suffix(1'000'001) == "976 K");
 
-    REQUIRE(format_size(1024 * 1024 - 1) == "0.99 M");
-    REQUIRE(format_size(1024 * 1024) == "1.00 M");
-    REQUIRE(format_size(1024 * 1024 + 1) == "1.00 M");
+    REQUIRE(suffix(1024 * 1024 - 1) == "0.99 M");
+    REQUIRE(suffix(1024 * 1024) == "1.00 M");
+    REQUIRE(suffix(1024 * 1024 + 1) == "1.00 M");
 
-    REQUIRE(format_size(1024 * 1024 * 1024) == "1.00 G");
-    REQUIRE(format_size(1024ull * 1024 * 1024 * 1024) == "1.00 T");
-    REQUIRE(format_size(1024ull * 1024 * 1024 * 1024 * 1024) == "1.00 P");
+    REQUIRE(suffix(1024 * 1024 * 1024) == "1.00 G");
+    REQUIRE(suffix(1024ull * 1024 * 1024 * 1024) == "1.00 T");
+    REQUIRE(suffix(1024ull * 1024 * 1024 * 1024 * 1024) == "1.00 P");
 }
 
 

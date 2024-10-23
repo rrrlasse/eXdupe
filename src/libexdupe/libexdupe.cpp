@@ -52,6 +52,7 @@
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include "zstd/lib/zstd.h"
+#include "../error_handling.h"
 
 #include "libexdupe.h"
 
@@ -638,7 +639,7 @@ static uint32_t window(const char* src, size_t len, const char** pos) {
 
 // there must be LARGE_BLOCK more valid data after src + len
 const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, uint64_t *payload_ref) {
-    assert(block == LARGE_BLOCK || block == SMALL_BLOCK);
+    rassert(block == LARGE_BLOCK || block == SMALL_BLOCK, "");
     const char *w_pos;
     const char *orig_src = src;
     const char *last_src = src + len - 1;
@@ -665,7 +666,7 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
 
                 if (block == LARGE_BLOCK) {
                     char tmp[8 * 1024];
-                    assert(sizeof(tmp) >= LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE);
+                    rassert(sizeof(tmp) >= LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, "");
                     uint32_t k;
                     for (k = 0; k < LARGE_BLOCK / SMALL_BLOCK; k++) {
                         hash(src + k * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + k * HASH_SIZE);
@@ -799,7 +800,7 @@ static size_t write_literals(const char *src, size_t length, char *dst, int thre
 
 static void hash_chunk(const char *src, uint64_t pay, size_t length, int policy) {
     char tmp[512 * HASH_SIZE];
-    assert(sizeof(tmp) >= HASH_SIZE * LARGE_BLOCK / SMALL_BLOCK);
+    rassert(sizeof(tmp) >= HASH_SIZE * LARGE_BLOCK / SMALL_BLOCK, "");
 
     size_t small_blocks = length / SMALL_BLOCK;
     uint32_t smalls = 0;

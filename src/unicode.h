@@ -22,7 +22,7 @@ using std::string;
 #define VFPRINTF vfwprintf
 #define FPRINTF fwprintf
 #define L(s) TEXT(s)
-#define STRING wstring
+#define STRING std::wstring
 #define CHR wchar_t
 #define REMOVE _wremove
 #define FOPEN _wfopen
@@ -35,7 +35,7 @@ using std::string;
 #define VFPRINTF vfprintf
 #define FPRINTF fprintf
 #define L(s) s
-#define STRING string
+#define STRING std::string
 #define CHR char
 #define REMOVE remove
 #define FOPEN fopen

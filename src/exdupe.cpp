@@ -293,35 +293,6 @@ void move_cursor_up() {
 #endif
 }
 
-void abort(bool b, int ret, const CHR* fmt, ...) {
-    if (b) {
-        va_list argv;
-        va_start(argv, fmt);
-        statusbar.clear_line();
-        VFPRINTF(stderr, fmt, argv);
-        va_end(argv);
-        FPRINTF(stderr, L("\n"));
-#ifdef WINDOWS
-        unshadow();
-#endif
-        exit(ret);
-    }
-}
-
-void abort(bool b, const CHR *fmt, ...) {
-    if (b) {
-        va_list argv;
-        va_start(argv, fmt);
-        statusbar.clear_line();
-        VFPRINTF(stderr, fmt, argv);
-        va_end(argv);
-        FPRINTF(stderr, L("\n"));
-#ifdef WINDOWS
-        unshadow();
-#endif
-        exit(1);
-    }
-}
 
 void update_statusbar_backup(STRING file, bool message = false) {
     statusbar.update(BACKUP, backup_set_size(), io.write_count, file, false, message);
@@ -426,8 +397,8 @@ uint64_t belongs_to(uint64_t offset) // todo: verify that this algorithm also
                                      // works for infiles.size() == 2
 {
     // belongs_to requires first element to be 0!
-    abort(infiles.size() == 0, L("infiles.size() == 0"));
-    abort(infiles.at(0).offset != 0, L("infiles[0].offset != 0"));
+    rassert(!infiles.empty(), "");
+    rassert(infiles.at(0).offset == 0, "", infiles.at(0).offset);
 
     if (offset >= infiles.at(infiles.size() - 1).offset) {
         return infiles.size() - 1;
@@ -470,7 +441,7 @@ void add_references(const char *src, size_t len, uint64_t archive_offset) {
             ref.payload_reference = payload;
             ref.archive_offset = 0;
         } else {
-            abort(true, L("Internal error, dup_decompress_simulate() = %d"), r);
+            rassert(false, "", r);
         }
         references.push_back(ref);
         pos += dup_size_compressed(src + pos);
@@ -576,9 +547,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
 
     while (bytes_resolved < size) {
         uint64_t rr = find_reference(payload + bytes_resolved);
-        if (rr == std::numeric_limits<uint64_t>::max()) {
-            abort(true, L("Internal error, find_reference() = -1"));
-        }
+        rassert(rr != std::numeric_limits<uint64_t>::max(), "");
         uint64_t prior = payload + bytes_resolved - references.at(rr).payload;
         size_t needed = size - bytes_resolved;
         size_t ref_has = references.at(rr).length - prior >= needed ? needed : references.at(rr).length - prior;
@@ -609,11 +578,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
                 ensure_size(restore_buffer_out, lend + M);
                 io.read_vector(restore_buffer_in, lenc - DUP_HEADER_LEN, DUP_HEADER_LEN, f, true);
                 int r = dup_decompress(restore_buffer_in.data(), restore_buffer_out.data(), &lenc, &p);
-
-                if (r != 0 && r != 1) {
-                    abort(true, L("Internal error, dup_decompress() = %d"), r);
-                }
-
+                rassert(!(r != 0 && r != 1), "", r);
                 bytebuffer.buffer_add(restore_buffer_out.data(), references.at(rr).payload, references.at(rr).length);
 
                 io.seek(f, orig, SEEK_SET);
@@ -769,7 +734,7 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
     }
 #endif
     FILE *f;
-    assert(mode == 'r' || mode == 'w');
+    rassert(mode == 'r' || mode == 'w', "");
     if (file == L("-stdin")) {
         f = stdin;
     } else if (file == L("-stdout")) {
@@ -1532,7 +1497,7 @@ namespace decompression {
                     set_date(dstdir + DELIM_STR + c.name, c.file_modified);
                     set_attributes(dstdir + DELIM_STR + c.name, c.attributes);
                 }
-                abort(c.checksum != t.result32(), L("File checksum error"));
+                abort(c.checksum != t.result32(), err_other, format(L("File checksum error {}"), c.name));
             }
         }
     }
@@ -1561,15 +1526,14 @@ void decompress_files(vector<contents_t> &c) {
         }
 
         io.read(in + 1, 7, ifile);
-        assert((in[0] == 'T' && in[1] == 'T') || (in[0] == 'M' && in[1] == 'M'));
+        rassert(((in[0] == 'T' && in[1] == 'T') || (in[0] == 'M' && in[1] == 'M')), "Source file error");
 
         io.read(in + 8, DUP_HEADER_LEN - 8, ifile);
         len = dup_size_compressed(in);
         io.read(in + DUP_HEADER_LEN, len - DUP_HEADER_LEN, ifile);
         int r = dup_decompress(in, out, &len, &payload);
-        abort(r == -1 || r == -2, L("Internal error, dup_decompress() = %p"), r);
-
-        assert(c.size() > 0);
+        rassert(!(r == -1 || r == -2), "", r);
+        rassert(c.size() > 0, "");
         payload_orig = c.at(0).payload;
 
         if (r == 0) {
@@ -1581,9 +1545,9 @@ void decompress_files(vector<contents_t> &c) {
                 if (payload + resolved >= payload_orig) {
                     size_t fo = belongs_to(payload + resolved);
                     int j = io.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
-                    abort(j != 0, L("Internal error 1 or non-seekable device: seek(%s, %p, %p)"), infiles.at(fo).filename.c_str(), payload, payload_orig);
+                    rassert(j == 0, "Internal error or destination drive is not seekable", infiles.at(fo).filename, payload, payload_orig);
                     len2 = io.read(out + resolved, len - resolved, ofile, false);
-                    abort(len2 != len - resolved, L("Internal error: Reference points to a block in the current output file but exceeds its file length: read(%s, %p, %p)"), infiles.at(fo).filename.c_str(), len, len2);
+                    rassert(!(len2 != len - resolved), "Internal error: Reference points past current output file", infiles.at(fo).filename, len, len2);
                     resolved += len2;
                     io.seek(ofile, 0, SEEK_END);
                 } else {
@@ -1593,7 +1557,7 @@ void decompress_files(vector<contents_t> &c) {
                         ifile2 = try_open(infiles.at(fo).filename, 'r', true);
                         infiles.at(fo).handle = ifile2;
                         int j = io.seek(ifile2, payload + resolved - infiles.at(fo).offset, SEEK_SET);
-                        abort(j != 0, L("Internal error 9 or destination is a non-seekable device: seek(%s, %p, %p)"), infiles.at(fo).filename.c_str(), payload, infiles.at(fo).offset);
+                        rassert(j == 0, "Internal error or destination drive is not seekable", infiles.at(fo).filename, payload, infiles.at(fo).offset);
                     }
                     // FIXME only request to read exact amount, so that we can call with read_exact = true
                     len2 = io.read(out + resolved, len - resolved, ifile2, false);
@@ -1602,7 +1566,7 @@ void decompress_files(vector<contents_t> &c) {
                 }
             }
         } else {
-            abort(true, L("Internal errror or source file corrupted: %d"), r);
+            rassert(false, "Internal error or source file corrupted", r);
         }
 
         uint64_t src_consumed = 0;
@@ -1636,7 +1600,7 @@ void decompress_files(vector<contents_t> &c) {
                 io.close(ofile);
                 ofile = 0;
                 curfile_written = 0;
-                abort(c.at(0).checksum != decompress_checksum.result32(), L("File checksum error"));
+                abort(c.at(0).checksum != decompress_checksum.result32(), err_other, format(L("File checksum error {}"), c.at(0).extra));
                 c.erase(c.begin());
             }
         }
@@ -2248,7 +2212,7 @@ void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t
     } else if (s == DIFF_BACKUP) {
         io.write("EXDUPE D", 8, file);
     } else {
-        abort(true, L("Internal error 25"));
+        rassert(false, "", s);
     }
 
     io.write_ui<uint8_t>(VER_MAJOR, file);
@@ -2271,11 +2235,11 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* arc
     string header = io.read_bin_string(8, file);
     if (action == BACKUP) {
         abort(header != "EXDUPE F", L("'%s' is not a .full file"), filename.c_str());
-
     } else if (action == DIFF_BACKUP) {
         abort(header != "EXDUPE D", L("'%s' is not a .diff file"), filename.c_str());
     } else {
-        abort(true, L("Internal error 278"));
+        // todo, use class enum
+        rassert(false, "", action);
     }
 
     char major = io.read_ui<uint8_t>(file);
@@ -2292,8 +2256,8 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* arc
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-    abort(major != 3, L("This file was created with eXdupe version %d.%d.%d. Please use %d.x.x on it"), major, minor, revision, major);
-    abort(dev != VER_DEV, L("This file was created with eXdupe version %d.%d.%d.dev-%d. Please use the exact same version on it"), major, minor, revision, dev);
+    abort(major != 3, err_other, format("This file was created with eXdupe version {}.{}.{}. Please use %d.x.x on it", major, minor, revision, major));
+    abort(dev != VER_DEV, err_other, format("This file was created with eXdupe version {}.{}.{}.dev-{}. Please use the exact same version on it", major, minor, revision, dev));
 
     hash_flag = io.read_ui<uint8_t>(file) == 1;
     hash_salt = io.read_ui<uint64_t>(file);
@@ -2321,6 +2285,8 @@ int wmain(int argc2, CHR *argv2[])
 int main(int argc2, char *argv2[])
 #endif
 {
+
+
     tidy_args(argc2, argv2);
 
     if (argc2 == 1) {
@@ -2400,7 +2366,7 @@ int main(int argc2, char *argv2[])
         ifile = try_open(full, 'r', true);
         read_header(ifile, full, BACKUP);
         decompression::decompress_sequential(s);
-        assert(!diff_flag);
+        rassert(!diff_flag, "");
         wrote_message(io.write_count, files);
 
         // read remainder of file like content section, etc, to avoid error from OS
@@ -2419,14 +2385,14 @@ int main(int argc2, char *argv2[])
             ifile = try_open(full, 'r', true);
             memory_usage = read_header(ifile, full, BACKUP, &archive_id); // also inits hash_salt
             hashtable = malloc(memory_usage);
-            abort(!hashtable, L("Out of memory. This differential backup requires %d MB. Try -t1 flag"), memory_usage >> 20);
+            abort(!hashtable, err_resources, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
             memset(hashtable, 0, memory_usage);
             pay_count = read_references(ifile); // read size in bytes of user payload in .full file
             references.clear();
 
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
-            abort(r == 1, L("Out of memory. This differential backup requires %d MB. Try -t1 flag"), memory_usage >> 20);
-            abort(r == 2, L("Error creating threads. This differential backup requires %d MB memory. Try -t1 flag"), memory_usage >> 20);
+            abort(r == 1, err_resources, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
+            abort(r == 2, err_resources, format("Error creating threads. This differential backup requires {} MB memory. Try -t1 flag", memory_usage >> 20));
 
             read_hashtable(ifile);
 
@@ -2445,10 +2411,10 @@ int main(int argc2, char *argv2[])
             ofile = create_file(output_file);
             hash_salt = hash_flag ? rnd64() : 0;
             hashtable = tmalloc(memory_usage);
-            abort(!hashtable, L("Out of memory. Reduce -m, -g or -t flag"));
+            abort(!hashtable, err_resources, "Out of memory. Reduce -m, -g or -t flag");
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
-            abort(r == 1, L("Out of memory. Reduce -m, -g or -t flag"));
-            abort(r == 2, L("Error creating threads. Reduce -m, -g or -t flag"));
+            abort(r == 1, err_resources, "Out of memory. Reduce -m, -g or -t flag");
+            abort(r == 2, err_resources, "Error creating threads. Reduce -m, -g or -t flag");
         }
 
         output_file_mine = true; // todo, can this be deleted?
@@ -2470,9 +2436,9 @@ int main(int argc2, char *argv2[])
         if (files + dirs == 0) {
             if (no_recursion_flag) {
                 // todo, delete, wildcard no longer needed
-                abort(true, 2, L("0 source files or directories. Missing '*' wildcard with -r flag?"));
+                abort(true, err_nofiles, "0 source files or directories. Missing '*' wildcard with -r flag?");
             } else {
-                abort(true, 2, L("0 source files or directories"));
+                abort(true, err_nofiles, "0 source files or directories");
             }
         }
 
@@ -2503,16 +2469,16 @@ int main(int argc2, char *argv2[])
             s << "Speed w/o init overhead:     " << w2s(del(backup_set_size() / ((end_time_without_overhead - start_time_without_overhead ) + 1) * 1000 / 1024 / 1024)) << " MB/s\n";
 
             if(diff_flag) {
-                s << "Stored as untouched files:   " << format_size(unchanged) << "B in " << w2s(del(unchanged_files)) << " files\n";
+                s << "Stored as untouched files:   " << suffix(unchanged) << "B in " << w2s(del(unchanged_files)) << " files\n";
             }
-            s << "Stored as duplicated files:  " << format_size(identical) << "B in " << w2s(del(identical_files_count)) << " files\n";
-            s << "Stored as duplicated blocks: " << format_size(largehits + smallhits) << "B (" << format_size(largehits) << "B large, " << format_size(smallhits) << "B small)\n";
-            s << "Stored as literals:          " << format_size(stored_as_literals) << "B (" << format_size(literals_compressed_size) << "B compressed)\n";
+            s << "Stored as duplicated files:  " << suffix(identical) << "B in " << w2s(del(identical_files_count)) << " files\n";
+            s << "Stored as duplicated blocks: " << suffix(largehits + smallhits) << "B (" << suffix(largehits) << "B large, " << suffix(smallhits) << "B small)\n";
+            s << "Stored as literals:          " << suffix(stored_as_literals) << "B (" << suffix(literals_compressed_size) << "B compressed)\n";
             uint64_t total = literals_compressed_size + contents_size + references_size + hashtable_size;
-            s << "Overheads:                   " << format_size(contents_size) << "B meta, " << format_size(references_size) << "B refs, " << format_size(hashtable_size) << "B hashtable, " << format_size(io.write_count - total) << "B misc\n";    
-            s << "Unhashed due to congestion:  " << format_size(congested_large) << "B large, " << format_size(congested_small) << "B small\n";
-            s << "Unhashed anomalies:          " << format_size(anomalies_large) << "B large, " << format_size(anomalies_small) << "B small\n";
-            s << "High entropy files:          " << format_size(high_entropy) << "B in " << w2s(del(high_entropy_files)) << " files";
+            s << "Overheads:                   " << suffix(contents_size) << "B meta, " << suffix(references_size) << "B refs, " << suffix(hashtable_size) << "B hashtable, " << suffix(io.write_count - total) << "B misc\n";    
+            s << "Unhashed due to congestion:  " << suffix(congested_large) << "B large, " << suffix(congested_small) << "B small\n";
+            s << "Unhashed anomalies:          " << suffix(anomalies_large) << "B large, " << suffix(anomalies_small) << "B small\n";
+            s << "High entropy files:          " << suffix(high_entropy) << "B in " << w2s(del(high_entropy_files)) << " files";
 
             s << "\nhits1 = " << hits1  << "";
             s << "\nhits2 = " << hits2  << "\n";
@@ -2525,7 +2491,7 @@ int main(int argc2, char *argv2[])
             print_fillratio();            
         }
         else {
-            statusbar.print_no_lf(1, L("Compressed %s B in %s files into %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(format_size(io.write_count)).c_str());
+            statusbar.print_no_lf(1, L("Compressed %s B in %s files into %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(suffix(io.write_count)).c_str());
         }
 
         io.close(ofile);

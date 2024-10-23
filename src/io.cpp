@@ -67,7 +67,7 @@ size_t Cio::write(const void *Str, size_t Count, FILE *_File) {
         size_t w = minimum(Count - c, 1024 * 1024);
         size_t r = fwrite((char*)Str + c, 1, w, _File);
         write_count += r;
-        abort(r != w, 3, L("Disk full or write denied while writing destination file"));
+        abort(r != w, err_resources, "Disk full or write denied while writing destination file");
         c += r;
     }
     return Count;

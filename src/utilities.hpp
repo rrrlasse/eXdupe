@@ -9,6 +9,7 @@
 #define UTILITIES_HEADER
 
 #include "unicode.h"
+#include "error_handling.h"
 
 #define NOMINMAX
 
@@ -45,6 +46,8 @@
 #include <sys/types.h>
 #include <vector>
 #include <tuple>
+#include <source_location>
+#include <iostream>
 #ifdef WINDOWS
 #define CASESENSE(str) lcase(str)
 #include <windows.h>
@@ -72,14 +75,14 @@ enum status_t { BACKUP, DIFF_BACKUP, RESTORE, DIFF_RESTORE, LIST, DIFF_LIST };
 typedef long long time_ms_t; 
 
 std::tm local_time_tm(const time_ms_t &t);
-std::string format_size(uint64_t size);
+std::string suffix(uint64_t size);
 void clear_line();
 uint64_t rnd64();
 bool is_valid_utf8(const std::string& input) ;
 STRING string2wstring(string str);
 string wstring2string(STRING wstr);
 void replace_stdstr(std::string &str, const std::string &oldStr, const std::string &newStr);
-void replace_str(std::STRING &str, const std::STRING &oldStr, const std::STRING &newStr);
+void replace_str(STRING &str, const STRING &oldStr, const STRING &newStr);
 STRING replace2(STRING orig, STRING src, STRING dst);
 time_ms_t cur_date();
 bool is_symlink(STRING file);
@@ -96,8 +99,6 @@ STRING lcase(STRING str);
 STRING remove_leading_curdir(STRING path);
 STRING remove_delimitor(STRING path);
 STRING remove_leading_delimitor(STRING path);
-void abort(bool b, const CHR* fmt, ...);
-void abort(bool b, int, const CHR* fmt, ...);
 STRING get_pid(void);
 uint64_t filesize(STRING file, bool followlinks);
 bool same_path(STRING p1, STRING p2);
@@ -144,7 +145,7 @@ std::string s(uint64_t l);
 unsigned int GetTickCount();
 #endif
 
-std::STRING del(int64_t l, size_t width = 0);
+STRING del(int64_t l, size_t width = 0);
 bool equal2(const void *src1, const void *src2, size_t len);
 bool same2(CHR *src, size_t len);
 void *tmalloc(size_t size);

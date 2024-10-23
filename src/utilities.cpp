@@ -79,7 +79,7 @@ bool is_valid_utf8(const std::string& input) {
     return continuationBytes == 0;
 }
 
-std::string format_size(uint64_t size) {
+std::string suffix(uint64_t size) {
     if (size <= 999) {
         return std::to_string(size) + " ";
     }
@@ -159,9 +159,9 @@ STRING string2wstring(string str) {
     return wstr;
 }
 
-void replace_str(std::STRING &str, const std::STRING &oldStr, const std::STRING &newStr) {
+void replace_str(STRING &str, const STRING &oldStr, const STRING &newStr) {
     size_t pos = 0;
-    while ((pos = str.find(oldStr, pos)) != std::STRING::npos) {
+    while ((pos = str.find(oldStr, pos)) != STRING::npos) {
         str.replace(pos, oldStr.length(), newStr);
         pos += newStr.length();
     }
@@ -169,7 +169,7 @@ void replace_str(std::STRING &str, const std::STRING &oldStr, const std::STRING 
 
 void replace_stdstr(std::string &str, const std::string &oldStr, const std::string &newStr) {
     size_t pos = 0;
-    while ((pos = str.find(oldStr, pos)) != std::STRING::npos) {
+    while ((pos = str.find(oldStr, pos)) != STRING::npos) {
         str.replace(pos, oldStr.length(), newStr);
         pos += newStr.length();
     }
@@ -729,7 +729,7 @@ bool same2(char *src, size_t len) {
     return true;
 }
 
-std::STRING del(int64_t l, size_t width) {
+STRING del(int64_t l, size_t width) {
     CHR s[50], d[50];
     unsigned int i, j = 0;
 
@@ -737,7 +737,7 @@ std::STRING del(int64_t l, size_t width) {
     memset(d, 0, sizeof(d));
 
     if (l == -1) {
-        return std::STRING(CHR(' '), width);
+        return STRING(CHR(' '), width);
     }
 
 #ifdef WINDOWS
