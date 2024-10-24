@@ -77,10 +77,7 @@ const bool WIN = false;
 
 #include <cstdlib>
 #include <iomanip>
-#include <iostream>
-#include <limits>
 #include <sstream>
-#include <string>
 #include <set>
 #include <map>
 
@@ -142,7 +139,11 @@ compile_assert(sizeof(size_t) == 8);
 uint64_t start_time = GetTickCount();
 uint64_t start_time_without_overhead;
 
-using namespace std;
+using std::string;
+using std::wstring;
+using std::vector;
+using std::pair;
+using std::format;
 
 // command line flags
 uint64_t memory_usage = 2 * G;
@@ -1310,7 +1311,7 @@ pair<STRING, size_t> extract_to(STRING curdir, STRING curfile) {
             return make_pair(curdir, i);
         }
     }
-    return make_pair(L(":"), 0);
+    return std::make_pair(L(":"), 0);
 }
 
 void verify_restorelist(vector<STRING> restorelist, const vector<contents_t> &content) {
@@ -1350,7 +1351,7 @@ void force_overwrite(const STRING &file) {
         abort(!force_flag, L("Destination file '%s' already exists"), slashify(file).c_str());
         try {
             std::filesystem::remove(file);
-        } catch (exception &) {
+        } catch (std::exception &) {
             abort(true, L("Failed to overwrite file: %s"), slashify(file).c_str());
         }
     }
@@ -1619,7 +1620,7 @@ void decompress_sequential(const STRING& extract_dir) {
     save_directory(L(""), curdir + DELIM_STR); // initial root
 
     vector<contents_t> identicals_queue;
-    map<uint64_t, STRING> written;
+    std::map<uint64_t, STRING> written;
 
     for (;;) {
         char w;
@@ -2487,7 +2488,7 @@ int main(int argc2, char *argv2[])
 
             STRING str = s2w(s.str());
             statusbar.print(0, L("%s"), str.c_str());
-            wcerr << "Hashtable fillratio:         ";
+            CERR << "Hashtable fillratio:         ";
             print_fillratio();            
         }
         else {

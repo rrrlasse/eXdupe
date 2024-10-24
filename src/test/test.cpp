@@ -10,6 +10,8 @@
 #include "../ui.hpp"
 #include "../bytebuffer.h"
 
+using std::wstring;
+
 // Simulate a terminal and compute what would be seen on the screen
 std::wstring term(const std::wstring& source) {
     wstring destination;

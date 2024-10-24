@@ -5,13 +5,15 @@
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
 
-#include <iostream>
-#include <time.h>
+#include <cstdint>
+#include <stdio.h>
+#include <vector>
+
+#include "gsl/narrow"
 
 #include "io.hpp"
 #include "unicode.h"
 #include "utilities.hpp"
-#include "gsl/gsl"
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
 #include <io.h>
@@ -30,6 +32,8 @@
 #define _fseeki64 fseeko64
 #endif
 #endif
+
+using std::wstring;
 
 Cio::Cio() {
     write_count = 0;

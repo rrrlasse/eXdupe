@@ -5,9 +5,7 @@
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
 
-
-#ifndef AIO_HEADER
-#define AIO_HEADER
+#pragma once
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,8 +17,6 @@
 
 #include "utilities.hpp"
 #include "unicode.h"
-
-using namespace std;
 
 // NOT thread safe
 class Cio {
@@ -124,4 +120,3 @@ class Cio {
     static bool stdin_tty();
 
 };
-#endif

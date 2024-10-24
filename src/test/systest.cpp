@@ -10,11 +10,9 @@
 #include <regex>
 #include <vector>
 #include <filesystem>
-#include <format>
 #include <fstream>
 
 #ifdef _WIN32
-#include <iostream>
 #include <Windows.h>
 #include <shellapi.h>
 #include <shlobj_core.h>
@@ -25,22 +23,17 @@
 #include <wordexp.h>
 #endif
 
-#include "catch.hpp"
-
-#include <iostream>
 #include <locale>
 #include <codecvt>
 #include <string>
+
+#include "catch.hpp"
 
 using namespace std;
 
 namespace {
 
 string p(string path);
-
-#include <iostream>
-#include <filesystem>
-
 #ifdef _WIN32
 string nul = "2>NUL";
 bool win = true;

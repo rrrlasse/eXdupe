@@ -1,12 +1,11 @@
+#pragma once
+
 // SPDX-License-Identifier: GPL-2.0-or-later
 // 
 // eXdupe deduplication library and file archiver.
 //
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
-
-#ifndef UTILITIES_HEADER
-#define UTILITIES_HEADER
 
 #include "unicode.h"
 #include "error_handling.h"
@@ -41,10 +40,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <vector>
 #include <tuple>
 #include <source_location>
 #include <iostream>
@@ -63,10 +60,6 @@
 
 #include "libexdupe/xxHash/xxh3.h"
 #include "libexdupe/xxHash/xxhash.h"
-
-
-
-using namespace std; // fixme, remove
 
 enum { FILE_TYPE, DIR_TYPE, SYMLINK_TYPE, ERROR_TYPE };
 enum status_t { BACKUP, DIFF_BACKUP, RESTORE, DIFF_RESTORE, LIST, DIFF_LIST };
@@ -89,10 +82,10 @@ bool is_symlink(STRING file);
 bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir);
 bool is_named_pipe(STRING file);
 void set_date(STRING file, time_ms_t date);
-pair<time_ms_t, time_ms_t> get_date(STRING file);
+std::pair<time_ms_t, time_ms_t> get_date(STRING file);
 STRING slashify(STRING path);
 STRING slashify(STRING path);
-vector<STRING> split_string(STRING str, STRING delim);
+std::vector<STRING> split_string(STRING str, STRING delim);
 int delete_directory(STRING base_dir);
 STRING ucase(STRING str);
 STRING lcase(STRING str);
@@ -119,7 +112,7 @@ bool set_attributes(STRING path, int attributes);
 
 bool create_directory(STRING path);
 bool create_directories(STRING path, time_ms_t t);
-size_t longest_common_prefix(vector<STRING> strings, bool case_sensitive);
+size_t longest_common_prefix(std::vector<STRING> strings, bool case_sensitive);
 
 template <class T, class U> uint64_t minimum(T a, U b) {
     return (static_cast<uint64_t>(a) > static_cast<uint64_t>(b)) ? static_cast<uint64_t>(b) : static_cast<uint64_t>(a);
@@ -167,5 +160,3 @@ void tm_to_short(short_tm *s, tm *l);
 void tm_to_long(short_tm *s, tm *l);
 
 std::string regx(std::string str, std::string pat);
-
-#endif

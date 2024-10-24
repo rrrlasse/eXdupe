@@ -38,8 +38,6 @@ unsigned int GetTickCount() {
 
 #endif
 
-namespace fs = std::filesystem;
-
 #ifdef _WIN32
 #pragma warning(disable : 4267)
 #pragma warning(disable : 4244)
@@ -54,6 +52,10 @@ namespace fs = std::filesystem;
 #define DELIM_STR L("/")
 #define DELIM_CHAR L('/')
 #endif
+
+namespace fs = std::filesystem;
+using std::vector;
+using std::pair;
 
 bool is_valid_utf8(const std::string& input) {
     int continuationBytes = 0;
@@ -443,7 +445,7 @@ uint64_t filesize(STRING file, bool followlinks = false) {
             }
         }
         return fs::file_size(file);
-    } catch (exception &) {
+    } catch (std::exception &) {
         return 0;
     }
 }
@@ -528,7 +530,7 @@ bool ISSOCK(int attributes) {
 int get_attributes(STRING path, bool follow) {
 #ifdef WINDOWS
     if (path.size() > 250) {
-        path = wstring(L"\\\\?\\") + path;
+        path = std::wstring(L"\\\\?\\") + path;
     }
 
     (void)follow;

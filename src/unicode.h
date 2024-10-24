@@ -1,12 +1,11 @@
+#pragma once
+
 // SPDX-License-Identifier: GPL-2.0-or-later
 // 
 // eXdupe deduplication library and file archiver.
 //
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
-
-#ifndef UNICODE_H
-#define UNICODE_H
 
 #include <string>
 using std::string;
@@ -42,6 +41,4 @@ using std::string;
 #define STRLEN strlen
 #define OSTREAM std::ostream
 #define CERR std::cerr
-#endif
-
 #endif

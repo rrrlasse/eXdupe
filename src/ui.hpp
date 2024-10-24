@@ -1,3 +1,5 @@
+#pragma once
+
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // eXdupe deduplication library and file archiver.

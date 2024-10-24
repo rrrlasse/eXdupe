@@ -9,6 +9,10 @@ module;
 #include <assert.h>
 #include <optional>
 
+using std::optional;
+using std::pair;
+using std::unordered_map;
+
 export module UntouchedFiles;
 
 export class UntouchedFiles

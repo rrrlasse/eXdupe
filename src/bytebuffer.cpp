@@ -5,10 +5,12 @@
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
 
+#include <cstdint>
+#include <cstring>
 #include <vector>
 
 #include "bytebuffer.h"
-#include "utilities.hpp"
+#include "error_handling.h"
 
 Bytebuffer::Bytebuffer(size_t max_size) {
     m_buffer.resize(max_size);

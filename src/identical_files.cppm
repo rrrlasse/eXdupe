@@ -59,6 +59,6 @@ public:
     }
 
 private:
-    unordered_map<uint64_t, contents_t> all_file_hashes;
+    std::unordered_map<uint64_t, contents_t> all_file_hashes;
     std::vector<char> buf;
 };
