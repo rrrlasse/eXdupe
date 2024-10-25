@@ -5,25 +5,7 @@
 // Copyrights:
 // 2010 - 2023: Lasse Mikkel Reinhold
 
-#if defined _MSC_VER
-#include <intrin.h>
-#endif
-
-// #define HASH_PARTIAL_BLOCKS
-
 #define HASH_SIZE 16
-
-#if defined(__SVR4) && defined(__sun)
-#include <thread.h>
-#endif
-
-#if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
-#define WINDOWS
-#endif
-
-#if (defined(__X86__) || defined(__i386__) || defined(i386) || defined(_M_IX86) || defined(__386__) || defined(__x86_64__) || defined(_M_X64))
-#define X86X64
-#endif
 
 #include <assert.h>
 #include <immintrin.h>
@@ -33,9 +15,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef WINDOWS
+#ifdef _WIN32
 #include "pthread/pthread.h"
 #include <Windows.h>
+#include <intrin.h>
 #else
 #include <pthread.h>
 #include <unistd.h>
@@ -129,7 +112,6 @@ uint64_t g_hash_salt = 0;
 pthread_mutex_t table_mutex;
 pthread_cond_t jobdone_cond;
 pthread_mutex_t jobdone_mutex;
-std::mutex job_info;
 
 int threads;
 int level;
@@ -489,7 +471,6 @@ size_t dup_compress_hashtable(char* dst) {
     size_t s = sizeof(hashblock_t) * total_entries;
     uint64_t crc = hash64(&small_table[0], s);
     size_t block = 0;
-    size_t total_used = 0;
 
     ll2str(crc, dst, 8);
     dst += 8;
@@ -500,13 +481,7 @@ size_t dup_compress_hashtable(char* dst) {
         *dst++ = 'C';
         ll2str(count, dst, 8);
         ll2str(used ? 1 : 0, dst + 8, 1);
-
-        if(used) {
-            total_used += count;
-        }
-
         dst += 9;
-
         for(size_t t = 0; t < count; t++) {
             size_t s = write_hashblock(&small_table[block], dst);
             dst += s;
@@ -734,7 +709,6 @@ static bool hashat(const char *src, uint64_t pay, size_t len, bool large, char *
 
 static size_t write_match(size_t length, uint64_t payload, char *dst) {
    // wcerr << L"match = " << length << L"," << payload << L"\n";
-
     if (length > 0) {
         if(length == LARGE_BLOCK) {
             largehits += length;
@@ -742,7 +716,6 @@ static size_t write_match(size_t length, uint64_t payload, char *dst) {
         else {
             smallhits += length;
         }
-
         memcpy(dst, DUP_MATCH, 2);
         dst += 8 - 6;
         ll2str(32 - (6 + 8), dst, 4);
@@ -758,8 +731,6 @@ static size_t write_match(size_t length, uint64_t payload, char *dst) {
 
 static size_t write_literals(const char *src, size_t length, char *dst, int thread_id, bool entropy) {
   //  wcerr << L"literal = " << length << L" ";
-
-
     if (length > 0) {
         size_t r;
         if (level == 0 || entropy) {
@@ -825,24 +796,6 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length, int policy)
             smalls = 0;
         }
     }
-
-#ifdef HASH_PARTIAL_BLOCKS
-    size_t large_blocks = length / LARGE_BLOCK;
-    size_t rem_size = length - SMALL_BLOCK * small_blocks;
-    size_t rem_offset = SMALL_BLOCK * small_blocks;
-    if (rem_size >= 128) {
-        sha(src + rem_offset, rem_size, (char *)tmp);
-        hashat(src + rem_offset, pay + rem_offset, rem_size, 0, (char *)tmp, policy);
-    }
-
-    // Hash any remainder smaller than LARGE_BLOCK
-    rem_size = length - LARGE_BLOCK * large_blocks;
-    rem_offset = LARGE_BLOCK * large_blocks;
-    if (rem_size >= SMALL_BLOCK) {
-        sha(src + rem_offset, rem_size, (char *)tmp);
-        hashat(src + rem_offset, pay + rem_offset, rem_size, 1, (char *)tmp, policy);
-    }
-#endif
     return;
 }
 
@@ -1006,7 +959,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
         (void)*(new (&jobs[i])(job_t)());
     }
 
-#ifdef WINDOWS
+#ifdef _WIN32
     pthread_win32_process_attach_np();
 #endif
 

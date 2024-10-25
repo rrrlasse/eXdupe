@@ -12,10 +12,12 @@
 #include "shadow/shadow.h"
 #endif
 
+
+
 enum retvals {err_other = 1, err_parameters = 2, err_resources = 3, err_nofiles = 4, err_assert = 5};
 
 inline void cleanup_and_exit(int ret) {
-#ifdef WINDOWS
+#ifdef _WIN32
     unshadow();
 #endif
     exit(ret);

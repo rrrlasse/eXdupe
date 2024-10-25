@@ -10,6 +10,8 @@
 #include "../ui.hpp"
 #include "../bytebuffer.h"
 
+void unshadow() {};
+
 using std::wstring;
 
 // Simulate a terminal and compute what would be seen on the screen

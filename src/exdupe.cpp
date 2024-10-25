@@ -41,12 +41,13 @@
 #include <utility>
 #include <vector>
 #include <unordered_map>
+#include <cstdlib>
+#include <iomanip>
+#include <sstream>
+#include <set>
+#include <map>
 
-#if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
-#define WINDOWS
-#endif
-
-#ifdef WINDOWS
+#ifdef _WIN32
 const bool WIN = true;
 #include "shadow/shadow.h"
 #include <fcntl.h>
@@ -74,12 +75,6 @@ const bool WIN = false;
 #define DELIM_CHAR '/'
 #define LONGLONG L("%lld")
 #endif
-
-#include <cstdlib>
-#include <iomanip>
-#include <sstream>
-#include <set>
-#include <map>
 
 #include "bytebuffer.h"
 #include "io.hpp"
@@ -174,17 +169,13 @@ uint32_t compression_level = 1;
 // statistics to show to user
 uint64_t files = 0;
 uint64_t dirs = 0;
-uint64_t tot_res = 0;
 
 uint64_t unchanged = 0; // payload of unchanged files between a full and diff backup
 uint64_t identical = 0;
 uint64_t identical_files_count = 0;
 uint64_t high_entropy_files;
-
 uint64_t unchanged_files = 0;
-
 uint64_t contents_size = 0;
-
 uint64_t hash_salt;
 
 STRING full;
@@ -212,7 +203,6 @@ vector<STRING> argv;
 int argc;
 STRING flags;
 STRING output_file;
-bool output_file_mine = false;
 void *hashtable;
 uint64_t file_id_counter = 0;
 
@@ -234,9 +224,6 @@ typedef struct {
 } file_offset_t;
 
 vector<file_offset_t> infiles;
-
-
-
 vector<contents_t> contents;
 
 typedef struct {
@@ -300,7 +287,7 @@ void update_statusbar_backup(STRING file, bool message = false) {
 }
 
 void update_statusbar_restore(STRING file) {
-    statusbar.update(RESTORE, 0, tot_res, file);
+    statusbar.update(RESTORE, 0, io.write_count, file);
 }
 
 STRING date2str(time_ms_t date) {
@@ -316,7 +303,7 @@ STRING date2str(time_ms_t date) {
 }
 
 STRING validchars(STRING filename) {
-#ifdef WINDOWS
+#ifdef _WIN32
     std::wregex invalid(L"[<>:\"/\\|?*]");
     return std::regex_replace(filename, invalid, L"=");
 #else
@@ -325,59 +312,59 @@ STRING validchars(STRING filename) {
 }
 
 
-void read_content_item(FILE* file, contents_t* c) {
+void read_content_item(FILE* file, contents_t& c) {
     uint8_t type = io.read_ui<uint8_t>(file);
-    c->directory = ((type >> 0) & 1) == 1;
-    c->symlink = ((type >> 1) & 1) == 1;
-    c->unchanged = ((type >> 2) & 1) == 1;
-    c->is_dublicate_of_full = ((type >> 3) & 1) == 1;
-    c->is_dublicate_of_diff = ((type >> 4) & 1) == 1;
-    c->in_diff = ((type >> 5) & 1) == 1;
+    c.directory = ((type >> 0) & 1) == 1;
+    c.symlink = ((type >> 1) & 1) == 1;
+    c.unchanged = ((type >> 2) & 1) == 1;
+    c.is_dublicate_of_full = ((type >> 3) & 1) == 1;
+    c.is_dublicate_of_diff = ((type >> 4) & 1) == 1;
+    c.in_diff = ((type >> 5) & 1) == 1;
 
-    c->file_id = io.read_compact<uint64_t>(file);
-    if (c->unchanged) {
+    c.file_id = io.read_compact<uint64_t>(file);
+    if (c.unchanged) {
         return;
     }
-    c->abs_path = slashify(io.read_utf8_string(file));
-    c->payload = io.read_compact<uint64_t>(file);
-    c->name = slashify(io.read_utf8_string(file));
-    c->link = slashify(io.read_utf8_string(file));
-    c->size = io.read_compact<uint64_t>(file);
-    c->checksum = io.read_ui<uint32_t>(file);
-    c->file_c_time = io.read_compact<uint64_t>(file);
-    c->file_modified = io.read_compact<uint64_t>(file);
-    c->attributes = io.read_ui<uint32_t>(file);
-    c->dublicate = io.read_compact<uint64_t>(file);
+    c.abs_path = slashify(io.read_utf8_string(file));
+    c.payload = io.read_compact<uint64_t>(file);
+    c.name = slashify(io.read_utf8_string(file));
+    c.link = slashify(io.read_utf8_string(file));
+    c.size = io.read_compact<uint64_t>(file);
+    c.checksum = io.read_ui<uint32_t>(file);
+    c.file_c_time = io.read_compact<uint64_t>(file);
+    c.file_modified = io.read_compact<uint64_t>(file);
+    c.attributes = io.read_ui<uint32_t>(file);
+    c.dublicate = io.read_compact<uint64_t>(file);
 
-    read_hash(file, *c);
+    read_hash(file, c);
 
-    if (!c->directory) {
-        STRING i = c->name;
-        c->name = slashify(validchars(c->name));
-        if (i != c->name) {
-            statusbar.print(2, L("*nix filename '%s' renamed to '%s'"), i.c_str(), c->name.c_str());
+    if (!c.directory) {
+        STRING i = c.name;
+        c.name = slashify(validchars(c.name));
+        if (i != c.name) {
+            statusbar.print(2, L("*nix filename '%s' renamed to '%s'"), i.c_str(), c.name.c_str());
         }
     }
 }
 
-void write_contents_item(FILE *file, contents_t *c) {
+void write_contents_item(FILE *file, const contents_t &c) {
     uint64_t written = io.write_count;
-    uint8_t type = ((c->directory ? 1 : 0) << 0) | ((c->symlink ? 1 : 0) << 1) | ((c->unchanged ? 1 : 0) << 2) | ((c->is_dublicate_of_full ? 1 : 0) << 3) | ((c->is_dublicate_of_diff ? 1 : 0) << 4) | ((c->in_diff ? 1 : 0) << 5);
+    uint8_t type = ((c.directory ? 1 : 0) << 0) | ((c.symlink ? 1 : 0) << 1) | ((c.unchanged ? 1 : 0) << 2) | ((c.is_dublicate_of_full ? 1 : 0) << 3) | ((c.is_dublicate_of_diff ? 1 : 0) << 4) | ((c.in_diff ? 1 : 0) << 5);
     io.write_ui<uint8_t>(type, file);
-    io.write_compact<uint64_t>(c->file_id, file);
+    io.write_compact<uint64_t>(c.file_id, file);
 
-    if(!c->unchanged) {
-        io.write_utf8_string(c->abs_path, file);
-        io.write_compact<uint64_t>(c->payload, file);
-        io.write_utf8_string(c->name, file);
-        io.write_utf8_string(c->link, file);
-        io.write_compact<uint64_t>(c->size, file);
-        io.write_ui<uint32_t>(c->checksum, file);
-        io.write_compact<uint64_t>(c->file_c_time, file);
-        io.write_compact<uint64_t>(c->file_modified, file);
-        io.write_ui<uint32_t>(c->attributes, file);
-        io.write_compact<uint64_t>(c->dublicate, file);
-        write_hash(file, *c);
+    if(!c.unchanged) {
+        io.write_utf8_string(c.abs_path, file);
+        io.write_compact<uint64_t>(c.payload, file);
+        io.write_utf8_string(c.name, file);
+        io.write_utf8_string(c.link, file);
+        io.write_compact<uint64_t>(c.size, file);
+        io.write_ui<uint32_t>(c.checksum, file);
+        io.write_compact<uint64_t>(c.file_c_time, file);
+        io.write_compact<uint64_t>(c.file_modified, file);
+        io.write_ui<uint32_t>(c.attributes, file);
+        io.write_compact<uint64_t>(c.dublicate, file);
+        write_hash(file, c);
     }
     contents_size += io.write_count - written;
 }
@@ -549,20 +536,21 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
     while (bytes_resolved < size) {
         uint64_t rr = find_reference(payload + bytes_resolved);
         rassert(rr != std::numeric_limits<uint64_t>::max(), "");
-        uint64_t prior = payload + bytes_resolved - references.at(rr).payload;
+        reference_t ref = references.at(rr);
+        uint64_t prior = payload + bytes_resolved - ref.payload;
         size_t needed = size - bytes_resolved;
-        size_t ref_has = references.at(rr).length - prior >= needed ? needed : references.at(rr).length - prior;
+        size_t ref_has = ref.length - prior >= needed ? needed : ref.length - prior;
 
-        if (references.at(rr).is_reference) {
-            resolve(references.at(rr).payload_reference + prior, ref_has, dst + bytes_resolved, ifile, fdiff, splitpay);
+        if (ref.is_reference) {
+            resolve(ref.payload_reference + prior, ref_has, dst + bytes_resolved, ifile, fdiff, splitpay);
         } else {
 
-            char *b = bytebuffer.buffer_find(references.at(rr).payload, ref_has);
+            char *b = bytebuffer.buffer_find(ref.payload, ref_has);
             if (b != 0) {
                 memcpy(dst + bytes_resolved, b + prior, ref_has);
             } else {
                 FILE *f;
-                if (references.at(rr).payload >= splitpay) {
+                if (ref.payload >= splitpay) {
                     f = fdiff;
                 } else {
                     f = ifile;
@@ -571,7 +559,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
                 // seek and read and decompress literal packet
                 uint64_t p;
                 uint64_t orig = io.tell(f);
-                uint64_t ao = references.at(rr).archive_offset;
+                uint64_t ao = ref.archive_offset;
                 io.seek(f, ao, SEEK_SET);
                 io.read_vector(restore_buffer_in, DUP_HEADER_LEN, 0, f, true);
                 size_t lenc = dup_size_compressed(restore_buffer_in.data());
@@ -580,7 +568,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
                 io.read_vector(restore_buffer_in, lenc - DUP_HEADER_LEN, DUP_HEADER_LEN, f, true);
                 int r = dup_decompress(restore_buffer_in.data(), restore_buffer_out.data(), &lenc, &p);
                 rassert(!(r != 0 && r != 1), "", r);
-                bytebuffer.buffer_add(restore_buffer_out.data(), references.at(rr).payload, references.at(rr).length);
+                bytebuffer.buffer_add(restore_buffer_out.data(), ref.payload, ref.length);
 
                 io.seek(f, orig, SEEK_SET);
                 memcpy(dst + bytes_resolved, restore_buffer_out.data() + prior, ref_has);
@@ -593,7 +581,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
 }
 // clang-format off
 void print_file(STRING filename, uint64_t size, time_ms_t file_modified = 0, int attributes = 0) {
-#ifdef WINDOWS
+#ifdef _WIN32
     statusbar.print_no_lf(0, L("%s  %s  %s\n"), 
         size == std::numeric_limits<uint64_t>::max() ? L("                   ") : del(size, 19).c_str(),
 /*
@@ -618,7 +606,7 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
     full = remove_delimitor(full) + DELIM_STR;
     STRING full_orig = full;
 
-#ifdef WINDOWS
+#ifdef _WIN32
     full = unsnap(full);
 
     size_t shadowsize = snappart(base_dir + path).size();
@@ -655,7 +643,7 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
 
         if (write && !diff_flag) {
             io.write("I", 1, ofile);
-            write_contents_item(ofile, &c);
+            write_contents_item(ofile, c);
         }
 
         last_full = full;
@@ -686,7 +674,6 @@ uint64_t read_hashtable(FILE *file) {
     io.read(memory_end - s, s, file);
     io.seek(file, orig, SEEK_SET);
     int i = dup_decompress_hashtable(memory_end - s);
-    // FIXME, this make an archive file non-portable
     abort(i != 0, L("'%s' is corrupted or not a .full file (hash table)"), slashify(full).c_str());
     return 0;
 }
@@ -696,7 +683,7 @@ size_t write_contents(FILE *file) {
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(contents.size(), file);
     for (size_t i = 0; i < contents.size(); i++) {
-        write_contents_item(file, &contents.at(i));
+        write_contents_item(file, contents.at(i));
     }
     io.write_ui<uint32_t>(0, file);
     io.write_ui<uint64_t>(io.write_count - w, file);
@@ -709,7 +696,7 @@ vector<contents_t> read_contents(FILE* f) {
     uint64_t orig = seek_to_header(f, "CONTENTS");
     uint64_t n = io.read_ui<uint64_t>(f);
     for (uint64_t i = 0; i < n; i++) {
-        read_content_item(f, &c);
+        read_content_item(f, c);
         ret.push_back(c);
     }
     io.seek(f, orig, SEEK_SET);
@@ -718,7 +705,7 @@ vector<contents_t> read_contents(FILE* f) {
 
 void init_content_maps(FILE* ffull) {
     auto con = read_contents(ffull);
-    for(auto c : con) {
+    for(auto& c : con) {
         // fixme, verify this works for .is_dublicate
         if(!c.directory && !c.symlink) {
             untouched_files2.add_during_restore(c);
@@ -728,7 +715,7 @@ void init_content_maps(FILE* ffull) {
 
 FILE *try_open(STRING file2, char mode, bool abortfail) {
     auto file = file2;
-#ifdef WINDOWS
+#ifdef _WIN32
     // todo fix properly. A long *relative* path wont work
     if (file.size() > 250) {
         file = wstring(L"\\\\?\\") + file;
@@ -765,7 +752,7 @@ uint64_t dump_contents() {
     uint64_t n = io.read_ui<uint64_t>(file);
     for (uint64_t i = 0; i < n; i++) {
         contents_t c;
-        read_content_item(file, &c); 
+        read_content_item(file, c); 
 
         if (c.symlink) {
             print_file(STRING(c.name + L(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_modified, c.attributes);
@@ -812,7 +799,7 @@ void print_build_info() {
     statusbar.print(0, b.c_str());
 }
 
-#ifdef WINDOWS
+#ifdef _WIN32
 vector<STRING> wildcard_expand(vector<STRING> files) {
     HANDLE hFind = INVALID_HANDLE_VALUE;
     DWORD dwError;
@@ -886,7 +873,7 @@ void parse_flags(void) {
                 abort(e == L(""), L("Missing extensions in -e flag"));
                 entropy_ext.push_back(e);
         } else if (flags.length() > 2 && flags.substr(0, 2) == L("-s")) {
-#ifdef WINDOWS
+#ifdef _WIN32
             STRING mount = flags.substr(2);
             abort(mount == L(""), L("Missing drive in -s flag"));
             shadows.push_back(mount);
@@ -1086,14 +1073,14 @@ void parse_files(void) {
                 statusbar.print(2, L("Skipped, does not exist: %s"), slashify(inputfiles.at(i)).c_str());
             } else {
                 inputfiles2.push_back(abs_path(inputfiles.at(i)));
-#ifdef WINDOWS
+#ifdef _WIN32
                 inputfiles2.back() = snap(inputfiles2.back());
 #endif
             }
         }
 
         inputfiles = inputfiles2;
-#ifdef WINDOWS
+#ifdef _WIN32
         inputfiles = wildcard_expand(inputfiles);
 #endif
     }
@@ -1365,7 +1352,7 @@ FILE *create_file(const STRING &file) {
 
 void create_symlink(STRING path, contents_t c) {
     force_overwrite(path);
-#ifdef WINDOWS
+#ifdef _WIN32
     int ret = CreateSymbolicLink(path.c_str(), c.link.c_str(), SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE | (c.directory ? SYMBOLIC_LINK_FLAG_DIRECTORY : 0));
     if (ret == 0) {
         int e = GetLastError();
@@ -1387,9 +1374,9 @@ void ensure_relative(const STRING &path) {
 }
 
 // todo, namespace is a temporary fix to separate things
-namespace decompression {
+namespace restore {
 
-    void decompress_individuals(FILE *ffull, FILE *fdiff) {
+void restore_from_file(FILE *ffull, FILE *fdiff) {
     FILE *archive_file;
     bool pipe_out = directory == L("-stdout");
     std::vector<char> restore_buffer(RESTORE_CHUNKSIZE, 'c');
@@ -1488,7 +1475,6 @@ namespace decompression {
                     resolve(c.payload + resolved, process, restore_buffer.data(), ffull, fdiff, basepay);
                     checksum(restore_buffer.data(), process, &t);
                     io.write(restore_buffer.data(), process, ofile);
-                    tot_res += process;
                     update_statusbar_restore(outfile);
                     resolved += process;
                     payload += c.size;
@@ -1510,7 +1496,7 @@ uint64_t curfile_written = 0;
 checksum_t decompress_checksum;
 vector<contents_t> file_queue;
 
-void decompress_files(vector<contents_t> &c) {
+void restore_from_stdin(vector<contents_t> &c) {
     STRING destfile;
     STRING last_file = L("");
     uint64_t payload_orig = payload_written;
@@ -1630,7 +1616,7 @@ void decompress_sequential(const STRING& extract_dir) {
 
         if (w == 'I') {
             contents_t c;
-            read_content_item(ifile, &c);
+            read_content_item(ifile, c);
             ensure_relative(c.name);
             curdir = extract_dir + DELIM_STR + c.name;
             save_directory(L(""), curdir);
@@ -1639,7 +1625,7 @@ void decompress_sequential(const STRING& extract_dir) {
         else if (w == 'U') {
             contents_t c;
             files++;
-            read_content_item(ifile, &c);
+            read_content_item(ifile, c);
             STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
             c.extra = buf2;
             identicals_queue.push_back(c);
@@ -1647,7 +1633,7 @@ void decompress_sequential(const STRING& extract_dir) {
         else if (w == 'F') {
             contents_t c;
             files++;
-            read_content_item(ifile, &c);
+            read_content_item(ifile, c);
             STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
 
             if (c.size == 0) {
@@ -1668,7 +1654,7 @@ void decompress_sequential(const STRING& extract_dir) {
             }
         }
         else if (w == 'A') {
-            decompress_files(file_queue);
+            restore_from_stdin(file_queue);
         }
         else if (w == 'C') { // crc
             uint32_t crc = io.read_ui<uint32_t>(ifile);
@@ -1677,7 +1663,7 @@ void decompress_sequential(const STRING& extract_dir) {
         else if (w == 'L') { // symlink
             contents_t c;
             files++;
-            read_content_item(ifile, &c);
+            read_content_item(ifile, c);
             STRING buf2 = curdir + DELIM_CHAR + c.name;
             create_symlink(buf2, c);
         }
@@ -1701,7 +1687,6 @@ void decompress_sequential(const STRING& extract_dir) {
         auto ifile = try_open(src, 'r', true);
         for (size_t r; r = io.read(buf.data(), DISK_READ_CHUNK, ifile, false);) {
             io.write(buf.data(), r, ofile);
-            tot_res += r;
             update_statusbar_restore(dst);
         }
         io.close(ifile);
@@ -1742,7 +1727,7 @@ void compress_symlink(const STRING &link, const STRING &target) {
     c.payload = 0;
     c.checksum = 0;
     c.file_modified = file_modified;
-    write_contents_item(ofile, &c);
+    write_contents_item(ofile, c);
     contents.push_back(c);
     return;
 }
@@ -1882,7 +1867,7 @@ void compress_file(const STRING& input_file, const STRING& filename) {
             if (!diff_flag) {
                 // todo clear abs_path?
                 io.write("U", 1, ofile);
-                write_contents_item(ofile, &file_meta);
+                write_contents_item(ofile, file_meta);
             }
 
             identical_files_count++;
@@ -1902,7 +1887,7 @@ void compress_file(const STRING& input_file, const STRING& filename) {
         io.write("F", 1, ofile);
         contents_t tmp = file_meta;
         tmp.abs_path.clear(); // todo why is this cleared?
-        write_contents_item(ofile, &tmp);
+        write_contents_item(ofile, tmp);
     }
 
     file_queue.push_back(file_meta);
@@ -1987,7 +1972,7 @@ bool lua_test(STRING path, const STRING &script, bool top_level) {
     time_ms_t date;
     int type;
 
-#ifdef WINDOWS
+#ifdef _WIN32
     HANDLE hFind;
     WIN32_FIND_DATAW data;
     hFind = FindFirstFileW(path.c_str(), &data);
@@ -2128,7 +2113,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_l
             }
 
             vector<STRING> newdirs;
-#ifdef WINDOWS
+#ifdef _WIN32
             if (ISLINK(attributes.at(j))) {
                 continue;
             }
@@ -2269,7 +2254,7 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* arc
 void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, L("Wrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
 
 void create_shadows(void) {
-#ifdef WINDOWS
+#ifdef _WIN32
     shadow(shadows);
 
     vector<pair<STRING, STRING>> snaps; //(STRING mount, STRING shadow)
@@ -2280,7 +2265,7 @@ void create_shadows(void) {
 #endif
 }
 
-#ifdef WINDOWS
+#ifdef _WIN32
 int wmain(int argc2, CHR *argv2[])
 #else
 int main(int argc2, char *argv2[])
@@ -2320,7 +2305,7 @@ int main(int argc2, char *argv2[])
 
     file_types.add(entropy_ext);
 
-#ifdef WINDOWS
+#ifdef _WIN32
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_U16TEXT);
@@ -2353,20 +2338,19 @@ int main(int argc2, char *argv2[])
             read_header(fdiff, diff, DIFF_BACKUP, &diff_id);
             abort(full_id != diff_id, L("The diff file does not belong to the full file. "));
             init_content_maps(ffull);
-
-            decompression::decompress_individuals(ffull, fdiff);
+            restore::restore_from_file(ffull, fdiff);
         } else {
             ifile = try_open(full, 'r', true);
             read_header(ifile, full, BACKUP);
-            decompression::decompress_individuals(ifile, ifile);
+            restore::restore_from_file(ifile, ifile);
         }
-        wrote_message(tot_res, files);
+        wrote_message(io.write_count, files);
     } else if ((restore_flag && (full == L("-stdin"))) && restorelist.size() == 0) {
         // Restore from stdin. Only entire archive can be restored this way
         STRING s = remove_delimitor(directory);
         ifile = try_open(full, 'r', true);
         read_header(ifile, full, BACKUP);
-        decompression::decompress_sequential(s);
+        restore::decompress_sequential(s);
         rassert(!diff_flag, "");
         wrote_message(io.write_count, files);
 
@@ -2418,7 +2402,6 @@ int main(int argc2, char *argv2[])
             abort(r == 2, err_resources, "Error creating threads. Reduce -m, -g or -t flag");
         }
 
-        output_file_mine = true; // todo, can this be deleted?
         write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt, archive_id);
 
         start_time_without_overhead = GetTickCount();
@@ -2500,7 +2483,7 @@ int main(int argc2, char *argv2[])
         print_usage(false);
     }
 
-#ifdef WINDOWS
+#ifdef _WIN32
     unshadow();
 #endif
     return 0;

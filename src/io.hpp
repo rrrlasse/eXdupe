@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <cstdint>
-#ifdef WINDOWS
+#ifdef _WIN32
 #include <windows.h>
 #endif
 
@@ -66,32 +66,30 @@ class Cio {
         return static_cast<T>(value);
     }
 
-    template <typename T> requires std::is_unsigned_v<T> size_t encode_compact(T value, uint8_t* encodedBytes) {
+    template <typename T> requires std::is_unsigned_v<T> size_t encode_compact(T value, uint8_t* dst) {
         size_t size = 0;
         while (value >= 0x80) {
-            encodedBytes[size++] = static_cast<uint8_t>(value & 0x7F) | 0x80;
+            dst[size++] = static_cast<uint8_t>(value & 0x7F) | 0x80;
             value >>= 7;
         }
-        encodedBytes[size++] = static_cast<uint8_t>(value);
+        dst[size++] = static_cast<uint8_t>(value);
         return size;
     }
 
-    template <typename T> requires std::is_unsigned_v<T> T decode_compact(const uint8_t* encodedBytes) {
+    template <typename T> requires std::is_unsigned_v<T> T decode_compact(const uint8_t * src) {
         T result = 0;
         int shift = 0;
-
-        for (uint8_t byte : encodedBytes) {
+        constexpr int max_bytes = (sizeof(T) * 8 + 6) / 7;
+        for (int i = 0; i < max_bytes; ++i) {
+            uint8_t byte = *src++;
             result |= (static_cast<T>(byte & 0x7F) << shift);
-            shift += 7;
-
             if ((byte & 0x80) == 0) {
-                break;
+                return result;
             }
+            shift += 7;
         }
-
-        return result;
+        rassert(false, "", result, shift);
     }
-
 
     template <typename T> requires std::is_unsigned_v<T> void write_compact(T value, FILE* f) {
         uint8_t buf[20];

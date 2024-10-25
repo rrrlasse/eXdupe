@@ -52,22 +52,6 @@ std::string escape_lua_string(const std::string& input) {
         }            
     }
     return result;
-/*
-    string result2;
-    // Escape bytes that cannot exist in Lua string literals
-    for (char c : result) {
-        if ((c < ' ') ||
-            (c > '~') ||
-            (c == '\\') ||
-            (c == '\"') ||
-            (c == '\'')) {
-            result2 += std::format("\\x{:02x}", static_cast<unsigned char>(c));
-        } else {
-            result2 += c;
-        }
-    }
-    return "\"" + result2 + "\"";
-*/
 }
 
 
@@ -112,15 +96,7 @@ std::string utf8e(const STRING &str) {
     return str;
 #endif
 }
-/*
-static int lua_panic(lua_State *L) {
-    string script = auto_script + user_script;
-    const char *errorMsg = lua_tostring(L, -1);
-    abort(true, LIT("\n=================== Auto generated ======================\n%s\n=================== Your script ========================= \n%s\n\n=================== Lua run-time error message ===========\n%s"), utf8d(auto_script).c_str(), utf8d(user_script).c_str(), utf8d(errorMsg).c_str());
-    return 0;
 
-}
-*/
 
 bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t size, STRING ext2, uint32_t attrib, time_ms_t date, bool top_level) {
     user_script = utf8e(user_script2);
@@ -142,7 +118,7 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
         // clang-format off
         auto_script = "function contains(i, l);\nfor _,v in pairs(i) do;if v == l then;return true;end;end;return false;\nend\n";
 
-    #ifdef WINDOWS
+    #ifdef _WIN32
         winargs_string = ", FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DEVICE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_ENCRYPTED, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_READONLY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_SYSTEM, FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL";
         winargs_count = 15;
     #endif
@@ -198,7 +174,7 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
     lua_pushinteger(L, min);
     lua_pushinteger(L, sec);
 
-#ifdef WINDOWS
+#ifdef _WIN32
     lua_pushboolean(L, attrib & FILE_ATTRIBUTE_ARCHIVE);
     lua_pushboolean(L, attrib & FILE_ATTRIBUTE_COMPRESSED);
     lua_pushboolean(L, attrib & FILE_ATTRIBUTE_DEVICE);

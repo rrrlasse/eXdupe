@@ -22,7 +22,7 @@
 #include "libexdupe/xxHash/xxh3.h"
 #include "libexdupe/xxHash/xxhash.h"
 
-#ifdef WINDOWS
+#ifdef _WIN32
 #include "Shlwapi.h"
 #else
 unsigned int GetTickCount() {
@@ -43,7 +43,7 @@ unsigned int GetTickCount() {
 #pragma warning(disable : 4244)
 #endif
 
-#ifdef WINDOWS
+#ifdef _WIN32
 #define CURDIR L(".\\")
 #define DELIM_STR L("\\")
 #define DELIM_CHAR '\\'
@@ -180,7 +180,7 @@ void replace_stdstr(std::string &str, const std::string &oldStr, const std::stri
 void set_date(STRING file, time_ms_t date) {
     time_t t = date / 1000;
     tm *timeInfo = gmtime(&t);
-#ifdef WINDOWS
+#ifdef _WIN32
     FILETIME ft;
 
     // Fill SYSTEMTIME structure
@@ -274,7 +274,7 @@ std::tm local_time_tm(const time_ms_t &t) {
 
 // Returns {created time, modified time} on Windows and {status change time, modified time} on nix
 pair<time_ms_t, time_ms_t> get_date(STRING file) {
-#ifdef WINDOWS
+#ifdef _WIN32
     FILETIME fileTimeModified;
     FILETIME fileTimeCreated;
 
@@ -311,7 +311,7 @@ pair<time_ms_t, time_ms_t> get_date(STRING file) {
 STRING abs_path(STRING source) {
     CHR destination[5000];
     CHR *r;
-#ifdef WINDOWS
+#ifdef _WIN32
     r = _wfullpath(destination, source.c_str(), 5000);
     return r == 0 ? L("") : destination;
 #else
@@ -333,7 +333,7 @@ STRING abs_path(STRING source) {
 }
 
 STRING slashify(STRING path) {
-#ifdef WINDOWS
+#ifdef _WIN32
     replace(path.begin(), path.end(), '/', '\\');
     return path;
 #else
@@ -391,8 +391,6 @@ void itoa(int n, char s[]) {
 }
 
 
-
-
 std::string checksum_t::result() {
     hash = XXH3_128bits_digest(&state);
     return string((char*)&hash, 16);
@@ -417,8 +415,6 @@ uint64_t checksum_t::result64() {
 void checksum_init(checksum_t *t) {
     XXH3_128bits_reset(&t->state);
 }
-
-
 
 void checksum(char *data, size_t len, checksum_t *t) {
     if (XXH3_128bits_update(&t->state, data, len) == XXH_ERROR) {
@@ -451,7 +447,7 @@ uint64_t filesize(STRING file, bool followlinks = false) {
 }
 
 bool exists(STRING file) {
-#ifndef WINDOWS
+#ifndef _WIN32
     struct stat buf;
     int ret = lstat(file.c_str(), &buf);
     return ret == 0 || (ret != 0 && errno != ENOENT);
@@ -487,7 +483,7 @@ STRING remove_leading_delimitor(STRING path) {
 }
 
 bool ISNAMEDPIPE(int attributes) {
-#ifdef WINDOWS
+#ifdef _WIN32
     (void)attributes;
     return false;
 #else
@@ -496,7 +492,7 @@ bool ISNAMEDPIPE(int attributes) {
 }
 
 bool ISDIR(int attributes) {
-#ifdef WINDOWS
+#ifdef _WIN32
     return ((FILE_ATTRIBUTE_DIRECTORY & attributes) != 0);
 #else
     return S_ISDIR(attributes);
@@ -504,7 +500,7 @@ bool ISDIR(int attributes) {
 }
 
 bool ISLINK(int attributes) {
-#ifdef WINDOWS
+#ifdef _WIN32
     return ((FILE_ATTRIBUTE_REPARSE_POINT & attributes) != 0);
 #else
     return S_ISLNK(attributes);
@@ -512,7 +508,7 @@ bool ISLINK(int attributes) {
 }
 
 bool ISREG(int attributes) {
-#ifdef WINDOWS
+#ifdef _WIN32
     return !ISDIR(attributes) && !ISNAMEDPIPE(attributes);
 #else
     return S_ISREG(attributes);
@@ -520,7 +516,7 @@ bool ISREG(int attributes) {
 }
 
 bool ISSOCK(int attributes) {
-#ifdef WINDOWS
+#ifdef _WIN32
     return false;
 #else
     return S_ISSOCK(attributes);
@@ -528,7 +524,7 @@ bool ISSOCK(int attributes) {
 }
 
 int get_attributes(STRING path, bool follow) {
-#ifdef WINDOWS
+#ifdef _WIN32
     if (path.size() > 250) {
         path = std::wstring(L"\\\\?\\") + path;
     }
@@ -572,7 +568,7 @@ int get_attributes(STRING path, bool follow) {
 }
 
 bool set_attributes(STRING path, int attributes) {
-#ifdef WINDOWS
+#ifdef _WIN32
     attributes = attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM);
     BOOL b = SetFileAttributesW(path.c_str(), attributes);
     return b;
@@ -583,99 +579,10 @@ bool set_attributes(STRING path, int attributes) {
 
 bool is_dir(STRING path) { return ISDIR(get_attributes(path, false)); }
 
-std::string s(uint64_t l) { return std::to_string(l); }
-
 void *tmalloc(size_t size) {
     void *p = malloc(size);
-
     abort(p == 0, L("Error at malloc() of %d MB. System out of memory."), (int)(size >> 20));
     return p;
-}
-
-#ifdef WINDOWS
-int DeleteDirectory(const TCHAR *sPath) {
-    HANDLE hFind; // file handle
-    WIN32_FIND_DATA FindFileData;
-
-    TCHAR DirPath[MAX_PATH_LEN];
-    TCHAR FileName[MAX_PATH_LEN];
-
-    wcscpy(DirPath, sPath);
-    wcscat(DirPath, L("\\"));
-    wcscpy(FileName, sPath);
-    wcscat(FileName, L("\\*")); // searching all files
-
-    hFind = FindFirstFile(FileName, &FindFileData); // find the first file
-    if (hFind != INVALID_HANDLE_VALUE) {
-        do {
-            if (FindFileData.cFileName == STRING(L(".")) || FindFileData.cFileName == STRING(L(".."))) {
-                continue;
-            }
-
-            wcscpy(FileName + STRLEN(DirPath), FindFileData.cFileName);
-
-            if ((FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-                // we have found a directory, recurse
-                if (!DeleteDirectory(FileName)) {
-                    break; // directory couldn't be deleted
-                }
-            } else {
-                if (FindFileData.dwFileAttributes & FILE_ATTRIBUTE_READONLY) {
-                    _wchmod(FileName, _S_IWRITE); // change read-only file mode
-                }
-
-                if (!DeleteFile(FileName)) {
-                    break; // file couldn't be deleted
-                }
-            }
-        } while (FindNextFile(hFind, &FindFileData));
-
-        FindClose(hFind); // closing file handle
-    }
-
-    return RemoveDirectoryW(sPath); // remove the empty (maybe not) directory
-}
-#endif
-
-int delete_directory(STRING base_dir) {
-#ifdef WINDOWS
-    DeleteDirectory(base_dir.c_str());
-#else
-
-    STRING path;
-    struct dirent *entry;
-    DIR *dir;
-
-    // process files
-    if ((dir = opendir(base_dir.c_str())) != 0) {
-        while ((entry = readdir(dir))) {
-            if (STRING(entry->d_name) != L(".") && STRING(entry->d_name) != L("..")) {
-                path = base_dir + DELIM_STR + STRING(entry->d_name);
-                if (!is_dir(path)) {
-                    REMOVE(path.c_str());
-                }
-            }
-        }
-        closedir(dir);
-    }
-
-    // process directories
-    if ((dir = opendir(base_dir.c_str())) != 0) // todo, subst with findfirst because of unc paths like //?/ not
-                                                // supported by stat()
-    {
-        while ((entry = readdir(dir))) {
-            path = base_dir + DELIM_STR + STRING(entry->d_name);
-
-            if (is_dir(path) && STRING(entry->d_name) != L(".") && STRING(entry->d_name) != L("..")) {
-                delete_directory(path);
-                rmdir(path.c_str());
-            }
-        }
-        closedir(dir);
-    }
-    rmdir(base_dir.c_str());
-#endif
-    return 0;
 }
 
 vector<STRING> split_string(STRING str, STRING delim) {
@@ -695,7 +602,7 @@ vector<STRING> split_string(STRING str, STRING delim) {
 }
 
 bool create_directory(STRING path) {
-#ifdef WINDOWS
+#ifdef _WIN32
     return !CreateDirectoryW(path.c_str(), 0);
 #else
     return mkdir(path.c_str(), 0777);
@@ -742,7 +649,7 @@ STRING del(int64_t l, size_t width) {
         return STRING(CHR(' '), width);
     }
 
-#ifdef WINDOWS
+#ifdef _WIN32
     SPRINTF(s, L("%I64d"), l);
 #else
     SPRINTF(s, L("%llu"), static_cast<unsigned long long>(l));
@@ -801,7 +708,7 @@ bool same_path(STRING p1, STRING p2) {
 }
 
 void set_bold(bool bold) {
-#ifdef WINDOWS
+#ifdef _WIN32
     static WORD original = 7;
     WORD wColor;
     HANDLE hStdOut = GetStdHandle(STD_ERROR_HANDLE);

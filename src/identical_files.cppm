@@ -43,7 +43,7 @@ public:
             if (cont.size == file_meta.size && cont.first == file_meta.first && cont.last == file_meta.last) {
                 io.seek(ifile, 0, SEEK_SET);
                 checksum_init(&c);
-                for (size_t r; r = io.read(buf.data(), buf.size(), ifile, false);) {
+                for (size_t r; (r = io.read(buf.data(), buf.size(), ifile, false));) {
                     func(r, file);
                     checksum((char*)buf.data(), r, &c);
                 }

@@ -16,14 +16,6 @@
 // places
 #define MAX_PATH_LEN 2048
 
-#if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
-#define WINDOWS
-#endif
-
-#if (defined(__X86__) || defined(__i386__) || defined(i386) || defined(_M_IX86) || defined(__386__) || defined(__x86_64__) || defined(_M_X64))
-#define X86X64
-#endif
-
 #include <string.h>
 #include <string>
 #include <vector>
@@ -45,7 +37,7 @@
 #include <tuple>
 #include <source_location>
 #include <iostream>
-#ifdef WINDOWS
+#ifdef _WIN32
 #define CASESENSE(str) lcase(str)
 #include <windows.h>
 #else
@@ -134,7 +126,7 @@ bool exists(STRING file);
 bool is_dir(STRING path);
 std::string s(uint64_t l);
 
-#ifndef WINDOWS
+#ifndef _WIN32
 unsigned int GetTickCount();
 #endif
 

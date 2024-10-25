@@ -9,17 +9,13 @@ module;
 #include <assert.h>
 #include <optional>
 
-using std::optional;
-using std::pair;
-using std::unordered_map;
-
 export module UntouchedFiles;
 
 export class UntouchedFiles
 {
 public:
     // todo, remove name_part and extract it from fullpath
-	optional<contents_t> exists(STRING fullpath, STRING name_part, pair<time_ms_t, time_ms_t>& t) {
+	std::optional<contents_t> exists(STRING fullpath, STRING name_part, std::pair<time_ms_t, time_ms_t>& t) {
         auto it = contents_full.find(CASESENSE(abs_path(fullpath)));
         // The "it->second.name == filename" is for Windows where we decide to do a full backup of a file even if its only change was a case-rename. Note that
         // drive-letter casing can apparently fluctuate randomly on Windows, so don't compare full paths
@@ -55,7 +51,7 @@ public:
     }
 
 private:
-	unordered_map<STRING, contents_t> contents_full; // {abs_path, contents}
-	unordered_map<uint64_t, STRING> contents_full_ids; // {file_id, abs_path}
+    std::unordered_map<STRING, contents_t> contents_full; // {abs_path, contents}
+    std::unordered_map<uint64_t, STRING> contents_full_ids; // {file_id, abs_path}
 };
 

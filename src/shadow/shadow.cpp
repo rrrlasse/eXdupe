@@ -27,7 +27,7 @@
 
 using namespace std;
 
-#ifdef WINDOWS
+#ifdef _WIN32
   #define CURDIR L(".\\"
   #define DELIM_STR L("\\")
   #define DELIM_CHAR L('\\')

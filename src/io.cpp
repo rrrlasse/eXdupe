@@ -15,12 +15,9 @@
 #include "unicode.h"
 #include "utilities.hpp"
 
-#if defined(_WIN32) || defined(__WIN32__) || defined(_WIN64)
+#ifdef _WIN32
 #include <io.h>
-#define WINDOWS
-#endif
-
-#ifndef WINDOWS
+#else
 #if defined(hpux) || defined(__hpux) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__FreeBSD__)
 #define _ftelli64 ftello
 #define _fseeki64 fseeko
@@ -112,7 +109,7 @@ std::string Cio::read_bin_string(size_t Count, FILE *_File) {
 STRING Cio::read_utf8_string(FILE *_File) {
     uint64_t t = read_compact<uint64_t>(_File);
     std::string tmp = read_bin_string(t, _File);
-#ifdef WINDOWS
+#ifdef _WIN32
     int req = MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(), -1, nullptr, 0);
     wstring res(req, 'c');
     MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(), -1, &res[0], gsl::narrow<int>(t));
@@ -124,7 +121,7 @@ STRING Cio::read_utf8_string(FILE *_File) {
 }
 
 void Cio::write_utf8_string(STRING str, FILE *_File) {
-#ifdef WINDOWS
+#ifdef _WIN32
     int req = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, nullptr, 0, nullptr, nullptr);
     std::vector<char> v(req, L'c');
     WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, &v[0], static_cast<int>(req), 0, 0);
