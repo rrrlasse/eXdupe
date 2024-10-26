@@ -135,7 +135,7 @@ const size_t IDENTICAL_FILE_SIZE = 4 * 4096;
 
 compile_assert(sizeof(size_t) == 8);
 
-uint64_t start_time = GetTickCount();
+uint64_t start_time = GetTickCount64();
 uint64_t start_time_without_overhead;
 
 using std::string;
@@ -221,11 +221,11 @@ UntouchedFiles untouched_files2;
 
 STRING tempdiff = L("EXDUPE.TMP");
 
-typedef struct {
+struct file_offset_t {
     STRING filename;
-    uint64_t offset;
-    FILE *handle;
-} file_offset_t;
+    uint64_t offset = 0;
+    FILE *handle = nullptr;
+};
 
 vector<file_offset_t> infiles;
 vector<contents_t> contents;
@@ -321,8 +321,8 @@ void read_content_item(FILE* file, contents_t& c) {
     c.directory = ((type >> 0) & 1) == 1;
     c.symlink = ((type >> 1) & 1) == 1;
     c.unchanged = ((type >> 2) & 1) == 1;
-    c.is_dublicate_of_full = ((type >> 3) & 1) == 1;
-    c.is_dublicate_of_diff = ((type >> 4) & 1) == 1;
+    c.is_duplicate_of_full = ((type >> 3) & 1) == 1;
+    c.is_duplicate_of_diff = ((type >> 4) & 1) == 1;
     c.in_diff = ((type >> 5) & 1) == 1;
 
     c.file_id = io.read_compact<uint64_t>(file);
@@ -338,7 +338,7 @@ void read_content_item(FILE* file, contents_t& c) {
     c.file_c_time = io.read_compact<uint64_t>(file);
     c.file_modified = io.read_compact<uint64_t>(file);
     c.attributes = io.read_ui<uint32_t>(file);
-    c.dublicate = io.read_compact<uint64_t>(file);
+    c.duplicate = io.read_compact<uint64_t>(file);
 
     read_hash(file, c);
 
@@ -353,7 +353,13 @@ void read_content_item(FILE* file, contents_t& c) {
 
 void write_contents_item(FILE *file, const contents_t &c) {
     uint64_t written = io.write_count;
-    uint8_t type = ((c.directory ? 1 : 0) << 0) | ((c.symlink ? 1 : 0) << 1) | ((c.unchanged ? 1 : 0) << 2) | ((c.is_dublicate_of_full ? 1 : 0) << 3) | ((c.is_dublicate_of_diff ? 1 : 0) << 4) | ((c.in_diff ? 1 : 0) << 5);
+    uint8_t type = ((c.directory ? 1 : 0) << 0) 
+        | ((c.symlink ? 1 : 0) << 1) 
+        | ((c.unchanged ? 1 : 0) << 2)
+        | ((c.is_duplicate_of_full ? 1 : 0) << 3) 
+        | ((c.is_duplicate_of_diff ? 1 : 0) << 4) 
+        | ((c.in_diff ? 1 : 0) << 5);
+
     io.write_ui<uint8_t>(type, file);
     io.write_compact<uint64_t>(c.file_id, file);
 
@@ -367,7 +373,7 @@ void write_contents_item(FILE *file, const contents_t &c) {
         io.write_compact<uint64_t>(c.file_c_time, file);
         io.write_compact<uint64_t>(c.file_modified, file);
         io.write_ui<uint32_t>(c.attributes, file);
-        io.write_compact<uint64_t>(c.dublicate, file);
+        io.write_compact<uint64_t>(c.duplicate, file);
         write_hash(file, c);
     }
     contents_size += io.write_count - written;
@@ -385,10 +391,7 @@ void write_contents_item(FILE *file, const contents_t &c) {
 uint64_t pay_count = 0;
 
 // todo, change to STL lower_bound
-uint64_t belongs_to(uint64_t offset) // todo: verify that this algorithm also
-                                     // works for infiles.size() == 2
-{
-    // belongs_to requires first element to be 0!
+uint64_t belongs_to(uint64_t offset) {
     rassert(!infiles.empty(), "");
     rassert(infiles.at(0).offset == 0, "", infiles.at(0).offset);
 
@@ -571,7 +574,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
                 ensure_size(restore_buffer_out, lend + M);
                 io.read_vector(restore_buffer_in, lenc - DUP_HEADER_LEN, DUP_HEADER_LEN, f, true);
                 int r = dup_decompress(restore_buffer_in.data(), restore_buffer_out.data(), &lenc, &p);
-                rassert(!(r != 0 && r != 1), "", r);
+                rassert(!(r != 0 && r != 1), "Internal error or archive crrupted", r);
                 bytebuffer.buffer_add(restore_buffer_out.data(), ref.payload, ref.length);
 
                 io.seek(f, orig, SEEK_SET);
@@ -584,7 +587,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
     return false;
 }
 // clang-format off
-void print_file(STRING filename, uint64_t size, time_ms_t file_modified = 0, int attributes = 0) {
+void print_file(STRING filename, uint64_t size, time_ms_t file_modified = 0) {
 #ifdef _WIN32
     statusbar.print_no_lf(0, L("%s  %s  %s\n"), 
         size == std::numeric_limits<uint64_t>::max() ? L("                   ") : del(size, 19).c_str(),
@@ -759,7 +762,7 @@ uint64_t dump_contents() {
         read_content_item(file, c); 
 
         if (c.symlink) {
-            print_file(STRING(c.name + L(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_modified, c.attributes);
+            print_file(STRING(c.name + L(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_modified);
             files++;
         } else if (c.directory && !c.unchanged) { // if unchanged, then all other fields except file_id have arbitrary values
             if (c.name != L(".\\") && c.name != L("./") && c.name != L("")) {
@@ -780,7 +783,7 @@ uint64_t dump_contents() {
             untouched_files2.initialize_if_untouched(c);
             payload += c.size;
             files++;
-            print_file(c.name, c.size, c.file_modified, c.attributes);
+            print_file(c.name, c.size, c.file_modified);
         }
     }
 
@@ -890,7 +893,7 @@ void parse_flags(void) {
                 abort(true, L("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
 
-            string flagsS = wstring2string(flags);
+            string flagsS = w2s(flags);
 
             // abort if numeric digits are used with a wrong flag
             if (regx(flagsS, "[^mgwtvix0123456789][0-9]+") != "") {
@@ -1054,9 +1057,6 @@ void parse_files(void) {
             restorelist.push_back(argv.at(i + 4 + flags_exist));
         }
 
-        //    abort(directory == L("-stdout"), L("Restore to stdout
-        // or non-seekable drive not supported"));
-
         abort(full == L("-stdout") || diff == L("-stdout") || (full == L("-stdin") && diff == L("-stdin")) || (argc < 4 + flags_exist), L("Syntax error in source or destination. "));
     } else if (list_flag) {
         abort(!diff_flag && argv.size() < 3, L("Specify a full file. "));
@@ -1175,10 +1175,12 @@ Most common flags:
    -xn Use compression level n after deduplication (0, 1 = default, 2, 3)
     -? Show complete help)";
  
-    for (auto &a : {&long_help, &short_help}) {
-        *a = std::regex_replace(*a, std::regex("%/"), WIN ? "\\" : "/");
-        *a = std::regex_replace(*a, std::regex("%v"), VER);
-    }
+    auto delim = [](std::string& s) {
+        s = std::regex_replace(s, std::regex("%/"), WIN ? "\\" : "/");
+        s = std::regex_replace(s, std::regex("%v"), VER);
+    };
+    delim(short_help);
+    delim(long_help);
 
     statusbar.print(0, show_long ? tostring(long_help).c_str() : tostring(short_help).c_str());
 
@@ -1395,7 +1397,6 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
         create_directories(directory, 0);
     }
 
-    uint64_t payload = 0;
     contents_t c;
     uint64_t resolved = 0;
     uint64_t basepay = 0;
@@ -1470,7 +1471,7 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
                 ofile = pipe_out ? stdout : create_file(outfile);
                 resolved = 0;
 
-                if (diff_flag && !c.unchanged && !c.is_dublicate_of_full ) {
+                if (diff_flag && !c.unchanged && !c.is_duplicate_of_full ) {
                     c.payload += basepay;
                 }
 
@@ -1481,7 +1482,6 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
                     io.write(restore_buffer.data(), process, ofile);
                     update_statusbar_restore(outfile);
                     resolved += process;
-                    payload += c.size;
                 }
                 if (!pipe_out) {
                     fclose(ofile);
@@ -1641,7 +1641,7 @@ void decompress_sequential(const STRING& extract_dir) {
             STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
 
             if (c.size == 0) {
-                // May not have a corrosponding data block ('A' block) to trigger decompress_files()
+                // May not have a corresponding data block ('A' block) to trigger decompress_files()
                 FILE* h = create_file(buf2);
                 files++;
                 io.close(h);
@@ -1684,12 +1684,12 @@ void decompress_sequential(const STRING& extract_dir) {
     buf.resize(DISK_READ_CHUNK);
     for (auto& i : identicals_queue) {
         auto dst = i.extra;
-        auto r = written.find(i.dublicate);
+        auto r = written.find(i.duplicate);
         auto src = r->second;
 
         auto ofile = create_file(dst);
         auto ifile = try_open(src, 'r', true);
-        for (size_t r; r = io.read(buf.data(), DISK_READ_CHUNK, ifile, false);) {
+        for (size_t r; (r = io.read(buf.data(), DISK_READ_CHUNK, ifile, false));) {
             io.write(buf.data(), r, ofile);
             update_statusbar_restore(dst);
         }
@@ -1864,9 +1864,9 @@ void compress_file(const STRING& input_file, const STRING& filename) {
         if(!cont.hash.empty()) {
             file_meta.payload = cont.payload;
             file_meta.checksum = cont.checksum;
-            file_meta.is_dublicate_of_full = !cont.in_diff;
-            file_meta.is_dublicate_of_diff = cont.in_diff;
-            file_meta.dublicate = cont.file_id;
+            file_meta.is_duplicate_of_full = !cont.in_diff;
+            file_meta.is_duplicate_of_diff = cont.in_diff;
+            file_meta.duplicate = cont.file_id;
 
             if (!diff_flag) {
                 // todo clear abs_path?
@@ -2408,7 +2408,7 @@ int main(int argc2, char *argv2[])
 
         write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt, archive_id);
 
-        start_time_without_overhead = GetTickCount();
+        start_time_without_overhead = GetTickCount64();
 
         if (inputfiles.size() > 0 && inputfiles.at(0) != L("-stdin")) {
             compress_args(inputfiles);
@@ -2419,7 +2419,7 @@ int main(int argc2, char *argv2[])
             compression::compress_file_finalize();
         }
 
-        uint64_t end_time_without_overhead = GetTickCount();
+        uint64_t end_time_without_overhead = GetTickCount64();
 
         if (files + dirs == 0) {
             if (no_recursion_flag) {
@@ -2446,7 +2446,7 @@ int main(int argc2, char *argv2[])
 
 
         if (statistics_flag) {
-            uint64_t end_time = GetTickCount();
+            uint64_t end_time = GetTickCount64();
             std::ostringstream s;
             int sratio = int((double(io.write_count) / double(backup_set_size() + 1)) * 100.);
             sratio = sratio > 999 ? 999 : sratio == 0 ? 1 : sratio;

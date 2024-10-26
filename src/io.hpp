@@ -15,20 +15,14 @@
 #include <windows.h>
 #endif
 
+#include "gsl/gsl"
+
 #include "utilities.hpp"
 #include "unicode.h"
 
 // NOT thread safe
 class Cio {
-  private:
-    char tmp[4096];
-    wchar_t wtmp[4096];
-    CHR Ctmp[4096];
-
   public:
-    uint64_t read_count;
-    uint64_t write_count;
-
     Cio();
     int close(FILE *_File);
     FILE *open(STRING file, char mode);
@@ -42,12 +36,13 @@ class Cio {
     std::string read_bin_string(size_t Count, FILE *_File);
 
     template <std::unsigned_integral T> size_t write_ui(T value, FILE* _File) {
+        uint64_t v = value;
         const std::size_t size = sizeof(T);
         std::uint8_t buf[size];
 
         for (std::size_t i = 0; i < size; ++i) {
-            buf[i] = static_cast<uint8_t>(value);
-            value >>= 8;
+            buf[i] = static_cast<uint8_t>(v);
+            v >>= 8;
         }
         size_t r = write(buf, size, _File);
         return r;
@@ -63,7 +58,7 @@ class Cio {
             value <<= 8;
             value |= static_cast<T>(buf[size - 1 - i]);
         }     
-        return static_cast<T>(value);
+        return gsl::narrow<T>(value);
     }
 
     template <typename T> requires std::is_unsigned_v<T> size_t encode_compact(T value, uint8_t* dst) {
@@ -116,5 +111,8 @@ class Cio {
     }
 
     static bool stdin_tty();
+
+    uint64_t read_count;
+    uint64_t write_count;
 
 };

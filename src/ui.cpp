@@ -73,10 +73,10 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
             path = remove_leading_delimitor(path);
         }
     }
-    uint64_t f = GetTickCount() - m_last_file_print;
+    uint64_t f = GetTickCount64() - m_last_file_print;
 
     if ((no_delay || f >= 1000) || v3) {
-        m_last_file_print = GetTickCount();
+        m_last_file_print = GetTickCount64();
         STRING line;
         if (backup) {
             line = s2w(suffix(read)) + L("B, ") + s2w(suffix(written)) + L("B, ");

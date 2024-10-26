@@ -680,7 +680,7 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
     return 0;
 }
 
-static bool hashat(const char *src, uint64_t pay, size_t len, bool large, char *hash, int overwrite) {
+static bool hashat(const char *src, uint64_t pay, size_t len, bool large, char *hash) {
     const char *o;
     uint32_t w = window(src, len, &o);
     if(w != 0) {
@@ -747,9 +747,7 @@ static size_t write_literals(const char *src, size_t length, char *dst, int thre
             r += 4; // LEN D
             r++;    // The '1'
         } else {
-            // todo, handle outside lib
-            fprintf(stderr, "\neXdupe: Internal error, bad compression level\n");
-            exit(-1);
+            rassert(false, "");
         }
 
         memcpy(dst, DUP_LITERAL, 2);
@@ -769,7 +767,7 @@ static size_t write_literals(const char *src, size_t length, char *dst, int thre
     return 0;
 }
 
-static void hash_chunk(const char *src, uint64_t pay, size_t length, int policy) {
+static void hash_chunk(const char *src, uint64_t pay, size_t length) {
     char tmp[512 * HASH_SIZE];
     rassert(sizeof(tmp) >= HASH_SIZE * LARGE_BLOCK / SMALL_BLOCK, "");
 
@@ -779,7 +777,7 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length, int policy)
 
     for (j = 0; j < small_blocks; j++) {
         hash(src + j * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + smalls * HASH_SIZE);
-        bool success_small = hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, false, tmp + smalls * HASH_SIZE, policy);
+        bool success_small = hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, false, tmp + smalls * HASH_SIZE);
         if(!success_small) {
             anomalies_small += SMALL_BLOCK;
         }
@@ -788,7 +786,7 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length, int policy)
         if (smalls == LARGE_BLOCK / SMALL_BLOCK) {
             char tmp2[HASH_SIZE];
             hash(tmp, smalls * HASH_SIZE, g_hash_salt, tmp2);
-            bool success_large = hashat(src + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, pay + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, LARGE_BLOCK, true, tmp2, policy);
+            bool success_large = hashat(src + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, pay + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, LARGE_BLOCK, true, tmp2);
             if(!success_large) {
                 anomalies_large += SMALL_BLOCK;
             }
@@ -901,14 +899,11 @@ static void *compress_thread(void *arg) {
         me->busy = true;
         pthread_mutex_unlock_wrapper(&me->jobmutex);
 
-        int policy = 1;
-
-
        // me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
        // hash_chunk(me->source, me->payload, me->size_source, policy);
 
         if(!me->entropy) {
-            hash_chunk(me->source, me->payload, me->size_source, policy);
+            hash_chunk(me->source, me->payload, me->size_source);
 //            auto t = GetTickCount();
             me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
 //            hits1 += GetTickCount() - t;
@@ -1070,17 +1065,14 @@ int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload
             t = zstd_decompress((char *)src + 1 + 4 + 4, len, dst, len_de, 0, 0, zstd_decompress_state);
             t = len_de;
         } else {
-            // todo, handle outside lib
-            fprintf(stderr, "\neXdupe: Internal error or archive corrupted, "
-                            "missing compression level block header");
-            exit(-1);
+            return -1;
         }
 
         *length = t;
         count_payload += *length;
         return 0;
     }
-    if (dd_equal(src, DUP_MATCH, 2)) {
+    else if (dd_equal(src, DUP_MATCH, 2)) {
         uint64_t pay = packet_payload(src);
         size_t len = dup_size_decompressed(src);
         *payload = pay;

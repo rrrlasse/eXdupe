@@ -61,32 +61,26 @@ typedef long long time_ms_t;
 
 std::tm local_time_tm(const time_ms_t &t);
 std::string suffix(uint64_t size);
-void clear_line();
 uint64_t rnd64();
 bool is_valid_utf8(const std::string& input) ;
-STRING string2wstring(string str);
-string wstring2string(STRING wstr);
 void replace_stdstr(std::string &str, const std::string &oldStr, const std::string &newStr);
 void replace_str(STRING &str, const STRING &oldStr, const STRING &newStr);
-STRING replace2(STRING orig, STRING src, STRING dst);
 time_ms_t cur_date();
-bool is_symlink(STRING file);
+bool is_symlink(const STRING& file);
 bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir);
-bool is_named_pipe(STRING file);
-void set_date(STRING file, time_ms_t date);
-std::pair<time_ms_t, time_ms_t> get_date(STRING file);
-STRING slashify(STRING path);
+bool is_named_pipe(const STRING& file);
+void set_date(const STRING& file, time_ms_t date);
+std::pair<time_ms_t, time_ms_t> get_date(const STRING& file);
 STRING slashify(STRING path);
 std::vector<STRING> split_string(STRING str, STRING delim);
-int delete_directory(STRING base_dir);
+int delete_directory(const STRING& base_dir);
 STRING ucase(STRING str);
 STRING lcase(STRING str);
-STRING remove_leading_curdir(STRING path);
-STRING remove_delimitor(STRING path);
+STRING remove_leading_curdir(const STRING& path);
+STRING remove_delimitor(const STRING& path);
 STRING remove_leading_delimitor(STRING path);
-STRING get_pid(void);
-uint64_t filesize(STRING file, bool followlinks);
-bool same_path(STRING p1, STRING p2);
+uint64_t filesize(const STRING& file, bool followlinks);
+bool same_path(const STRING& p1, STRING p2);
 
 STRING s2w(const std::string &s);
 string w2s(const STRING &s);
@@ -100,19 +94,19 @@ bool ISREG(int attributes);
 bool ISSOCK(int attributes);
 
 int get_attributes(STRING path, bool follow);
-bool set_attributes(STRING path, int attributes);
+bool set_attributes(const STRING& path, int attributes);
 
-bool create_directory(STRING path);
-bool create_directories(STRING path, time_ms_t t);
-size_t longest_common_prefix(std::vector<STRING> strings, bool case_sensitive);
+bool create_directory(const STRING& path);
+bool create_directories(const STRING& path, time_ms_t t);
+size_t longest_common_prefix(const std::vector<STRING>& strings, bool case_sensitive);
 
 template <class T, class U> uint64_t minimum(T a, U b) {
     return (static_cast<uint64_t>(a) > static_cast<uint64_t>(b)) ? static_cast<uint64_t>(b) : static_cast<uint64_t>(a);
 }
 
 struct checksum_t {
-    XXH3_state_t state;
-    XXH128_hash_t hash;
+    XXH3_state_t state{};
+    XXH128_hash_t hash{};
     std::string result();
     uint32_t hi();
     uint32_t result32();
@@ -121,18 +115,15 @@ struct checksum_t {
 
 void checksum(char *data, size_t len, checksum_t *t);
 void checksum_init(checksum_t *t);
-STRING abs_path(STRING source);
-bool exists(STRING file);
-bool is_dir(STRING path);
-std::string s(uint64_t l);
+STRING abs_path(const STRING& source);
+bool exists(const STRING& file);
+bool is_dir(const STRING& path);
 
 #ifndef _WIN32
-unsigned int GetTickCount();
+uint64_t GetTickCount64();
 #endif
 
 STRING del(int64_t l, size_t width = 0);
-bool equal2(const void *src1, const void *src2, size_t len);
-bool same2(CHR *src, size_t len);
 void *tmalloc(size_t size);
 void set_bold(bool bold);
 

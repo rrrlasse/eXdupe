@@ -25,10 +25,10 @@
 #ifdef _WIN32
 #include "Shlwapi.h"
 #else
-unsigned int GetTickCount() {
+uint64_t GetTickCount64() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    return (unsigned int)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
+    return static_cast<uint64_t>((tv.tv_sec * 1000 + tv.tv_usec / 1000));
 }
 
 #include <ctime>
@@ -149,18 +149,6 @@ uint64_t rnd64() {
     return distr(eng);
 }
 
-string wstring2string(STRING wstr) {
-    string str(wstr.length(), ' ');
-    copy(wstr.begin(), wstr.end(), str.begin());
-    return str;
-}
-
-STRING string2wstring(string str) {
-    STRING wstr(str.length(), L' ');
-    copy(str.begin(), str.end(), wstr.begin());
-    return wstr;
-}
-
 void replace_str(STRING &str, const STRING &oldStr, const STRING &newStr) {
     size_t pos = 0;
     while ((pos = str.find(oldStr, pos)) != STRING::npos) {
@@ -177,7 +165,7 @@ void replace_stdstr(std::string &str, const std::string &oldStr, const std::stri
     }
 }
 
-void set_date(STRING file, time_ms_t date) {
+void set_date(const STRING& file, time_ms_t date) {
     time_t t = date / 1000;
     tm *timeInfo = gmtime(&t);
 #ifdef _WIN32
@@ -218,9 +206,9 @@ void set_date(STRING file, time_ms_t date) {
 #endif
 }
 
-bool is_symlink(STRING file) { return ISLINK(get_attributes(file, false)); }
+bool is_symlink(const STRING& file) { return ISLINK(get_attributes(file, false)); }
 
-bool is_named_pipe(STRING file) { return ISNAMEDPIPE(get_attributes(file, false)); }
+bool is_named_pipe(const STRING& file) { return ISNAMEDPIPE(get_attributes(file, false)); }
 
 bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir) {
 #ifdef _WIN32
@@ -273,7 +261,7 @@ std::tm local_time_tm(const time_ms_t &t) {
 }
 
 // Returns {created time, modified time} on Windows and {status change time, modified time} on nix
-pair<time_ms_t, time_ms_t> get_date(STRING file) {
+pair<time_ms_t, time_ms_t> get_date(const STRING& file) {
 #ifdef _WIN32
     FILETIME fileTimeModified;
     FILETIME fileTimeCreated;
@@ -308,7 +296,7 @@ pair<time_ms_t, time_ms_t> get_date(STRING file) {
 #endif
 }
 
-STRING abs_path(STRING source) {
+STRING abs_path(const STRING& source) {
     CHR destination[5000];
     CHR *r;
 #ifdef _WIN32
@@ -426,7 +414,7 @@ void checksum(char *data, size_t len, checksum_t *t) {
 
 
 // No error handling other than returning 0, be aware of where you use this function
-uint64_t filesize(STRING file, bool followlinks = false) {
+uint64_t filesize(const STRING& file, bool followlinks = false) {
     // If the user has set followlinks then the directory-traversal, which happens *early*,
     // will resolve links and treat them as files from that point. So a requirement to have
     // knowlege about the flag should not propagate down to here
@@ -446,7 +434,7 @@ uint64_t filesize(STRING file, bool followlinks = false) {
     }
 }
 
-bool exists(STRING file) {
+bool exists(const STRING& file) {
 #ifndef _WIN32
     struct stat buf;
     int ret = lstat(file.c_str(), &buf);
@@ -458,7 +446,7 @@ bool exists(STRING file) {
 }
 
 
-STRING remove_leading_curdir(STRING path) {
+STRING remove_leading_curdir(const STRING& path) {
     if ((path.length() >= 2 && (path.substr(0, 2) == L(".\\"))) || path.substr(0, 2) == L("./")) {
         return path.substr(2, path.length() - 2);
     } else {
@@ -466,7 +454,7 @@ STRING remove_leading_curdir(STRING path) {
     }
 }
 
-STRING remove_delimitor(STRING path) {
+STRING remove_delimitor(const STRING& path) {
     size_t r = path.find_last_of(L("/\\"));
     if (r == path.length() - 1) {
         return path.substr(0, r);
@@ -567,7 +555,7 @@ int get_attributes(STRING path, bool follow) {
 #endif
 }
 
-bool set_attributes(STRING path, int attributes) {
+bool set_attributes(const STRING& path, int attributes) {
 #ifdef _WIN32
     attributes = attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM);
     BOOL b = SetFileAttributesW(path.c_str(), attributes);
@@ -577,7 +565,7 @@ bool set_attributes(STRING path, int attributes) {
 #endif
 }
 
-bool is_dir(STRING path) { return ISDIR(get_attributes(path, false)); }
+bool is_dir(const STRING& path) { return ISDIR(get_attributes(path, false)); }
 
 void *tmalloc(size_t size) {
     void *p = malloc(size);
@@ -601,7 +589,7 @@ vector<STRING> split_string(STRING str, STRING delim) {
     return results;
 }
 
-bool create_directory(STRING path) {
+bool create_directory(const STRING& path) {
 #ifdef _WIN32
     return !CreateDirectoryW(path.c_str(), 0);
 #else
@@ -609,7 +597,7 @@ bool create_directory(STRING path) {
 #endif
 }
 
-bool create_directories(STRING path, time_ms_t t) {
+bool create_directories(const STRING& path, time_ms_t t) {
     bool b = std::filesystem::create_directories(path);
     if(t != 0) {
         set_date(path, t);
@@ -668,7 +656,7 @@ STRING del(int64_t l, size_t width) {
     return t;
 }
 
-size_t longest_common_prefix(vector<STRING> strings, bool case_sensitive) {
+size_t longest_common_prefix(const vector<STRING>& strings, bool case_sensitive) {
     if (strings.size() == 0) {
         return 0;
     }
@@ -703,7 +691,7 @@ size_t longest_common_prefix(vector<STRING> strings, bool case_sensitive) {
     }
 }
 
-bool same_path(STRING p1, STRING p2) {
+bool same_path(const STRING& p1, STRING p2) {
     return CASESENSE(abs_path(p1)) == CASESENSE(abs_path(p2));
 }
 
