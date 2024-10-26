@@ -1,4 +1,4 @@
-module;
+#pragma once
 
 #include "utilities.hpp"
 #include "contents_t.h"
@@ -9,9 +9,7 @@ module;
 #include <assert.h>
 #include <optional>
 
-export module UntouchedFiles;
-
-export class UntouchedFiles
+class UntouchedFiles
 {
 public:
     // todo, remove name_part and extract it from fullpath

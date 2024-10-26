@@ -47,6 +47,9 @@
 #include <set>
 #include <map>
 
+#include "libexdupe/xxHash/xxh3.h"
+#include "libexdupe/xxHash/xxhash.h"
+
 #ifdef _WIN32
 const bool WIN = true;
 #include "shadow/shadow.h"
@@ -86,12 +89,13 @@ const bool WIN = false;
 #include "utilities.hpp"
 #include "contents_t.h"
 
-#include "libexdupe/xxHash/xxh3.h"
-#include "libexdupe/xxHash/xxhash.h"
+#include "file_types.cppm"
+#include "identical_files.cppm"
+#include "untouched_files.cppm"
 
-import FileTypes;
-import IdenticalFiles;
-import UntouchedFiles;
+//import FileTypes;
+//import IdenticalFiles;
+//import UntouchedFiles;
 
 #ifdef _WIN32
 #pragma warning(disable : 4459) // todo

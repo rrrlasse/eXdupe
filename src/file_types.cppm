@@ -1,13 +1,11 @@
-module;
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "utilities.hpp"
 
-export module FileTypes;
-
-export class FileTypes
+class FileTypes
 {
 public:
     FileTypes() {

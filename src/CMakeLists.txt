@@ -18,7 +18,7 @@ function(apply_compile_options_to_files files_list options)
 endfunction()
 
 file(GLOB MODULES *.cppm)
-file(GLOB EXDUPE *.cppm *.h *.hpp *.cpp)
+file(GLOB EXDUPE *.h *.hpp *.cpp)
 file(GLOB LUA ${CMAKE_CURRENT_SOURCE_DIR}/lua/*.c ${CMAKE_CURRENT_SOURCE_DIR}/lua/*.h)
 
 if(MSVC)
@@ -31,7 +31,7 @@ if(MSVC)
 	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/..>)
 	
 else()
-	set(flags_to_apply "-pedantic" "-fmodules-ts" "-Wextra" )
+	set(flags_to_apply "-pedantic" "-Wextra" "-Wall")
 	add_definitions(-DLUA_USE_MKSTEMP)
 endif()
 
@@ -40,11 +40,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SHADOW})
 list (APPEND SOURCES ${EXDUPE} ${LUA})
 
 apply_compile_options_to_files("${EXDUPE}" "${flags_to_apply}")
-apply_compile_options_to_files("${MODULES}" "-xc++" "${flags_to_apply}")
 
 add_executable(exdupe ${SOURCES})
-
-#add_subdirectory(libexdupe/xxHash/cmake_unofficial)
 
 add_subdirectory(libexdupe)
 add_subdirectory(lua)

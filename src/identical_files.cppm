@@ -1,4 +1,4 @@
-module;
+#pragma once
 
 #include "contents_t.h"
 #include "io.hpp"
@@ -6,9 +6,7 @@ module;
 #include <unordered_map>
 #include <vector>
 
-export module IdenticalFiles;
-
-export class IdenticalFiles {
+class IdenticalFiles {
 public:
     IdenticalFiles() {
         buf.resize(1024*1024);
