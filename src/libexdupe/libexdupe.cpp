@@ -120,8 +120,9 @@ int level;
 // growing COMPRESSED_HASHTABLE_OVERHEAD bytes in size.
 #define COMPRESSED_HASHTABLE_OVERHEAD 4096
 
-#define DUP_MATCH "MM"
-#define DUP_LITERAL "TT"
+#define DUP_MATCH 'M'
+#define DUP_LITERAL 'T'
+
 
 static void ll2str(uint64_t l, char* dst, int bytes) {
     unsigned char* dst2 = (unsigned char*)dst;
@@ -614,7 +615,7 @@ static uint32_t window(const char* src, size_t len, const char** pos) {
 
 // there must be LARGE_BLOCK more valid data after src + len
 const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, uint64_t *payload_ref) {
-    rassert(block == LARGE_BLOCK || block == SMALL_BLOCK, "");
+    rassert(block == LARGE_BLOCK || block == SMALL_BLOCK);
     const char *w_pos;
     const char *orig_src = src;
     const char *last_src = src + len - 1;
@@ -641,7 +642,7 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
 
                 if (block == LARGE_BLOCK) {
                     char tmp[8 * 1024];
-                    rassert(sizeof(tmp) >= LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, "");
+                    rassert(sizeof(tmp) >= LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE);
                     uint32_t k;
                     for (k = 0; k < LARGE_BLOCK / SMALL_BLOCK; k++) {
                         hash(src + k * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + k * HASH_SIZE);
@@ -716,43 +717,44 @@ static size_t write_match(size_t length, uint64_t payload, char *dst) {
         else {
             smallhits += length;
         }
-        memcpy(dst, DUP_MATCH, 2);
-        dst += 8 - 6;
-        ll2str(32 - (6 + 8), dst, 4);
+        dst[0] = DUP_MATCH;
+        dst++;
+        ll2str(DUP_HEADER_LEN, dst, 4);
         dst += 4;
         ll2str(length, dst, 4);
         dst += 4;
         ll2str(payload, dst, 8); 
         dst += 8;
-        return 32 - (6 + 8);
+        return DUP_HEADER_LEN;
     }
     return 0;
 }
 
 static size_t write_literals(const char *src, size_t length, char *dst, int thread_id, bool entropy) {
   //  wcerr << L"literal = " << length << L" ";
+    rassert(level >= 0 && level <= 3);
+
     if (length > 0) {
-        size_t r;
+        size_t packet_size = DUP_HEADER_LEN;
         if (level == 0 || entropy) {
-            dst[32 - (6 + 8)] = '0';
-            memcpy(dst + 33 - (6 + 8), src, length);
-            r = length + 1;
+            dst[DUP_HEADER_LEN] = '0';
+            memcpy(dst + DUP_HEADER_LEN + 1, src, length);
+            packet_size += 1 + length;
         } else if (level >= 1 && level <= 3) {
             int zstd_level = level == 1 ? 1 : level == 2 ? 10 : 19;
-            dst[32 - (6 + 8)] = char(level + '0');
-            r = zstd_compress((char *)src, length, dst + 33 - (6 + 8) + 4 + 4, 2 * length + 1000000, zstd_level, jobs[thread_id].zstd);
-            *((int32_t *)(dst + 33 - (6 + 8))) = (int32_t)r;
-            r += 4; // LEN C
-            *((int32_t *)(dst + 33 - (6 + 8) + 4)) = (int32_t)length;
-            r += 4; // LEN D
-            r++;    // The '1'
+            dst[DUP_HEADER_LEN] = char(level + '0');
+            packet_size++;
+            int64_t r = zstd_compress((char *)src, length, dst + DUP_HEADER_LEN + 1 + 4 + 4, 2 * length + 1000000, zstd_level, jobs[thread_id].zstd);
+            ll2str(r, dst + DUP_HEADER_LEN + 1, 4);
+            ll2str(length, dst + DUP_HEADER_LEN + 1 + 4, 4);
+            packet_size += 1 + 4 + 4 + r;
         } else {
-            rassert(false, "");
+            rassert(false);
         }
 
-        memcpy(dst, DUP_LITERAL, 2);
-        dst += 8 - 6;
-        ll2str(r + 32 - (6 + 8), dst, 4);
+        dst[0] = DUP_LITERAL;
+        dst++;
+        ll2str(packet_size, dst, 4);
         dst += 4;
         ll2str(length, dst, 4);
         dst += 4;
@@ -760,16 +762,16 @@ static size_t write_literals(const char *src, size_t length, char *dst, int thre
         dst += 8;
 
         stored_as_literals += length;
-        literals_compressed_size += r + 32 - (6 + 8);
+        literals_compressed_size += packet_size;
 
-        return r + 32 - (6 + 8);
+        return packet_size;
     }
     return 0;
 }
 
 static void hash_chunk(const char *src, uint64_t pay, size_t length) {
     char tmp[512 * HASH_SIZE];
-    rassert(sizeof(tmp) >= HASH_SIZE * LARGE_BLOCK / SMALL_BLOCK, "");
+    rassert(sizeof(tmp) >= HASH_SIZE * LARGE_BLOCK / SMALL_BLOCK);
 
     size_t small_blocks = length / SMALL_BLOCK;
     uint32_t smalls = 0;
@@ -1027,12 +1029,14 @@ void dup_deinit(void) {
 }
 
 size_t dup_size_compressed(const char *src) {
-    size_t t = str2ll(src + 8 - 6, 4);
+    // see "packet format" at the top of libexdupe.h
+    size_t t = str2ll(src + 1, 4);
     return t;
 }
 
 size_t dup_size_decompressed(const char *src) {
-    size_t t = str2ll(src + 16 - 4 - 6, 4);
+    // see "packet format" at the top of libexdupe.h
+    size_t t = str2ll(src + 1 + 4, 4);
     return t;
 }
 
@@ -1043,7 +1047,8 @@ void dup_counters_reset(void) {
 }
 
 static uint64_t packet_payload(const char *src) {
-    uint64_t t = str2ll(src + 24 - (6 + 8), 8);
+    // see "packet format" at the top of libexdupe.h
+    uint64_t t = str2ll(src + 1 + 4 + 4, 8);
     return t;
 }
 
@@ -1052,17 +1057,17 @@ int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload
         zstd_decompress_state = zstd_init();
     }
 
-    if (dd_equal(src, DUP_LITERAL, 2)) {
+    if (src[0] == DUP_LITERAL) {
         size_t t;
-        src += 32 - (6 + 8);
+        char level = src[DUP_HEADER_LEN];
 
-        if (*src == '0') {
-            t = dup_size_decompressed(src - 32 + (6 + 8));
-            memcpy(dst, src + 1, t);
-        } else if (*src == '1' || *src == '2' || *src == '3') {
-            int32_t len = *(int32_t *)((src) + 1);
-            int32_t len_de = *(int32_t *)((src) + 1 + 4);
-            t = zstd_decompress((char *)src + 1 + 4 + 4, len, dst, len_de, 0, 0, zstd_decompress_state);
+        if (level == '0') {
+            t = dup_size_decompressed(src);
+            memcpy(dst, src + 1 + DUP_HEADER_LEN, t);
+        } else if (level == '1' || level == '2' || level == '3') {
+            int32_t len = str2ll(src + 1 + DUP_HEADER_LEN, 4);
+            int32_t len_de = str2ll(src + 1 + DUP_HEADER_LEN + 4, 4);
+            t = zstd_decompress((char *)src + 1 + DUP_HEADER_LEN + 4 + 4, len, dst, len_de, 0, 0, zstd_decompress_state);
             t = len_de;
         } else {
             return -1;
@@ -1072,7 +1077,7 @@ int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload
         count_payload += *length;
         return 0;
     }
-    else if (dd_equal(src, DUP_MATCH, 2)) {
+    else if (src[0] == DUP_MATCH) {
         uint64_t pay = packet_payload(src);
         size_t len = dup_size_decompressed(src);
         *payload = pay;
@@ -1086,21 +1091,18 @@ int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload
 
 // todo rename
 int dup_decompress_simulate(const char *src, size_t *length, uint64_t *payload) {
-    if (dd_equal(src, DUP_LITERAL, 2)) {
+    if (src[0] == DUP_LITERAL) {
         size_t t;
-
-        src += 2;
-        src += 4;
+        src++;
+        src+= 4;
         t = str2ll(src, 4);
-
         *length = t;
         if (t == 0) {
             return -1;
         }
-
         return 0;
     }
-    if (dd_equal(src, DUP_MATCH, 2)) {
+    if (src[0] == DUP_MATCH) {
         uint64_t pay = packet_payload(src);
         size_t len = dup_size_decompressed(src);
         *payload = pay;

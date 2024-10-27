@@ -83,7 +83,7 @@ class Cio {
             }
             shift += 7;
         }
-        rassert(false, "", result, shift);
+        rassert(false, result, shift);
     }
 
     template <typename T> requires std::is_unsigned_v<T> void write_compact(T value, FILE* f) {

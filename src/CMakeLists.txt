@@ -31,7 +31,7 @@ if(MSVC)
 	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/..>)
 	
 else()
-	set(flags_to_apply "-pedantic" "-Wextra" "-Wall")
+	set(flags_to_apply "-pedantic" "-Wextra" "-Wall" "-Wno-gnu-zero-variadic-macro-arguments")
 	add_definitions(-DLUA_USE_MKSTEMP)
 endif()
 

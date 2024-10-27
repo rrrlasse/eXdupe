@@ -392,8 +392,8 @@ uint64_t pay_count = 0;
 
 // todo, change to STL lower_bound
 uint64_t belongs_to(uint64_t offset) {
-    rassert(!infiles.empty(), "");
-    rassert(infiles.at(0).offset == 0, "", infiles.at(0).offset);
+    rassert(!infiles.empty());
+    rassert(infiles.at(0).offset == 0, infiles.at(0).offset);
 
     if (offset >= infiles.at(infiles.size() - 1).offset) {
         return infiles.size() - 1;
@@ -436,7 +436,7 @@ void add_references(const char *src, size_t len, uint64_t archive_offset) {
             ref.payload_reference = payload;
             ref.archive_offset = 0;
         } else {
-            rassert(false, "", r);
+            rassert(false, r);
         }
         references.push_back(ref);
         pos += dup_size_compressed(src + pos);
@@ -542,7 +542,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
 
     while (bytes_resolved < size) {
         uint64_t rr = find_reference(payload + bytes_resolved);
-        rassert(rr != std::numeric_limits<uint64_t>::max(), "");
+        rassert(rr != std::numeric_limits<uint64_t>::max());
         reference_t ref = references.at(rr);
         uint64_t prior = payload + bytes_resolved - ref.payload;
         size_t needed = size - bytes_resolved;
@@ -574,7 +574,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
                 ensure_size(restore_buffer_out, lend + M);
                 io.read_vector(restore_buffer_in, lenc - DUP_HEADER_LEN, DUP_HEADER_LEN, f, true);
                 int r = dup_decompress(restore_buffer_in.data(), restore_buffer_out.data(), &lenc, &p);
-                rassert(!(r != 0 && r != 1), "Internal error or archive crrupted", r);
+                massert(!(r != 0 && r != 1), "Internal error or archive corrupted", r);
                 bytebuffer.buffer_add(restore_buffer_out.data(), ref.payload, ref.length);
 
                 io.seek(f, orig, SEEK_SET);
@@ -729,7 +729,7 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
     }
 #endif
     FILE *f;
-    rassert(mode == 'r' || mode == 'w', "");
+    rassert(mode == 'r' || mode == 'w');
     if (file == L("-stdin")) {
         f = stdin;
     } else if (file == L("-stdout")) {
@@ -1505,6 +1505,8 @@ void restore_from_stdin(vector<contents_t> &c) {
     STRING last_file = L("");
     uint64_t payload_orig = payload_written;
 
+    //rassert(false);
+
     for (;;) {
         size_t len;
         size_t len2;
@@ -1512,19 +1514,18 @@ void restore_from_stdin(vector<contents_t> &c) {
 
         io.read(in, 1, ifile);
 
-        if (*in == 'B') {
+        if (in[0] == 'B') {
             return;
         }
 
-        io.read(in + 1, 7, ifile);
-        rassert(((in[0] == 'T' && in[1] == 'T') || (in[0] == 'M' && in[1] == 'M')), "Source file error");
+        rassert(((in[0] == 'T' ) || (in[0] == 'M')), "Source file error");
 
-        io.read(in + 8, DUP_HEADER_LEN - 8, ifile);
+        io.read(in + 1, DUP_HEADER_LEN - 1, ifile);
         len = dup_size_compressed(in);
         io.read(in + DUP_HEADER_LEN, len - DUP_HEADER_LEN, ifile);
         int r = dup_decompress(in, out, &len, &payload);
-        rassert(!(r == -1 || r == -2), "", r);
-        rassert(c.size() > 0, "");
+        rassert(!(r == -1 || r == -2), r);
+        rassert(c.size() > 0);
         payload_orig = c.at(0).payload;
 
         if (r == 0) {
@@ -1536,9 +1537,9 @@ void restore_from_stdin(vector<contents_t> &c) {
                 if (payload + resolved >= payload_orig) {
                     size_t fo = belongs_to(payload + resolved);
                     int j = io.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
-                    rassert(j == 0, "Internal error or destination drive is not seekable", infiles.at(fo).filename, payload, payload_orig);
+                    massert(j == 0, "Internal error or destination drive is not seekable", infiles.at(fo).filename, payload, payload_orig);
                     len2 = io.read(out + resolved, len - resolved, ofile, false);
-                    rassert(!(len2 != len - resolved), "Internal error: Reference points past current output file", infiles.at(fo).filename, len, len2);
+                    massert(!(len2 != len - resolved), "Internal error: Reference points past current output file", infiles.at(fo).filename, len, len2);
                     resolved += len2;
                     io.seek(ofile, 0, SEEK_END);
                 } else {
@@ -1548,7 +1549,7 @@ void restore_from_stdin(vector<contents_t> &c) {
                         ifile2 = try_open(infiles.at(fo).filename, 'r', true);
                         infiles.at(fo).handle = ifile2;
                         int j = io.seek(ifile2, payload + resolved - infiles.at(fo).offset, SEEK_SET);
-                        rassert(j == 0, "Internal error or destination drive is not seekable", infiles.at(fo).filename, payload, infiles.at(fo).offset);
+                        massert(j == 0, "Internal error or destination drive is not seekable", infiles.at(fo).filename, payload, infiles.at(fo).offset);
                     }
                     // FIXME only request to read exact amount, so that we can call with read_exact = true
                     len2 = io.read(out + resolved, len - resolved, ifile2, false);
@@ -1557,7 +1558,7 @@ void restore_from_stdin(vector<contents_t> &c) {
                 }
             }
         } else {
-            rassert(false, "Internal error or source file corrupted", r);
+            massert(false, "Internal error or source file corrupted", r);
         }
 
         uint64_t src_consumed = 0;
@@ -2202,7 +2203,7 @@ void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t
     } else if (s == DIFF_BACKUP) {
         io.write("EXDUPE D", 8, file);
     } else {
-        rassert(false, "", s);
+        rassert(false, s);
     }
 
     io.write_ui<uint8_t>(VER_MAJOR, file);
@@ -2229,7 +2230,7 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* arc
         abort(header != "EXDUPE D", L("'%s' is not a .diff file"), filename.c_str());
     } else {
         // todo, use class enum
-        rassert(false, "", action);
+        rassert(false, action);
     }
 
     char major = io.read_ui<uint8_t>(file);
@@ -2355,7 +2356,7 @@ int main(int argc2, char *argv2[])
         ifile = try_open(full, 'r', true);
         read_header(ifile, full, BACKUP);
         restore::decompress_sequential(s);
-        rassert(!diff_flag, "");
+        rassert(!diff_flag);
         wrote_message(io.write_count, files);
 
         // read remainder of file like content section, etc, to avoid error from OS

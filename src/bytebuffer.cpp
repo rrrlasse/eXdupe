@@ -59,7 +59,7 @@ void Bytebuffer::buffer_add(const char *src, uint64_t payload, size_t len) {
     buffer_t b;
     b.pay = payload;
     b.buffer_offset = insert_at;
-    rassert(!(insert_at + len > m_buffer.size()), "", insert_at, len, m_buffer.size());
+    rassert(!(insert_at + len > m_buffer.size()), insert_at, len, m_buffer.size());
     memcpy(m_buffer.data() + insert_at, src, len);    
     b.len = len;
     m_buffers.push_back(b);
@@ -72,7 +72,7 @@ char *Bytebuffer::buffer_find(uint64_t payload, size_t len) {
             if (payload > m_buffers[i].pay) {
                 off = payload - m_buffers[i].pay;
             }
-            rassert(!(m_buffers[i].buffer_offset + off + len > m_buffer.size()), "", m_buffers[i].buffer_offset, i, off, len, m_buffer.size());
+            rassert(!(m_buffers[i].buffer_offset + off + len > m_buffer.size()), m_buffers[i].buffer_offset, i, off, len, m_buffer.size());
             return m_buffer.data() + m_buffers[i].buffer_offset + off;
         }
     }

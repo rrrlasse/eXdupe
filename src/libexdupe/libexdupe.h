@@ -1,24 +1,25 @@
 #pragma once
 
-/*
-A packet of compressed data can either be a "match" (header starts with "MM") or a "literal" header starts with "TT":
-
-MM cccc dddd pppppppp
-  c: 32-bit, size of this packet
-  p: 64-bit pointer into user payload, always points backwards from current position
-  d: 32-bit, number of bytes to copy from p
-
-TT cccc dddd pppppppp <data compressed with some traditional data compression>
- c = 32-bit, size of this packet
- d = Size in bytes of the *decompressed* data that follows this header
- p = Offset into the user payload that this package represents
-*/
-
-#define DUP_HEADER_LEN 18
+#define DUP_HEADER_LEN 17
 
 #include <stdint.h>
 #include <string.h>
 #include <atomic>
+
+/*
+A packet of compressed data can either be a "match" (header starts with "MM") or a "literal" header starts with "TT":
+
+M cccc dddd pppppppp
+  c: 32-bit, size of this packet, i.e the value 17 (17 bytes)
+  d: 32-bit, number of bytes to copy from p
+  p: 64-bit pointer into user payload, always points backwards from current position
+
+T cccc dddd pppppppp <data compressed with some traditional data compression>
+ c = 32-bit, size of this packet, including data (i.e. 17 + data)
+ d = Size in bytes of the *decompressed* data that follows this header
+ p = Offset into the user payload that this package represents
+*/
+
 
 uint64_t dup_memory(uint64_t bits);
 int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,

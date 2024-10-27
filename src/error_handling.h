@@ -32,12 +32,12 @@ template<typename T> inline void print_argument(const T& arg) {
     }
 }
 
-template<typename... Args> [[noreturn]] inline void rassert_function(const char* condition, const std::source_location& location = std::source_location::current(), Args&&... args) {
+template<typename... Args> [[noreturn]] inline void rassert_function(const char* condition, const char* message, const std::source_location& location = std::source_location::current(), Args&&... args) {
     std::string f = location.file_name();
     size_t pos = f.find_last_of("/\\");
     f = (pos != std::string::npos) ? f.substr(pos + 1) : f;
 
-    CERR << "\nAssert failed!" << std::endl
+    CERR << std::endl << (message ? message : "Assert failed!") << std::endl
         << "Condition: " << condition << std::endl
         << "Source: " << f.c_str() << ":" << location.line() << std::endl
         << "Function: " << location.function_name() << std::endl;
@@ -49,10 +49,16 @@ template<typename... Args> [[noreturn]] inline void rassert_function(const char*
     cleanup_and_exit(err_assert);
 }
 
+#define massert(condition, message, ...) \
+    if (!(condition)) { \
+        rassert_function(#condition, message, std::source_location::current(), __VA_ARGS__); \
+    }
+
 #define rassert(condition, ...) \
     if (!(condition)) { \
-        rassert_function(#condition, std::source_location::current(), __VA_ARGS__); \
+        rassert_function(#condition, nullptr, std::source_location::current(), ##__VA_ARGS__); \
     }
+
 
 #ifdef _WIN32
 inline void abort(bool b, int ret, const std::wstring& s) {
