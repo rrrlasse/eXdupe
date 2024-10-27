@@ -194,7 +194,8 @@ vector<STRING> shadows;
 
 vector<STRING> entropy_ext;
 
-FILE *ofile = 0, *ifile = 0;
+FILE *ofile = 0;
+FILE *ifile = 0;
 
 Cio io = Cio();
 Statusbar statusbar;
@@ -219,8 +220,6 @@ FileTypes file_types;
 IdenticalFiles identical_files;
 UntouchedFiles untouched_files2;
 
-STRING tempdiff = L("EXDUPE.TMP");
-
 struct file_offset_t {
     STRING filename;
     uint64_t offset = 0;
@@ -230,16 +229,19 @@ struct file_offset_t {
 vector<file_offset_t> infiles;
 vector<contents_t> contents;
 
-typedef struct {
-    uint64_t payload;
-    uint64_t archive_offset;
-    uint64_t payload_reference;
-    size_t length;
-    char is_reference;
-} reference_t;
+// only used when restoring from file, not when restoring from stdin
+struct packet_t {
+    bool is_reference = false;
+    uint64_t payload = 0;
+    size_t length = 0;
+    
+    // if is_reference, then this points into the stream of restored data.
+    std::optional<uint64_t> payload_reference;
 
-vector<reference_t> references;
-vector<reference_t> read_ahead;
+    // if !is_reference, then this points at a literal packet into the full or diff file
+    std::optional<uint64_t> archive_offset;
+};
+vector<packet_t> packets;
 
 uint64_t backup_set_size() {
     // unchanged and identical are not sent to libexdupe
@@ -413,58 +415,35 @@ uint64_t belongs_to(uint64_t offset) {
     return lower;
 }
 
-void add_references(const char *src, size_t len, uint64_t archive_offset) {
+void add_packets(const char *src, size_t len, uint64_t archive_offset) {
     size_t pos = 0;
-    reference_t ref;
-    uint64_t payload;
-    size_t len2 = std::numeric_limits<size_t>::max();
 
     while (pos < len) {
-        int r = dup_decompress_simulate(src + pos, &len2, &payload);
+        packet_t ref;
+        uint64_t payload;
+        size_t len2;
+
+        int r = dup_packet_info(src + pos, &len2, &payload);
+        rassert(r == DUP_REFERENCE || r == DUP_LITERAL);
 
         ref.length = len2;
-        ref.is_reference = static_cast<char>(r);
         ref.payload = pay_count;
         pay_count += len2;
 
-        if (r == 0) {
-            // raw data chunk
-            ref.payload_reference = 0;
-            ref.archive_offset = archive_offset + pos;
-        } else if (r == 1) {
+        if (r == DUP_REFERENCE) {
             // reference
+            ref.is_reference = true;
             ref.payload_reference = payload;
-            ref.archive_offset = 0;
-        } else {
-            rassert(false, r);
-        }
-        references.push_back(ref);
+        } else if (r == DUP_LITERAL) {
+            // raw data chunk
+            ref.is_reference = false;
+            ref.archive_offset = archive_offset + pos;
+        } 
+        packets.push_back(ref);
         pos += dup_size_compressed(src + pos);
     }
 }
 
-size_t write_references(FILE *file) {
-    io.write("REFERENC", 8, file);
-    uint64_t w = io.write_count;
-    io.write_ui<uint64_t>(references.size(), file);
-
-    for (size_t i = 0; i < references.size(); i++) {
-        io.write_ui<uint8_t>(references.at(i).is_reference, file);
-        if (references.at(i).is_reference) {
-            io.write_ui<uint64_t>(references.at(i).payload_reference, file);
-        } else {
-            io.write_ui<uint64_t>(references.at(i).archive_offset, file);
-        }
-
-        io.write_ui<uint64_t>(references.at(i).payload, file);
-        io.write_ui<uint32_t>(static_cast<uint32_t>(references.at(i).length), file);
-    }
-
-    io.write_ui<uint32_t>(0, file);
-    io.write_ui<uint64_t>(io.write_count - w, file);
-
-    return io.write_count - w;
-}
 
 uint64_t seek_to_header(FILE *file, const string &header) {
     //  archive   HEADER  data  sizeofdata  HEADER  data  sizeofdata
@@ -487,15 +466,16 @@ uint64_t seek_to_header(FILE *file, const string &header) {
     return orig;
 }
 
-uint64_t read_references(FILE *file) {
+uint64_t read_packets(FILE *file) {
     uint64_t orig = seek_to_header(file, "REFERENC");
     uint64_t n = io.read_ui<uint64_t>(file);
     uint64_t added_payload = 0;
 
     for (uint64_t i = 0; i < n; i++) {
-        reference_t ref;
-
-        ref.is_reference = io.read_ui<uint8_t>(file);
+        packet_t ref;
+        uint8_t r = io.read_ui<uint8_t>(file);
+        massert(r == DUP_REFERENCE || r == DUP_LITERAL, "Internal error or archive corrupted");
+        ref.is_reference = r == DUP_REFERENCE;
         if (ref.is_reference) {
             ref.payload_reference = io.read_ui<uint64_t>(file);
         } else {
@@ -505,32 +485,57 @@ uint64_t read_references(FILE *file) {
         ref.length = io.read_ui<uint32_t>(file);
 
         added_payload += ref.length;
-        references.push_back(ref);
+        packets.push_back(ref);
     }
 
     io.seek(file, orig, SEEK_SET);
     return added_payload;
 }
 
-uint64_t find_reference(uint64_t payload) {
-    uint64_t lower = 0;
-    uint64_t upper = references.size() - 1;
+size_t write_packets(FILE* file) {
+    io.write("REFERENC", 8, file);
+    uint64_t w = io.write_count;
+    io.write_ui<uint64_t>(packets.size(), file);
 
-    if (references.size() == 0) {
+    for (size_t i = 0; i < packets.size(); i++) {
+        io.write_ui<uint8_t>(packets.at(i).is_reference ? DUP_REFERENCE : DUP_LITERAL, file);
+        if (packets.at(i).is_reference) {
+            io.write_ui<uint64_t>(packets.at(i).payload_reference.value(), file);
+        }
+        else {
+            io.write_ui<uint64_t>(packets.at(i).archive_offset.value(), file);
+        }
+
+        io.write_ui<uint64_t>(packets.at(i).payload, file);
+        io.write_ui<uint32_t>(static_cast<uint32_t>(packets.at(i).length), file);
+    }
+
+    io.write_ui<uint32_t>(0, file);
+    io.write_ui<uint64_t>(io.write_count - w, file);
+
+    return io.write_count - w;
+}
+
+
+uint64_t find_packet(uint64_t payload) {
+    uint64_t lower = 0;
+    uint64_t upper = packets.size() - 1;
+
+    if (packets.size() == 0) {
         return std::numeric_limits<uint64_t>::max();
     }
 
     while (upper != lower) {
         uint64_t middle = lower + (upper - lower) / 2;
 
-        if (references.at(middle).payload + references.at(middle).length - 1 < payload) {
+        if (packets.at(middle).payload + packets.at(middle).length - 1 < payload) {
             lower = middle + 1;
         } else {
             upper = middle;
         }
     }
 
-    if (references.at(lower).payload <= payload && references.at(lower).payload + references.at(lower).length - 1 >= payload) {
+    if (packets.at(lower).payload <= payload && packets.at(lower).payload + packets.at(lower).length - 1 >= payload) {
         return lower;
     } else {
         return std::numeric_limits<uint64_t>::max();
@@ -541,15 +546,15 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
     size_t bytes_resolved = 0;
 
     while (bytes_resolved < size) {
-        uint64_t rr = find_reference(payload + bytes_resolved);
+        uint64_t rr = find_packet(payload + bytes_resolved);
         rassert(rr != std::numeric_limits<uint64_t>::max());
-        reference_t ref = references.at(rr);
+        packet_t ref = packets.at(rr);
         uint64_t prior = payload + bytes_resolved - ref.payload;
         size_t needed = size - bytes_resolved;
         size_t ref_has = ref.length - prior >= needed ? needed : ref.length - prior;
 
         if (ref.is_reference) {
-            resolve(ref.payload_reference + prior, ref_has, dst + bytes_resolved, ifile, fdiff, splitpay);
+            resolve(ref.payload_reference.value() + prior, ref_has, dst + bytes_resolved, ifile, fdiff, splitpay);
         } else {
 
             char *b = bytebuffer.buffer_find(ref.payload, ref_has);
@@ -566,7 +571,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
                 // seek and read and decompress literal packet
                 uint64_t p;
                 uint64_t orig = io.tell(f);
-                uint64_t ao = ref.archive_offset;
+                uint64_t ao = ref.archive_offset.value();
                 io.seek(f, ao, SEEK_SET);
                 io.read_vector(restore_buffer_in, DUP_HEADER_LEN, 0, f, true);
                 size_t lenc = dup_size_compressed(restore_buffer_in.data());
@@ -1413,10 +1418,10 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
     }
 
     if (diff_flag) {
-        basepay = read_references(ffull);
-        read_references(fdiff);
+        basepay = read_packets(ffull);
+        read_packets(fdiff);
     } else {
-        basepay = read_references(ffull);
+        basepay = read_packets(ffull);
     }
 
     content = read_contents(archive_file);
@@ -1518,7 +1523,7 @@ void restore_from_stdin(vector<contents_t> &c) {
             return;
         }
 
-        rassert(((in[0] == 'T' ) || (in[0] == 'M')), "Source file error");
+        rassert(in[0] == DUP_REFERENCE || in[0] == DUP_LITERAL, "Source file error");
 
         io.read(in + 1, DUP_HEADER_LEN - 1, ifile);
         len = dup_size_compressed(in);
@@ -1761,7 +1766,7 @@ void empty_q(bool flush, bool entropy) {
     auto write_result = [&]() {
         if (cc > 0) {
             io.write("A", 1, ofile);
-            add_references(out_result, cc, io.write_count);
+            add_packets(out_result, cc, io.write_count);
             io.write(out_result, cc, ofile);
             io.write("B", 1, ofile);
         }
@@ -2377,8 +2382,8 @@ int main(int argc2, char *argv2[])
             hashtable = malloc(memory_usage);
             abort(!hashtable, err_resources, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
             memset(hashtable, 0, memory_usage);
-            pay_count = read_references(ifile); // read size in bytes of user payload in .full file
-            references.clear();
+            pay_count = read_packets(ifile); // read size in bytes of user payload in .full file
+            packets.clear();
 
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
             abort(r == 1, err_resources, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
@@ -2439,7 +2444,7 @@ int main(int argc2, char *argv2[])
             hashtable_size = write_hashtable(ofile);
         }
 
-        size_t references_size = write_references(ofile);
+        size_t references_size = write_packets(ofile);
         io.write("END", 3, ofile);
         if(verbose_level > 0 && verbose_level < 3) {
             statusbar.clear_line();

@@ -7,19 +7,21 @@
 #include <atomic>
 
 /*
-A packet of compressed data can either be a "match" (header starts with "MM") or a "literal" header starts with "TT":
+A packet of data can either be a reference (header starts with "R") or a literal header starts with "L":
 
-M cccc dddd pppppppp
+R cccc dddd pppppppp
   c: 32-bit, size of this packet, i.e the value 17 (17 bytes)
   d: 32-bit, number of bytes to copy from p
-  p: 64-bit pointer into user payload, always points backwards from current position
+  p: 64-bit pointer into user payload. It can never point beyond the current position
 
-T cccc dddd pppppppp <data compressed with some traditional data compression>
+L cccc dddd pppppppp <data compressed with some traditional data compression>
  c = 32-bit, size of this packet, including data (i.e. 17 + data)
  d = Size in bytes of the *decompressed* data that follows this header
  p = Offset into the user payload that this package represents
 */
 
+#define DUP_REFERENCE 'R'
+#define DUP_LITERAL 'L'
 
 uint64_t dup_memory(uint64_t bits);
 int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
@@ -30,7 +32,7 @@ size_t dup_compress(const void *src, char *dst, size_t size,
 		    uint64_t *payloadreturned, bool entropy, char*& retval_start);
 int dup_decompress(const char *src, char *dst, size_t *length,
 		   uint64_t *payload);
-int dup_decompress_simulate(const char *src, size_t *length,
+int dup_packet_info(const char *src, size_t *length,
 			    uint64_t *payload);
 
 size_t dup_size_compressed(const char *src);

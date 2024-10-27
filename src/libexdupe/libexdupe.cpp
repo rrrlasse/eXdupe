@@ -120,10 +120,6 @@ int level;
 // growing COMPRESSED_HASHTABLE_OVERHEAD bytes in size.
 #define COMPRESSED_HASHTABLE_OVERHEAD 4096
 
-#define DUP_MATCH 'M'
-#define DUP_LITERAL 'T'
-
-
 static void ll2str(uint64_t l, char* dst, int bytes) {
     unsigned char* dst2 = (unsigned char*)dst;
     while (bytes > 0) {
@@ -717,7 +713,7 @@ static size_t write_match(size_t length, uint64_t payload, char *dst) {
         else {
             smallhits += length;
         }
-        dst[0] = DUP_MATCH;
+        dst[0] = DUP_REFERENCE;
         dst++;
         ll2str(DUP_HEADER_LEN, dst, 4);
         dst += 4;
@@ -1077,7 +1073,7 @@ int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload
         count_payload += *length;
         return 0;
     }
-    else if (src[0] == DUP_MATCH) {
+    else if (src[0] == DUP_REFERENCE) {
         uint64_t pay = packet_payload(src);
         size_t len = dup_size_decompressed(src);
         *payload = pay;
@@ -1089,28 +1085,27 @@ int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload
     }
 }
 
-// todo rename
-int dup_decompress_simulate(const char *src, size_t *length, uint64_t *payload) {
+
+int dup_packet_info(const char *src, size_t *length, uint64_t *payload) {
     if (src[0] == DUP_LITERAL) {
-        size_t t;
-        src++;
-        src+= 4;
-        t = str2ll(src, 4);
-        *length = t;
-        if (t == 0) {
+        size_t len = dup_size_decompressed(src);
+        if (len == 0) {
             return -1;
         }
-        return 0;
+        *length = len;
+        return DUP_LITERAL;
     }
-    if (src[0] == DUP_MATCH) {
+    else if (src[0] == DUP_REFERENCE) {
         uint64_t pay = packet_payload(src);
         size_t len = dup_size_decompressed(src);
         *payload = pay;
+        if (len == 0) {
+            return -1;
+        }
         *length = len;
-        return 1;
-    } else {
-        return -2;
+        return DUP_REFERENCE;
     }
+    return -2;
 }
 
 size_t flush_pend(uint64_t *payloadret, char*&retval_start) {
