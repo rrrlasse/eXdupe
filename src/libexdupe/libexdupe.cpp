@@ -359,47 +359,37 @@ char *zstd_init() {
     return (char *)zstd_params;
 }
 
+
 int64_t zstd_compress(char *inbuf, size_t insize, char *outbuf, size_t outsize, int level, char *workmem) {
-    size_t ret = 0;
     zstd_params_s *zstd_params = (zstd_params_s *)workmem;
-    size_t fast = 2048;
-    size_t slow = 4096;
-
-    if(insize > 128*1024) {
-        if( 
-            ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf + insize / 2, fast, level) >= fast &&
-            ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf + insize / 3 * 0, slow, level) >= slow &&
-            ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf + insize / 3 * 1, slow, level) >= slow &&
-            ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf + insize / 3 * 2, slow, level) >= slow &&
-            ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf + insize - slow, slow, level) >= slow &&
-            true) {
-            *outbuf++ = 'U';
-            ret++;
-            memcpy(outbuf, inbuf, insize);
-            return insize + 1;
-        }            
-    }    
-
-    *outbuf++ = 'C';
-    ret++;
-
-    ret += ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf, insize, level);
+    size_t ret = ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf, insize, level);
     return ret;
 }
 
-int64_t zstd_decompress(char *inbuf, size_t insize, char *outbuf, size_t outsize, size_t, size_t, char *workmem) {
-    char compressible = *inbuf++;
 
-    if(compressible == 'U') {
-        memcpy(outbuf, inbuf, insize);
-        return insize;
+bool is_compressible(char* inbuf, size_t insize, char* outbuf, char* workmem) {
+    zstd_params_s* zstd_params = (zstd_params_s*)workmem;
+    size_t ret = 0;
+    size_t fast = 2048;
+    size_t slow = 4096;
+    if (insize > 128 * 1024) {
+        if (
+            ZSTD_compressCCtx(zstd_params->cctx, outbuf, insize, inbuf + insize / 2, fast, 1) >= fast &&
+            ZSTD_compressCCtx(zstd_params->cctx, outbuf, insize, inbuf + insize / 3 * 0, slow, 1) >= slow &&
+            ZSTD_compressCCtx(zstd_params->cctx, outbuf, insize, inbuf + insize / 3 * 1, slow, 1) >= slow &&
+            ZSTD_compressCCtx(zstd_params->cctx, outbuf, insize, inbuf + insize / 3 * 2, slow, 1) >= slow &&
+            ZSTD_compressCCtx(zstd_params->cctx, outbuf, insize, inbuf + insize - slow, slow, 1) >= slow &&
+            true) {
+            return false;
+        }
     }
-    else if(compressible == 'C') {
-        zstd_params_s *zstd_params = (zstd_params_s *)workmem;
-        return ZSTD_decompressDCtx(zstd_params->dctx, outbuf, outsize, inbuf, insize);
-    }
-    
-    return -1;
+    return true;
+}
+
+
+int64_t zstd_decompress(char *inbuf, size_t insize, char *outbuf, size_t outsize, size_t, size_t, char *workmem) {
+    zstd_params_s *zstd_params = (zstd_params_s *)workmem;
+    return ZSTD_decompressDCtx(zstd_params->dctx, outbuf, outsize, inbuf, insize);
 }
 
 static void hash(const void *src, size_t len, uint64_t salt, char *dst) {
@@ -728,7 +718,13 @@ static size_t write_literals(const char *src, size_t length, char *dst, int thre
 
     if (length > 0) {
         size_t packet_size = 0;
-        if (level == 0 || entropy) {
+        bool compressible = true;
+        
+        if(!entropy) {
+            compressible = is_compressible((char*)src, length, dst, jobs[thread_id].zstd);
+        }
+
+        if (level == 0 || entropy || !compressible) {
             dst[DUP_HEADER_LEN] = '0';
             memcpy(dst + DUP_HEADER_LEN + 1, src, length);
             // DUP_HEADER, '0', raw data
@@ -742,7 +738,6 @@ static size_t write_literals(const char *src, size_t length, char *dst, int thre
 
         packet_size += DUP_HEADER_LEN;
 
-        // Thi "DUP_HEADER" 
         dst[0] = DUP_LITERAL;
         ll2str(packet_size, dst + 1, 4);
         ll2str(length, dst + 5, 4);
