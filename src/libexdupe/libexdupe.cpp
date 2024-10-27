@@ -714,13 +714,9 @@ static size_t write_match(size_t length, uint64_t payload, char *dst) {
             smallhits += length;
         }
         dst[0] = DUP_REFERENCE;
-        dst++;
-        ll2str(DUP_HEADER_LEN, dst, 4);
-        dst += 4;
-        ll2str(length, dst, 4);
-        dst += 4;
-        ll2str(payload, dst, 8); 
-        dst += 8;
+        ll2str(DUP_HEADER_LEN, dst + 1, 4);
+        ll2str(length, dst + 5, 4);
+        ll2str(payload, dst + 9, 8); 
         return DUP_HEADER_LEN;
     }
     return 0;
@@ -731,31 +727,26 @@ static size_t write_literals(const char *src, size_t length, char *dst, int thre
     rassert(level >= 0 && level <= 3);
 
     if (length > 0) {
-        size_t packet_size = DUP_HEADER_LEN;
+        size_t packet_size = 0;
         if (level == 0 || entropy) {
             dst[DUP_HEADER_LEN] = '0';
             memcpy(dst + DUP_HEADER_LEN + 1, src, length);
-            packet_size += 1 + length;
+            // DUP_HEADER, '0', raw data
+            packet_size = 1 + length;
         } else if (level >= 1 && level <= 3) {
             int zstd_level = level == 1 ? 1 : level == 2 ? 10 : 19;
             dst[DUP_HEADER_LEN] = char(level + '0');
-            packet_size++;
-            int64_t r = zstd_compress((char *)src, length, dst + DUP_HEADER_LEN + 1 + 4 + 4, 2 * length + 1000000, zstd_level, jobs[thread_id].zstd);
-            ll2str(r, dst + DUP_HEADER_LEN + 1, 4);
-            ll2str(length, dst + DUP_HEADER_LEN + 1 + 4, 4);
-            packet_size += 1 + 4 + 4 + r;
-        } else {
-            rassert(false);
+            int64_t r = zstd_compress((char *)src, length, dst + DUP_HEADER_LEN + 1, 2 * length + 1000000, zstd_level, jobs[thread_id].zstd);
+            packet_size = 1 + r;
         }
 
+        packet_size += DUP_HEADER_LEN;
+
+        // Thi "DUP_HEADER" 
         dst[0] = DUP_LITERAL;
-        dst++;
-        ll2str(packet_size, dst, 4);
-        dst += 4;
-        ll2str(length, dst, 4);
-        dst += 4;
-        ll2str(0, dst, 8);
-        dst += 8;
+        ll2str(packet_size, dst + 1, 4);
+        ll2str(length, dst + 5, 4);
+        ll2str(0, dst + 9, 8);
 
         stored_as_literals += length;
         literals_compressed_size += packet_size;
@@ -1050,6 +1041,7 @@ static uint64_t packet_payload(const char *src) {
 
 int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload) {
     if (zstd_decompress_state == 0) {
+        // todo
         zstd_decompress_state = zstd_init();
     }
 
@@ -1061,9 +1053,9 @@ int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload
             t = dup_size_decompressed(src);
             memcpy(dst, src + 1 + DUP_HEADER_LEN, t);
         } else if (level == '1' || level == '2' || level == '3') {
-            int32_t len = str2ll(src + 1 + DUP_HEADER_LEN, 4);
-            int32_t len_de = str2ll(src + 1 + DUP_HEADER_LEN + 4, 4);
-            t = zstd_decompress((char *)src + 1 + DUP_HEADER_LEN + 4 + 4, len, dst, len_de, 0, 0, zstd_decompress_state);
+            int32_t len_de = dup_size_decompressed(src);
+            int32_t len = dup_size_compressed(src) - DUP_HEADER_LEN - 1;
+            t = zstd_decompress((char *)src + DUP_HEADER_LEN + 1, len, dst, len_de, 0, 0, zstd_decompress_state);
             t = len_de;
         } else {
             return -1;
