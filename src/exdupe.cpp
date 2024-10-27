@@ -1032,7 +1032,7 @@ void parse_files(void) {
 
         abort(full == L("-stdin"), L(".full file from -stdin not supported. "));
 
-        abort(full == L("-stdout") || diff == L("-stdout") || (inputfiles.at(0) == L("-stdin") && argc < 2 + flags_exist) || (inputfiles.at(0) != L("-stdin") && argc < 3 + flags_exist),
+        abort(full == L("-stdout") || (inputfiles.at(0) == L("-stdin") && argc < 2 + flags_exist) || (inputfiles.at(0) != L("-stdin") && argc < 3 + flags_exist),
               L("Syntax error in source or destination. "));
 
         abort(inputfiles.at(0) == L("-stdin") && argc - 1 > flags_exist + 3, L("Too many arguments. "));
