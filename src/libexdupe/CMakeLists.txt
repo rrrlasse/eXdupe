@@ -1,10 +1,12 @@
 cmake_minimum_required(VERSION 3.6)
 
 project (libexdupe)
+project (demo)
 
 set(CMAKE_CXX_STANDARD 20)
 
 ADD_LIBRARY(libexdupe STATIC libexdupe.cpp)
+add_executable(demo demo.cpp binding.hpp)
 
 set(BUILD_SHARED_LIBS OFF)
 option(XXHASH_BUILD_XXHSUM "" OFF)
@@ -42,3 +44,5 @@ if (MSVC)
 	target_link_libraries(libexdupe PRIVATE libpthreadVC3)
 	target_link_libraries(libexdupe PRIVATE vssapi.lib) # Volume Shadow Copy Service
 endif(MSVC)
+
+target_link_libraries(demo PRIVATE libexdupe)

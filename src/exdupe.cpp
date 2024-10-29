@@ -474,7 +474,7 @@ uint64_t read_packets(FILE *file) {
     for (uint64_t i = 0; i < n; i++) {
         packet_t ref;
         uint8_t r = io.read_ui<uint8_t>(file);
-        massert(r == DUP_REFERENCE || r == DUP_LITERAL, "Internal error or archive corrupted");
+        massert(r == DUP_REFERENCE || r == DUP_LITERAL, "Internal error or archive corrupted", r);
         ref.is_reference = r == DUP_REFERENCE;
         if (ref.is_reference) {
             ref.payload_reference = io.read_ui<uint64_t>(file);
@@ -667,10 +667,10 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
 }
 
 size_t write_hashtable(FILE *file) {
-    size_t t = dup_compress_hashtable(memory_begin);
+    size_t t = dup_compress_hashtable(state_c.memory_begin);
     io.write("HASHTBLE", 8, file);
     io.write_ui<uint64_t>(t, file);
-    io.write(memory_begin, t, file);
+    io.write(state_c.memory_begin, t, file);
     io.write_ui<uint64_t>(t + 8, file);
     return t;
 }
@@ -683,9 +683,9 @@ uint64_t read_hashtable(FILE *file) {
         statusbar.update(BACKUP, 0, 0, (STRING() + L("Reading hashtable from full backup...\r")).c_str(), false, true);
     }
 
-    io.read(memory_end - s, s, file);
+    io.read(state_c.memory_end - s, s, file);
     io.seek(file, orig, SEEK_SET);
-    int i = dup_decompress_hashtable(memory_end - s);
+    int i = dup_decompress_hashtable(state_c.memory_end - s);
     abort(i != 0, L("'%s' is corrupted or not a .full file (hash table)"), slashify(full).c_str());
     return 0;
 }
@@ -1774,7 +1774,7 @@ void empty_q(bool flush, bool entropy) {
     };
 
     if (payload_queue_size[current_queue] > 0) {
-        cc = dup_compress(payload_queue[current_queue].data(), out_payload_queue[out_current_queue].data(), payload_queue_size[current_queue], &pay, entropy, out_result);
+        cc = dup_compress(payload_queue[current_queue].data(), out_payload_queue[out_current_queue].data(), payload_queue_size[current_queue], &pay, entropy, &out_result, 0);
         write_result();
         current_queue = (current_queue + 1) % out_payload_queue.size();
         payload_queue_size[current_queue] = 0;
@@ -1783,7 +1783,7 @@ void empty_q(bool flush, bool entropy) {
 
     if (flush) {
         while (payload_compressed < payload_read) {
-            cc = flush_pend(&pay, out_result);
+            cc = dup_flush_pend(&pay, &out_result, 0);
             write_result();
         }
     }
@@ -2281,8 +2281,6 @@ int wmain(int argc2, CHR *argv2[])
 int main(int argc2, char *argv2[])
 #endif
 {
-
-
     tidy_args(argc2, argv2);
 
     if (argc2 == 1) {
@@ -2339,6 +2337,8 @@ int main(int argc2, char *argv2[])
     } else if (restore_flag && full != L("-stdin") && diff != L("-stdin")) {
         // Restore from file.
         // =================================================================================================
+        dup_init_decompression();
+
         if (diff_flag) {
             FILE *fdiff = try_open(diff, 'r', true);
             FILE *ffull = try_open(full, 'r', true);
@@ -2357,6 +2357,8 @@ int main(int argc2, char *argv2[])
         wrote_message(io.write_count, files);
     } else if ((restore_flag && (full == L("-stdin"))) && restorelist.size() == 0) {
         // Restore from stdin. Only entire archive can be restored this way
+        dup_init_decompression();
+
         STRING s = remove_delimitor(directory);
         ifile = try_open(full, 'r', true);
         read_header(ifile, full, BACKUP);
@@ -2385,7 +2387,7 @@ int main(int argc2, char *argv2[])
             pay_count = read_packets(ifile); // read size in bytes of user payload in .full file
             packets.clear();
 
-            int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
+            int r = dup_init_compression(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
             abort(r == 1, err_resources, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
             abort(r == 2, err_resources, format("Error creating threads. This differential backup requires {} MB memory. Try -t1 flag", memory_usage >> 20));
 
@@ -2407,7 +2409,7 @@ int main(int argc2, char *argv2[])
             hash_salt = hash_flag ? rnd64() : 0;
             hashtable = tmalloc(memory_usage);
             abort(!hashtable, err_resources, "Out of memory. Reduce -m, -g or -t flag");
-            int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
+            int r = dup_init_compression(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
             abort(r == 1, err_resources, "Out of memory. Reduce -m, -g or -t flag");
             abort(r == 2, err_resources, "Error creating threads. Reduce -m, -g or -t flag");
         }
@@ -2466,18 +2468,18 @@ int main(int argc2, char *argv2[])
                 s << "Stored as untouched files:   " << suffix(unchanged) << "B in " << w2s(del(unchanged_files)) << " files\n";
             }
             s << "Stored as duplicated files:  " << suffix(identical) << "B in " << w2s(del(identical_files_count)) << " files\n";
-            s << "Stored as duplicated blocks: " << suffix(largehits + smallhits) << "B (" << suffix(largehits) << "B large, " << suffix(smallhits) << "B small)\n";
-            s << "Stored as literals:          " << suffix(stored_as_literals) << "B (" << suffix(literals_compressed_size) << "B compressed)\n";
-            uint64_t total = literals_compressed_size + contents_size + references_size + hashtable_size;
+            s << "Stored as duplicated blocks: " << suffix(state_c.largehits + state_c.smallhits) << "B (" << suffix(state_c.largehits) << "B large, " << suffix(state_c.smallhits) << "B small)\n";
+            s << "Stored as literals:          " << suffix(state_c.stored_as_literals) << "B (" << suffix(state_c.literals_compressed_size) << "B compressed)\n";
+            uint64_t total = state_c.literals_compressed_size + contents_size + references_size + hashtable_size;
             s << "Overheads:                   " << suffix(contents_size) << "B meta, " << suffix(references_size) << "B refs, " << suffix(hashtable_size) << "B hashtable, " << suffix(io.write_count - total) << "B misc\n";    
-            s << "Unhashed due to congestion:  " << suffix(congested_large) << "B large, " << suffix(congested_small) << "B small\n";
-            s << "Unhashed anomalies:          " << suffix(anomalies_large) << "B large, " << suffix(anomalies_small) << "B small\n";
-            s << "High entropy files:          " << suffix(high_entropy) << "B in " << w2s(del(high_entropy_files)) << " files";
+            s << "Unhashed due to congestion:  " << suffix(state_c.congested_large) << "B large, " << suffix(state_c.congested_small) << "B small\n";
+            s << "Unhashed anomalies:          " << suffix(state_c.anomalies_large) << "B large, " << suffix(state_c.anomalies_small) << "B small\n";
+            s << "High entropy files:          " << suffix(state_c.high_entropy) << "B in " << w2s(del(high_entropy_files)) << " files";
 
-            s << "\nhits1 = " << hits1  << "";
-            s << "\nhits2 = " << hits2  << "\n";
-            s << "hits3 = " << hits3 << "\n";
-            s << "hits4 = " << hits4 << "\n";
+            s << "\nhits1 = " << state_c.hits1  << "";
+            s << "\nhits2 = " << state_c.hits2  << "\n";
+            s << "hits3 = " << state_c.hits3 << "\n";
+            s << "hits4 = " << state_c.hits4 << "\n";
 
             STRING str = s2w(s.str());
             statusbar.print(0, L("%s"), str.c_str());
