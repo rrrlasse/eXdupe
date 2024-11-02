@@ -2,6 +2,12 @@
 #include <iostream>
 #include <vector>
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 #include "libexdupe.h"
 
 namespace compressor {

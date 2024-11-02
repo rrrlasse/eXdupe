@@ -76,8 +76,6 @@ void decompress(string outfile) {
 }
 
 
-// Compression: ./demo -c < input_file > compressed_file
-// Decompression: ./demo -d output_file < compressed_file
 int main(int argc, char *argv[]) {
 #ifdef _WIN32
     (void)_setmode(_fileno(stdin), _O_BINARY);
@@ -88,7 +86,7 @@ int main(int argc, char *argv[]) {
         decompress(argv[2]);
     }
     else if(argc == 2 && std::string(argv[1]) == "-c") {
-        compress(128 * 1024 * 1024ull, (rand() % 20) + 1, 1024 * 1024ull, 1);
+        compress(128 * 1024 * 1024ull, 8, 1024 * 1024ull, 1);
     }
     else {
         cerr << "demo -c < input_file > compressed_file"
