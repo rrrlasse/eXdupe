@@ -22,7 +22,6 @@ size_t rd(vector<char>& dst, size_t len, FILE* f, size_t offset, bool exact) {
 }
 
 
-
 // hash_size: Set to around 1 MB per 100 MB of input data
 // level: 1...3 means LZ compression is done after deduplication, 0 means no LZ
 void compress(size_t hash_size, int threads, size_t chunk_size, int level) {
@@ -77,19 +76,24 @@ void decompress(string outfile) {
 }
 
 
-// Compression: ./demo < input_file > compressed_file
-// Decompression: ./demo -o output_file < compressed_file
+// Compression: ./demo -c < input_file > compressed_file
+// Decompression: ./demo -d output_file < compressed_file
 int main(int argc, char *argv[]) {
 #ifdef _WIN32
     (void)_setmode(_fileno(stdin), _O_BINARY);
     (void)_setmode(_fileno(stdout), _O_BINARY);
 #endif
    
-    if(argc == 3 && std::string(argv[1]) == "-o") {
+    if(argc == 3 && std::string(argv[1]) == "-d") {
         decompress(argv[2]);
     }
-    else if(argc == 1) {
+    else if(argc == 2 && std::string(argv[1]) == "-c") {
         compress(128 * 1024 * 1024ull, (rand() % 20) + 1, 1024 * 1024ull, 1);
+    }
+    else {
+        cerr << "demo -c < input_file > compressed_file"
+            "\ndemo -d output_file < compressed_file"
+            "\n\nnote: decompression to stdout not possible\n";
     }
     return 0;
 }

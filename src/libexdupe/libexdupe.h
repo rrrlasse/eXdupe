@@ -13,9 +13,6 @@
 #include <unistd.h>
 #endif
 
-#define ZSTD_STATIC_LINKING_ONLY
-#include "zstd/lib/zstd.h" // move to cpp
-
 /*
 Compressed data format: A sequence of packets. A packet can either be a reference 
 (header starts with "R") or a literal (header starts with "L"):
@@ -144,14 +141,5 @@ struct state_compress_t {
     std::atomic<uint64_t> hits4;
 };
 
-// move to cpp
-struct zstd_params_s {
-    ZSTD_CCtx* cctx;
-    ZSTD_DCtx* dctx;
-    ZSTD_CDict* cdict;
-    ZSTD_parameters zparams;
-    ZSTD_customMem cmem;
-};
-
+// todo, global
 extern state_compress_t state_c;
-extern zstd_params_s* state_d;

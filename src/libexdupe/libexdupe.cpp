@@ -19,7 +19,18 @@
 #include "xxHash/xxhash.h"
 #include "../gsl/gsl"
 
+#define ZSTD_STATIC_LINKING_ONLY
+#include "zstd/lib/zstd.h"
+
 #include "libexdupe.h"
+
+struct zstd_params_s {
+    ZSTD_CCtx* cctx;
+    ZSTD_DCtx* dctx;
+    ZSTD_CDict* cdict;
+    ZSTD_parameters zparams;
+    ZSTD_customMem cmem;
+};
 
 // fixme, global
 state_compress_t state_c;
