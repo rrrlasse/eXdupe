@@ -1586,7 +1586,10 @@ void restore_from_stdin(vector<contents_t> &c) {
             auto missing = c.at(0).size - curfile_written;
             auto has = minimum(missing, len - src_consumed);
             curfile_written += has;
-            update_statusbar_restore(destfile);
+            if(verbose_level < 3) {
+                // level 3 doesn't show progress
+                update_statusbar_restore(destfile);
+            }
             io.write(out + src_consumed, has, ofile);
             checksum(out + src_consumed, has, &decompress_checksum);
 
