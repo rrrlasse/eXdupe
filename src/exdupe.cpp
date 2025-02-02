@@ -1505,7 +1505,7 @@ uint64_t curfile_written = 0;
 checksum_t decompress_checksum;
 vector<contents_t> file_queue;
 
-void restore_from_stdin(vector<contents_t> &c) {
+void data_block_from_stdin(vector<contents_t> &c) {
     STRING destfile;
     STRING last_file = L("");
     uint64_t payload_orig = payload_written;
@@ -1608,7 +1608,7 @@ void restore_from_stdin(vector<contents_t> &c) {
 }
 
 
-void decompress_sequential(const STRING& extract_dir) {
+void restore_from_stdin(const STRING& extract_dir) {
     STRING curdir;
     size_t r = 0;
     STRING base_dir = abs_path(extract_dir);
@@ -1667,7 +1667,7 @@ void decompress_sequential(const STRING& extract_dir) {
             }
         }
         else if (w == 'A') {
-            restore_from_stdin(file_queue);
+            data_block_from_stdin(file_queue);
         }
         else if (w == 'C') { // crc
             uint32_t crc = io.read_ui<uint32_t>(ifile);
@@ -2363,7 +2363,7 @@ int main(int argc2, char *argv2[])
         STRING s = remove_delimitor(directory);
         ifile = try_open(full, 'r', true);
         read_header(ifile, full, BACKUP);
-        restore::decompress_sequential(s);
+        restore::restore_from_stdin(s);
         rassert(!diff_flag);
         wrote_message(io.write_count, files);
 
