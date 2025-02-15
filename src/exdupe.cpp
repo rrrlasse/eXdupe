@@ -297,7 +297,6 @@ void update_statusbar_restore(STRING file) {
 }
 
 STRING date2str(time_ms_t date) {
-    date = date / 1000;
     if (date == 0) {
         return L("                ");
     }
@@ -749,7 +748,7 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
 }
 
 
-uint64_t dump_contents() {
+uint64_t list_contents() {
     FILE* ffile = try_open(full, 'r', true);
     FILE* file = diff_flag ? try_open(diff, 'r', true) : ffile;
     string header = io.read_bin_string(8, file);
@@ -2338,7 +2337,7 @@ int main(int argc2, char *argv2[])
     }
 
     if (list_flag) {
-        dump_contents();
+        list_contents();
     } else if (restore_flag && full != L("-stdin") && diff != L("-stdin")) {
         // Restore from file.
         // =================================================================================================
