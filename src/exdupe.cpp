@@ -473,7 +473,7 @@ uint64_t read_packets(FILE *file) {
     for (uint64_t i = 0; i < n; i++) {
         packet_t ref;
         uint8_t r = io.read_ui<uint8_t>(file);
-        massert(r == DUP_REFERENCE || r == DUP_LITERAL, "Internal error or archive corrupted");
+        massert(r == DUP_REFERENCE || r == DUP_LITERAL, "Internal error or archive corrupted", "");
         ref.is_reference = r == DUP_REFERENCE;
         if (ref.is_reference) {
             ref.payload_reference = io.read_ui<uint64_t>(file);
