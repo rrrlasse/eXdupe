@@ -45,7 +45,7 @@ size_t dup_compress_hashtable(char*);
 int dup_decompress_hashtable(char* src);
 void dup_deinit(void);
 
-void print_fillratio(void);
+void fillratio(double* l, double* s);
 
 void reset_profiling(void);
 void print_profiling(void);

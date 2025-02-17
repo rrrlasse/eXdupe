@@ -2475,16 +2475,19 @@ int main(int argc2, char *argv2[])
             s << "Unhashed due to congestion:  " << suffix(congested_large) << "B large, " << suffix(congested_small) << "B small\n";
             s << "Unhashed anomalies:          " << suffix(anomalies_large) << "B large, " << suffix(anomalies_small) << "B small\n";
             s << "High entropy files:          " << suffix(high_entropy) << "B in " << w2s(del(high_entropy_files)) << " files";
-
-            s << "\nhits1 = " << hits1  << "";
-            s << "\nhits2 = " << hits2  << "\n";
-            s << "hits3 = " << hits3 << "\n";
-            s << "hits4 = " << hits4 << "\n";
-
             STRING str = s2w(s.str());
             statusbar.print(0, L("%s"), str.c_str());
             CERR << "Hashtable fillratio:         ";
-            print_fillratio();            
+            double la = 0.;
+            double sm = 0.;
+            fillratio(&la, &sm);
+            CERR << int(sm * 100.) << "% small, " << int(la * 100.) << "% large\n";
+            if (VER_DEV != 0) {
+                CERR << "\nhits1 = " << hits1 << "";
+                CERR << "\nhits2 = " << hits2 << "\n";
+                CERR << "hits3 = " << hits3 << "\n";
+                CERR << "hits4 = " << hits4 << "\n";
+            }
         }
         else {
             statusbar.print_no_lf(1, L("Compressed %s B in %s files into %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(suffix(io.write_count)).c_str());

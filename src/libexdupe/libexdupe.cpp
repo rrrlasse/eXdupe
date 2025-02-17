@@ -306,9 +306,6 @@ bool add(hash_t value, uint32_t hash, bool large) {
     return false;
 }
 
-void print_fillratio() {
-
-}
 
 template <class T> const T minimum(const T a, const T b) {
     return a > b ? b : a;
@@ -450,6 +447,23 @@ size_t equ(size_t start) {
         count++;
     }
     return count;
+}
+
+void fillratio(double* l, double* s) {
+    int64_t full = 0;
+    for (uint64_t i = 0; i < small_entries; i++) {
+        if (small_table[i].hash[slots - 1] != 0) {
+            full++;
+        }
+    }
+    *s = (double)full / small_entries;
+    full = 0;
+    for (uint64_t i = 0; i < large_entries; i++) {
+        if (large_table[i].hash[slots - 1] != 0) {
+            full++;
+        }
+    }
+    *l = (double)full / large_entries;
 }
 
 size_t dup_compress_hashtable(char* dst) {
