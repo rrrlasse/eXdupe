@@ -52,12 +52,19 @@ void Statusbar::clear_line() {
 
 // If is_message, then treat path as a status message and don't prepend a path to it
 void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING path, bool no_delay, bool is_message) {
+    bool v3 = m_verbose_level == 3;
+
     if (m_verbose_level < 1 || path.size() == 0) {
         return;
     }
 
+    uint64_t f = GetTickCount64() - m_last_file_print;
+    if (!((no_delay || f >= 1000) || v3)) {
+        return;
+    }
+
     bool backup = status == BACKUP || status == DIFF_BACKUP;
-    bool v3 = m_verbose_level == 3;
+
     size_t maxpath = size_t(-1);
 
     if(!is_message) {
@@ -73,39 +80,37 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
             path = remove_leading_delimitor(path);
         }
     }
-    uint64_t f = GetTickCount64() - m_last_file_print;
 
-    if ((no_delay || f >= 1000) || v3) {
-        m_last_file_print = GetTickCount64();
-        STRING line;
-        if (backup) {
-            line = s2w(suffix(read)) + L("B, ") + s2w(suffix(written)) + L("B, ");
-        } else {
-            line = s2w(suffix(written)) + L("B, ");
-        }
+    m_last_file_print = GetTickCount64();
+    STRING line;
+    if (backup) {
+        line = s2w(suffix(read)) + L("B, ") + s2w(suffix(written)) + L("B, ");
+    } else {
+        line = s2w(suffix(written)) + L("B, ");
+    }
 
-        if (!v3) {
-            maxpath = m_term_width - line.size();
-        }
+    if (!v3) {
+        maxpath = m_term_width - line.size();
+    }
 
-        if (m_verbose_level > 0) {
-            if (v3 && m_lastpath != path) {
-                m_lastpath = path;
-                line += path;
-                m_os << (is_message ? L("") : L("  ")) << path << L("\n");
-            } else if (!v3) {
-                clear_line();
-                if (path.size() > maxpath) {
-                    // Some characters and symbols span 2 columns even on monospace fonts, so this may overshoot maxpath.
-                    // wcwidth() apparently rarely works on Linux (returns -1 for Korean and many symbols) and can't be used either.
-                    // GetStringTypeW() works perfectly but is Windows only. So we'll just accept the issue.
-                    path = path.substr(0, maxpath - 2) + L("..");
-                }
-                line += path;
-                m_os << line;
+    if (m_verbose_level > 0) {
+        if (v3 && m_lastpath != path) {
+            m_lastpath = path;
+            line += path;
+            m_os << (is_message ? L("") : L("  ")) << path << L("\n");
+        } else if (!v3) {
+            clear_line();
+            if (path.size() > maxpath) {
+                // Some characters and symbols span 2 columns even on monospace fonts, so this may overshoot maxpath.
+                // wcwidth() apparently rarely works on Linux (returns -1 for Korean and many symbols) and can't be used either.
+                // GetStringTypeW() works perfectly but is Windows only. So we'll just accept the issue.
+                path = path.substr(0, maxpath - 2) + L("..");
             }
+            line += path;
+            m_os << line;
         }
     }
+    
 }
 
 // FIXME rewrite to just taking std::string as parameter
