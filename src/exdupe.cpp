@@ -1797,22 +1797,23 @@ void compress_file_finalize() {
 
 void compress_file(const STRING& input_file, const STRING& filename) {
 
-    if (input_file != L("-stdin") && ISNAMEDPIPE(get_attributes(input_file, follow_symlinks)) && !named_pipes) {
+    int attributes = input_file == L("-stdin") ? 0 : get_attributes(input_file, follow_symlinks);
+
+    if (input_file != L("-stdin") && ISNAMEDPIPE(attributes) && !named_pipes) {
         statusbar.print(2, L("Skipped, no -p flag for named pipes: %s"), input_file.c_str());
         return;
     }
 
-    pair<time_ms_t, time_ms_t> file_time;
-    int attributes = 0;
+    pair<time_ms_t, time_ms_t> file_time = input_file == L("-stdin") ? pair<time_ms_t, time_ms_t>(cur_date(), cur_date()) : get_date(input_file);
+
     checksum_t file_checksum;
     checksum_init(&file_checksum);
     uint64_t file_size = 0;
     contents_t file_meta;
-    uint64_t file_read = 0;
+    uint64_t file_read = 0;   
 
 #if 1 // Detect files that are unchanged between full and diff backup, by comparing created and last-modified timestamps
     if (!no_timestamp_flag && diff_flag && input_file != L("-stdin")) {
-        file_time = get_date(input_file);
         auto c = untouched_files2.exists(input_file, filename, file_time);
         if(c) {
             update_statusbar_backup(input_file);
@@ -1841,12 +1842,9 @@ void compress_file(const STRING& input_file, const STRING& filename) {
 
     if (input_file != L("-stdin")) {
         io.seek(ifile, 0, SEEK_END);
-        file_time = get_date(input_file); // todo, call only once
         file_size = io.tell(ifile);
-        attributes = get_attributes(input_file, follow_symlinks);
         io.seek(ifile, 0, SEEK_SET);
     } else {
-        file_time = {cur_date(), cur_date()};
         file_size = std::numeric_limits<uint64_t>::max();
     }
 
