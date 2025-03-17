@@ -46,6 +46,8 @@
 #include <sstream>
 #include <set>
 #include <map>
+#include <atomic>
+#include <mutex>
 
 #include "libexdupe/xxHash/xxh3.h"
 #include "libexdupe/xxHash/xxhash.h"
@@ -112,7 +114,7 @@ const size_t G = 1024 * M;
 // Increase values to improve compression ratio for large data sets; decrease to
 // improve for small data sets (also increase memory_usage to improve for any
 // size).
-size_t DEDUPE_SMALL = 4 * K;
+uint32_t DEDUPE_SMALL = 4 * K;
 size_t DEDUPE_LARGE = 128 * K;
 
 // Data is read from disk and deduplicated in DISK_READ_CHUNK bytes at a time
@@ -1759,6 +1761,7 @@ std::vector<size_t> out_payload_queue_size;
 size_t out_current_queue = 0;
 
 vector<contents_t> file_queue;
+std::mutex compress_file_mutex;
 
 void empty_q(bool flush, bool entropy) {
     uint64_t pay;
@@ -1795,11 +1798,10 @@ void compress_file_finalize() {
     empty_q(true, false);
 }
 
-void compress_file(const STRING& input_file, const STRING& filename) {
-
-    int attributes = input_file == L("-stdin") ? 0 : get_attributes(input_file, follow_symlinks);
+void compress_file(const STRING& input_file, const STRING& filename, int attributes) {
 
     if (input_file != L("-stdin") && ISNAMEDPIPE(attributes) && !named_pipes) {
+        auto _ = std::lock_guard(compress_file_mutex);
         statusbar.print(2, L("Skipped, no -p flag for named pipes: %s"), input_file.c_str());
         return;
     }
@@ -1816,6 +1818,7 @@ void compress_file(const STRING& input_file, const STRING& filename) {
     if (!no_timestamp_flag && diff_flag && input_file != L("-stdin")) {
         auto c = untouched_files2.exists(input_file, filename, file_time);
         if(c) {
+            auto _ = std::lock_guard(compress_file_mutex);
             update_statusbar_backup(input_file);
             c->unchanged = true;
             unchanged += c->size;
@@ -1827,8 +1830,10 @@ void compress_file(const STRING& input_file, const STRING& filename) {
     }
 #endif
 
-    ifile = try_open(input_file.c_str(), 'r', false);
-    if (!ifile) {
+    FILE* handle = try_open(input_file.c_str(), 'r', false);
+
+    if (!handle) {
+        auto _ = std::lock_guard(compress_file_mutex);
         if (continue_flag) {
             statusbar.print(2, L("Skipped, error opening source file: %s"), input_file.c_str());
             return;
@@ -1837,19 +1842,18 @@ void compress_file(const STRING& input_file, const STRING& filename) {
         }
     }
 
-    files++;
-    update_statusbar_backup(input_file);
-
     if (input_file != L("-stdin")) {
-        io.seek(ifile, 0, SEEK_END);
-        file_size = io.tell(ifile);
-        io.seek(ifile, 0, SEEK_SET);
+        // Initial read is slow, so we read 1 byte multi threaded outside compress_file_mutex
+        char tmp;
+        io.read(&tmp, 1, handle, false);
+        io.seek(handle, 0, SEEK_END);
+        file_size = io.tell(handle);
+        io.seek(handle, 0, SEEK_SET);
     } else {
         file_size = std::numeric_limits<uint64_t>::max();
     }
-
+    
     file_meta.abs_path = abs_path(input_file);
-    file_meta.payload = payload_read;
     file_meta.name = filename;
     file_meta.size = file_size;
     file_meta.file_c_time = file_time.first;
@@ -1858,14 +1862,20 @@ void compress_file(const STRING& input_file, const STRING& filename) {
     file_meta.directory = false;
     file_meta.symlink = false;
     file_meta.unchanged = false;
-    file_meta.file_id = file_id_counter++;
     file_meta.in_diff = diff_flag;
+
+    // compress_file() now synchronized
+    auto _ = std::lock_guard(compress_file_mutex);
+
+    file_meta.payload = payload_read;
+    file_meta.file_id = file_id_counter++;
+
+    files++;
 
 #if 1 // Detect files with identical payload, both within current bacup set, and between full and diff sets
     if(file_size >= IDENTICAL_FILE_SIZE && input_file != L("-stdin")) {
         auto original = identical;
-
-        contents_t cont = identical_files.identical_to(ifile, file_meta, io, [](uint64_t n, STRING file) { identical += n; update_statusbar_backup(file); }, input_file);
+        contents_t cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, STRING file) { identical += n; update_statusbar_backup(file); }, input_file);
 
         if(!cont.hash.empty()) {
             file_meta.payload = cont.payload;
@@ -1882,7 +1892,7 @@ void compress_file(const STRING& input_file, const STRING& filename) {
 
             identical_files_count++;
             contents.push_back(file_meta);
-            io.close(ifile);
+            io.close(handle);
             return;            
         }
         else {
@@ -1902,7 +1912,7 @@ void compress_file(const STRING& input_file, const STRING& filename) {
 
     file_queue.push_back(file_meta);
     bool entropy = false;
-    io.seek(ifile, 0, SEEK_SET);
+    io.seek(handle, 0, SEEK_SET);
     
     // todo, simplify - this flag may not be needed
     bool overflows = file_size > DISK_READ_CHUNK - payload_queue_size[current_queue];
@@ -1921,7 +1931,7 @@ void compress_file(const STRING& input_file, const STRING& filename) {
         update_statusbar_backup(input_file);
 
         size_t read = minimum(file_size - file_read, DISK_READ_CHUNK);
-        size_t r = io.read_vector(payload_queue[current_queue], read, payload_queue_size[current_queue], ifile, false);
+        size_t r = io.read_vector(payload_queue[current_queue], read, payload_queue_size[current_queue], handle, false);
         abort(io.stdin_tty() && r != read, (L("Unexpected midway read error, cannot continue: ") + name).c_str());
         checksum(payload_queue[current_queue].data() + payload_queue_size[current_queue], r, &file_meta.ct);
 
@@ -1953,7 +1963,7 @@ void compress_file(const STRING& input_file, const STRING& filename) {
         file_queue.clear();
     }
 
-    fclose(ifile);
+    fclose(handle);
 
     if (input_file == L("-stdin")) {
         file_meta.size = file_read;
@@ -2035,38 +2045,21 @@ void fail_list_dir(const STRING &dir) {
     }
 }
 
-void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_level) {
+void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_level) {
     // Todo, simplify this function by initially creating three distinct lists
     // for files, dirs and symlinks. Instead of iterating through the same list
     // with each their if-conditions
 
-    vector<int> attributes;
-    vector<STRING> root_items;
-    vector<STRING> non_root_items;
+    using item = pair<STRING, int>; // path, attrib
 
-    auto our_own = [](STRING file) {
-        return output_file == L("-stdout") || ((diff.empty() || (!same_path(file, diff))) && !same_path(file, full));
-    };
+    vector<item> files;
+    vector<item> symlinks;
+    vector<item> directories;
 
-    // Sort input items so that root items are first.
-    for (uint32_t i = 0; i < items.size(); i++) {
-        if (items.at(i).find(DELIM_STR) == string::npos) {
-            root_items.push_back(items.at(i));
-        } else {
-            non_root_items.push_back(items.at(i));
-        }
-    }
+    std::sort(items2.begin(), items2.end(), [](STRING a, STRING) { return a.find(DELIM_STR) == string::npos; });
 
-    items.clear();
-    items.insert(items.end(), root_items.begin(), root_items.end());
-    items.insert(items.end(), non_root_items.begin(), non_root_items.end());
-
-    // Put item types (file, dir, symlink) in items_type[]
-    // Todo, beautify by just deleting entries in 'items' instead of building an
-    // 'items2'
-    vector<STRING> items2;
-    for (uint32_t i = 0; i < items.size(); i++) {
-        STRING sub = base_dir + items.at(i);
+    for (auto& item : items2) {
+        STRING sub = base_dir + item;
         int type = get_attributes(sub, follow_symlinks);
         if (type == -1) {
             if (continue_flag) {
@@ -2076,55 +2069,67 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_l
             }
         } else {
             // avoid including full and diff file when compressing
-            if (our_own(sub)) {
-                items2.push_back(items.at(i));
-                attributes.push_back(type);
+            if ((output_file == L("-stdout") || ((diff.empty() || (!same_path(sub, diff))) && !same_path(sub, full))) && include(sub, top_level)) {
+                if ((!ISDIR(type) && !ISSOCK(type)) && !(ISLINK(type) && !follow_symlinks)) {
+                    files.emplace_back(item, type);
+                }
+                else if(ISLINK(type) && !follow_symlinks) {
+                    symlinks.emplace_back(item, type);
+                }
+                else if(ISDIR(type) && (!no_recursion_flag || top_level)) {
+                    directories.emplace_back(remove_delimitor(item) + DELIM_STR, type);
+                }
             }
         }
     }
-    items.clear();
-    items.insert(items.end(), items2.begin(), items2.end());
 
 
+    // First process files
+    std::atomic<size_t> ctr = 0;
+    const int max_threads = 6;
+    std::thread threads[max_threads];
 
-    // Todo, rewrite to iterate through the list just once, and place items in each their new list. Then process
-    // these new lists.
-
-    // first process files
-    for (uint32_t j = 0; j < items.size(); j++) {
-        STRING sub = base_dir + items.at(j);
-        if ((!ISDIR(attributes.at(j)) && !ISSOCK(attributes.at(j))) && !(ISLINK(attributes.at(j)) && !follow_symlinks) && include(sub, top_level)) {
-            save_directory(base_dir, left(items.at(j)) + (left(items.at(j)) == L("") ? L("") : DELIM_STR), true);
-            STRING L = items.at(j);
+    auto compress_file_function = [&]() {
+        size_t j = ctr.fetch_add(1);
+        while (j < files.size()) {
+            STRING sub = base_dir + files.at(j).first;
+            STRING L = files.at(j).first;
             STRING s = right(L) == L("") ? L : right(L);
-            compression::compress_file(sub, s);
+            compression::compress_file(sub, s, files.at(j).second);            
+            j = ctr.fetch_add(1);
+        }
+    };
+
+    if(files.size() > 1) {
+        size_t thread_count = minimum(files.size(), max_threads);
+        for (size_t t = 0; t < thread_count; t++) {
+            threads[t] = std::thread(compress_file_function);
+        }
+        for (size_t t = 0; t < thread_count; t++) {
+            threads[t].join();
         }
     }
+    else {
+        compress_file_function();
+    }
 
-    // then process symlinks
-    for (uint32_t j = 0; j < items.size(); j++) {
-        STRING sub = base_dir + items.at(j);
 
-        if (ISLINK(attributes.at(j)) && !follow_symlinks && include(sub, top_level)) {
-            // avoid including full and diff file when compressing
-            if (our_own(sub)) {
-                save_directory(base_dir, left(items.at(j)) + (left(items.at(j)) == L("") ? L("") : DELIM_STR), true);
-                compress_symlink(sub, right(items.at(j)) == L("") ? items.at(j) : right(items.at(j)));
-            }
+    // then process symlinks (if followed, they will be contained in the files list above instead of here)
+    if (!follow_symlinks) {
+        for (auto& symlink : symlinks) {
+            STRING sub = base_dir + symlink.first;
+            save_directory(base_dir, left(symlink.first) + (left(symlink.first) == L("") ? L("") : DELIM_STR), true);
+            compress_symlink(sub, right(symlink.first) == L("") ? symlink.first : right(symlink.first));
         }
     }
 
     // finally process directories
-    for (uint32_t j = 0; j < items.size(); j++) {
-        STRING sub = base_dir + items.at(j);
-        if (ISDIR(attributes.at(j)) && (!no_recursion_flag || top_level) && include(sub, top_level)) {
-            if (items.at(j) != L("")) {
-                items.at(j) = remove_delimitor(items.at(j)) + DELIM_STR;
-            }
-
+    for (auto& dir : directories) {
+        STRING sub = base_dir + dir.first;
+        if (!no_recursion_flag || top_level) {
             vector<STRING> newdirs;
 #ifdef _WIN32
-            if (ISLINK(attributes.at(j))) {
+            if (ISLINK(dir.second)) {
                 continue;
             }
 
@@ -2140,7 +2145,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_l
             } else {
                 while (bContinue) {
                     if (STRING(data.cFileName) != L(".") && STRING(data.cFileName) != L("..")) {
-                        newdirs.push_back(items.at(j) + STRING(data.cFileName));
+                        newdirs.push_back(dir.first + STRING(data.cFileName));
                     }
                     bContinue = FindNextFileW(hFind, &data);
                 }
@@ -2148,24 +2153,24 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items, bool top_l
             }
 #else
             struct dirent *entry;
-            DIR *dir = opendir(sub.c_str());
+            DIR *dir2 = opendir(sub.c_str());
 
-            if (dir == 0) {
+            if (dir2 == 0) {
                 fail_list_dir(sub);
             } else {
-                while ((entry = readdir(dir)) != 0) {
+                while ((entry = readdir(dir2)) != 0) {
                     if (STRING(entry->d_name) != L(".") && STRING(entry->d_name) != L("..")) {
-                        newdirs.push_back(items.at(j) + entry->d_name);
+                        newdirs.push_back(dir.first + entry->d_name);
                     }
                 }
             }
 
-            closedir(dir);
+            closedir(dir2);
 #endif
-            if (items.at(j) != L("")) {
+            if (dir.first != L("")) {
                 dirs++;
             }
-            save_directory(base_dir, items.at(j), true);
+            save_directory(base_dir, dir.first, true);
             compress_recursive(base_dir, newdirs, false);
         }
     }
@@ -2420,8 +2425,7 @@ int main(int argc2, char *argv2[])
             compress_args(inputfiles);
         } else if (inputfiles.size() > 0 && inputfiles.at(0) == L("-stdin")) {
             name = L("stdin");
-
-            compression::compress_file(L("-stdin"), name);
+            compression::compress_file(L("-stdin"), name, 0);
             compression::compress_file_finalize();
         }
 
@@ -2438,6 +2442,7 @@ int main(int argc2, char *argv2[])
             } else {
                 abort(true, err_nofiles, "0 source files or directories");
             }
+            // fixme delete the partial (invalid) destination file created
         }
 
         io.write("X", 1, ofile);

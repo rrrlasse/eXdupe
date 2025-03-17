@@ -257,6 +257,10 @@ TEST_CASE("no source files") {
     ex("-m1", in, "-stdout");
 }
 
+TEST_CASE("buildinfo1") {
+    ex("-B");
+}
+
 TEST_CASE("traverse") {
     // Traverse into d despite of -r flag because it was passed explicitly on the command line
     clean();
@@ -731,3 +735,7 @@ TEST_CASE("skip link to domain socket") {
 
 
 #endif
+
+TEST_CASE("buildinfo2") {
+    ex("-B");
+}

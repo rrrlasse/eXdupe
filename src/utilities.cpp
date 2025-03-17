@@ -125,7 +125,7 @@ STRING s2w(const std::string &s) { return STRING(s.begin(), s.end()); }
 string w2s(const STRING &s) { return string(s.begin(), s.end()); }
 
 STRING left(const STRING &s) {
-    const size_t t = s.find_last_of(L("/\\"));
+    const size_t t = s.find_last_of(L(PATHDELIMS));
     if (t != string::npos) {
         return s.substr(0, t);
     } else {
@@ -134,7 +134,7 @@ STRING left(const STRING &s) {
 }
 
 STRING right(const STRING &s) {
-    const size_t t = s.find_last_of(L("/\\"));
+    const size_t t = s.find_last_of(L(PATHDELIMS));
     if (t != string::npos) {
         return s.substr(t + 1);
     } else {
@@ -455,7 +455,7 @@ STRING remove_leading_curdir(const STRING& path) {
 }
 
 STRING remove_delimitor(const STRING& path) {
-    size_t r = path.find_last_of(L("/\\"));
+    size_t r = path.find_last_of(L(PATHDELIMS));
     if (r == path.length() - 1) {
         return path.substr(0, r);
     } else {
