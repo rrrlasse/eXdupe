@@ -34,7 +34,7 @@ template<typename T> inline void print_argument(const T& arg) {
 
 template<typename... Args> [[noreturn]] inline void rassert_function(const char* condition, const char* message, const std::source_location& location = std::source_location::current(), Args&&... args) {
     std::string f = location.file_name();
-    size_t pos = f.find_last_of("/\\");
+    size_t pos = f.find_last_of(PATHDELIMS);
     f = (pos != std::string::npos) ? f.substr(pos + 1) : f;
 
     CERR << std::endl << (message ? message : "Assert failed!") << std::endl
