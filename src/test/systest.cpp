@@ -250,6 +250,13 @@ void modify(string file) {
 
 }
 
+TEST_CASE("no source files") {
+    clean();
+    ex("-m1", in, out + "/d");
+    CHECK(!std::filesystem::exists(out + "d"));
+    ex("-m1", in, "-stdout");
+}
+
 TEST_CASE("traverse") {
     // Traverse into d despite of -r flag because it was passed explicitly on the command line
     clean();
@@ -655,6 +662,7 @@ TEST_CASE("compress from stdin and restore to stdout") {
     ex("-m1", "-stdin", "-stdout", "<", p(in + "/stdin"), ">", p(out + "/stdin"));
     cmp_diff(); // timestamp cannot match
 }
+
 
 #ifndef _WIN32
 TEST_CASE("lua unix filenames") {

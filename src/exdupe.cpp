@@ -2428,6 +2428,10 @@ int main(int argc2, char *argv2[])
         uint64_t end_time_without_overhead = GetTickCount64();
 
         if (files + dirs == 0) {
+            if (output_file != L("-stdout")) {
+                fclose(ofile);
+                std::filesystem::remove(output_file);
+            }
             if (no_recursion_flag) {
                 // todo, delete, wildcard no longer needed
                 abort(true, err_nofiles, "0 source files or directories. Missing '*' wildcard with -r flag?");
