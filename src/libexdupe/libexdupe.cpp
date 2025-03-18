@@ -636,8 +636,14 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
             if (e && w_pos - e_cpy.slide > src && w_pos - e_cpy.slide <= last_src) {
                 src = w_pos - e_cpy.slide;
             }
-
+#if 1
+            // This condition will exclude identical blocks that are both within the same block. This allows
+            // them to be compressed much better by the LZ compressor in later steps, while also passing larger
+            // blocks to LZ due to less fragmentation of the packets
+            if (e && e_cpy.first_byte == (uint8_t)src[0] && e_cpy.offset + block < pay) {
+#else
             if (e && e_cpy.first_byte == (uint8_t)src[0] && e_cpy.offset + block < pay + (src - orig_src)) {
+#endif
                 char s[HASH_SIZE];
 
                 if (block == LARGE_BLOCK) {
