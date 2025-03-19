@@ -1246,9 +1246,11 @@ String and path comparing is case sensitive, but string.upper() and string.
 lower() will only change basic ASCII letters. Any other letters remain
 unchanged.
 
+Remember to handle directories in order to traverse them.
+
 Examples:
   -v0 -u"print('added ' .. path .. ': ' .. size); return true"
-  -u"return year >= 2024"
+  -u"return year >= 2024 or is_dir"
   -u"return size < 1000000 or is_dir"
   -u"return not contains({'tmp', 'temp'}, lower(ext))")del";
 
