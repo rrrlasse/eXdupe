@@ -220,7 +220,14 @@ bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_di
         return false;
     }
     is_dir = findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
-    targetPath = std::filesystem::read_symlink(symbolicLinkPath);
+    try {
+        // throws for weird items in AppData\Local\Microsoft\WindowsApps
+        targetPath = std::filesystem::read_symlink(symbolicLinkPath);
+    }
+    catch(std::exception&) {
+        return false;
+    }
+
     return true;
 #else
 #if 1
