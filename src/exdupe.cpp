@@ -1129,11 +1129,11 @@ Flags:
     -c Continue if a source file cannot be read (default is to abort)
     -w Read contents of files during differential backup to determine if they
        have changed (default is to look at timestamps only)
-   -tn Use n threads (default = 8)
-   -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
-       of input data for best result. Use -mn to specify MB instead.
-   -xn Use compression level n after deduplication (0 = none, 1 = zstd-1
-       (default), 2 = zstd-10, 3 = zstd-19)
+   -t# Use # threads (default = 8)
+   -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
+       of input data for best result. Use -m# to specify MB instead.
+   -x# Use compression level # after deduplication (0, 1 = default, 2, 3). Level
+       0 means no compression and lets you apply your own
     -- Prefix items in the <sources> list with "--" to exclude them
     -p Include named pipes
     -h Follow symlinks (default is to store symlink only)
@@ -1143,7 +1143,7 @@ Flags:
  -u"s" Filter files using a script, s, written in the Lua language. See more
        with -u? flag.
    -z  Use slower cryptographic hash BLAKE3. Default is xxHash128
-  -vn  Verbosity n (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
+  -v#  Verbosity # (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
    -k  Show deduplication statistics at the end
  -e"x" Don't compress or deduplicate files with the file extension x. See
        more with -e? flag.
