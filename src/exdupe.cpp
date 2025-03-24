@@ -1765,6 +1765,8 @@ size_t out_current_queue = 0;
 vector<contents_t> file_queue;
 std::mutex compress_file_mutex;
 
+vector<char> dummy(DISK_READ_CHUNK);
+
 void empty_q(bool flush, bool entropy) {
     uint64_t pay;
     size_t cc;
@@ -1832,24 +1834,34 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     }
 #endif
 
+    auto error_reading = [&]() {
+        auto _ = std::lock_guard(compress_file_mutex);
+        if (continue_flag) {
+            statusbar.print(2, L("Skipped, error reading source file: %s"), input_file.c_str());
+        }
+        else {
+            abort(true, L("Aborted, error reading source file: %s"), input_file.c_str());
+        }
+    };
+
     FILE* handle = try_open(input_file.c_str(), 'r', false);
 
     if (!handle) {
-        auto _ = std::lock_guard(compress_file_mutex);
-        if (continue_flag) {
-            statusbar.print(2, L("Skipped, error opening source file: %s"), input_file.c_str());
-            return;
-        } else {
-            abort(true, L("Aborted, error opening source file: %s"), input_file.c_str());
-        }
+        error_reading();
+        return;
     }
 
     if (input_file != L("-stdin")) {
-        // Initial read is slow, so we read 1 byte multi threaded outside compress_file_mutex
-        char tmp;
-        io.read(&tmp, 1, handle, false);
+        // Initial read is slow, so we read DISK_READ_CHUNK concurrently (outside compress_file_mutex)
+        size_t r = io.read(dummy.data(), 1, handle, false);
         io.seek(handle, 0, SEEK_END);
         file_size = io.tell(handle);
+        // fread() can fail on Windows even if the file is opened successfully for reading
+        if(r < minimum(file_size, 1)) {
+            fclose(handle);
+            error_reading();
+            return;
+        }
         io.seek(handle, 0, SEEK_SET);
     } else {
         file_size = std::numeric_limits<uint64_t>::max();
