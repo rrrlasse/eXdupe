@@ -1946,7 +1946,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 
         size_t read = minimum(file_size - file_read, DISK_READ_CHUNK);
         size_t r = io.read_vector(payload_queue[current_queue], read, payload_queue_size[current_queue], handle, false);
-        abort(io.stdin_tty() && r != read, (L("Unexpected midway read error, cannot continue: ") + name).c_str());
+        abort(io.stdin_tty() && r != read, (L("Unexpected midway read error, cannot continue: ") + input_file).c_str());
         checksum(payload_queue[current_queue].data() + payload_queue_size[current_queue], r, &file_meta.ct);
 
         if (overflows && input_file == L("-stdin") && r == 0) {
