@@ -2058,7 +2058,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
     vector<item> symlinks;
     vector<item> directories;
 
-    std::sort(items2.begin(), items2.end(), [](STRING a, STRING) { return a.find(DELIM_STR) == string::npos; });
+    std::sort(items2.begin(), items2.end(), [](STRING a, STRING b) { return a.find(DELIM_STR) == string::npos && b.find(DELIM_STR) != string::npos; });
 
     for (auto& item : items2) {
         STRING sub = base_dir + item;
@@ -2079,7 +2079,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
                     symlinks.emplace_back(item, type);
                 }
                 else if(ISDIR(type) && (!no_recursion_flag || top_level)) {
-                    directories.emplace_back(remove_delimitor(item) + DELIM_STR, type);
+                    directories.emplace_back(item, type);
                 }
             }
         }
@@ -2094,6 +2094,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
     auto compress_file_function = [&]() {
         size_t j = ctr.fetch_add(1);
         while (j < files.size()) {
+            rassert(j < files.size());
             STRING sub = base_dir + files.at(j).first;
             STRING L = files.at(j).first;
             STRING s = right(L) == L("") ? L : right(L);
@@ -2127,6 +2128,9 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // finally process directories
     for (auto& dir : directories) {
+        if (dir.first != L("")) {
+            dir.first = remove_delimitor(dir.first) + DELIM_STR;
+        }
         STRING sub = base_dir + dir.first;
         if (!no_recursion_flag || top_level) {
             vector<STRING> newdirs;
