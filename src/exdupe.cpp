@@ -1176,9 +1176,9 @@ Restore differential backup:
 Most common flags:
     -f Overwrite existing files (default is to abort)
     -c Continue if a source file cannot be read (default is to abort)
-   -gn Use n GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
+   -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
        input data for best result
-   -xn Use compression level n after deduplication (0, 1 = default, 2, 3)
+   -x# Use compression level # after deduplication (0, 1 = default, 2, 3)
     -? Show complete help)";
  
     auto delim = [](std::string& s) {
