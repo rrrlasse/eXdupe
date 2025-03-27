@@ -1853,11 +1853,12 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 
     if (input_file != L("-stdin")) {
         // Initial read is slow, so we read DISK_READ_CHUNK concurrently (outside compress_file_mutex)
-        size_t r = io.read(dummy.data(), 1, handle, false);
+        size_t prefetch = DISK_READ_CHUNK;
+        size_t r = io.read(dummy.data(), prefetch, handle, false);
         io.seek(handle, 0, SEEK_END);
         file_size = io.tell(handle);
         // fread() can fail on Windows even if the file is opened successfully for reading
-        if(r < minimum(file_size, 1)) {
+        if(r < minimum(file_size, prefetch)) {
             fclose(handle);
             error_reading();
             return;
