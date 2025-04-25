@@ -1145,8 +1145,8 @@ Flags:
    -z  Use slower cryptographic hash BLAKE3. Default is xxHash128
   -v#  Verbosity # (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
    -k  Show deduplication statistics at the end
- -e"x" Don't compress or deduplicate files with the file extension x. See
-       more with -e? flag.
+ -e"x" Don't apply compression or deduplication to files with the file extension
+       x. See more with -e? flag.
 
 Example of backup, differential backups and restore:
   exdupe my_dir backup.full
@@ -1206,7 +1206,7 @@ void print_e_help() {
         }
     }
 
-    std::string e_help = R"del(File extensions that are excluded by default are:
+    std::string e_help = R"del(Default files stored without compression or deduplication are:
 
 )del" + w2s(ext) + "." + R"del(
 
@@ -1229,7 +1229,7 @@ You can reference following variables:
   is_*:   Boolean variables is_dir, is_file, is_link
   name:   Name without path
   ext:    Extension or empty if no period exists
-  size:   Size
+  size:   Size in bytes
   attrib: Result of chmod on Linux. On Windows you can reference the booleans
           FILE_ATTRIBUTE_READONLY, FILE_ATTRIBUTE_HIDDEN, etc.
   time:   Last modified time as os.date object. You can also reference these
@@ -1239,14 +1239,14 @@ Helper functions:
   contains({list}, value): Test if the list contains the value
 
 All Lua string functions work in utf-8. If path, name or ext are not valid
-utf-8 then all bytes outside basic ASCII (a-z, A-Z, 0-9 and common symbols) are
-replaced by '?' before being passed to your script.
+utf-8 it will be converted by replacing all bytes outside basic ASCII (a-z, A-Z,
+0-9 and common symbols) by '?' and then passed to your script.
 
 String and path comparing is case sensitive, but string.upper() and string.
 lower() will only change basic ASCII letters. Any other letters remain
 unchanged.
 
-Remember to handle directories in order to traverse them.
+Remember to return true for directories in order to traverse them.
 
 Examples:
   -v0 -u"print('added ' .. path .. ': ' .. size); return true"
