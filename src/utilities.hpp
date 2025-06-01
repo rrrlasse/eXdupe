@@ -60,7 +60,7 @@ enum status_t { BACKUP, DIFF_BACKUP, RESTORE, DIFF_RESTORE, LIST, DIFF_LIST };
 typedef long long time_ms_t; 
 
 std::tm local_time_tm(const time_ms_t &t);
-std::string suffix(uint64_t size);
+std::string suffix(uint64_t size, bool column = false);
 uint64_t rnd64();
 bool is_valid_utf8(const std::string& input) ;
 void replace_stdstr(std::string &str, const std::string &oldStr, const std::string &newStr);
@@ -147,3 +147,25 @@ void tm_to_short(short_tm *s, tm *l);
 void tm_to_long(short_tm *s, tm *l);
 
 std::string regx(std::string str, std::string pat);
+
+template <class A, class B> class scope_actions {
+  public:
+    explicit scope_actions(const A &aa, const B &bb) noexcept : b{bb} { aa(); }
+    explicit scope_actions(const A aa, const B &bb) noexcept : b{bb} { aa(); }
+    explicit scope_actions(A &&aa, B &&bb) noexcept : b{std::move(bb)} { aa(); }
+
+    ~scope_actions() noexcept {
+        if (invoke)
+            b();
+    }
+
+    scope_actions(scope_actions &&other) noexcept : b(std::move(other.b)), invoke(std::exchange(other.invoke, false)) {}
+
+    scope_actions(const scope_actions &) = delete;
+    void operator=(const scope_actions &) = delete;
+    void operator=(scope_actions &&) = delete;
+
+  private:
+    B b;
+    bool invoke = true;
+};

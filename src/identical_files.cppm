@@ -14,7 +14,7 @@ public:
 
     void add(contents_t c) {
         // todo, maybe it should be caller's job to decide what to accept
-        if (c.size > 4096 && !c.duplicate && !c.unchanged && !c.directory) {
+        if (c.size > 4096 && !c.directory) {
             all_file_hashes[c.first] = c;
         }
     }

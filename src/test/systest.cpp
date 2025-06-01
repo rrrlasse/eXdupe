@@ -241,7 +241,7 @@ template<typename... Args> void ex(const Args&... args) {
 }
 
 bool cmp_diff(bool check = true) {
-    auto ret = sys(diff_tool, "--no-dereference -r", in, out, nul);
+    auto ret = sys(diff_tool, "--no-dereference -r", in, out, "2>&1");
     if (check) {
         CHECK(ret.empty());
     }
@@ -463,9 +463,9 @@ TEST_CASE("case rename") {
     pick("a");
     ex("-m1", in, full);    
     rename(in, "a","A");
-    ex("-D", in, full, diff);
+    ex("-D", in, full);
     rm(out);
-    ex("-RD", full, diff, out);
+    ex("-R -S1", full, out);
     cmp();
 }
 
@@ -476,9 +476,9 @@ TEST_CASE("simple backup, diff backup and restore") {
     ex("-R", full, out);
     cmp();
 
-    ex("-D", in, full, diff);
+    ex("-D", in, full);
     rm(out);
-    ex("-RD", full, diff, out);
+    ex("-R -S1", full, out);
     cmp();
 }
 
@@ -490,44 +490,54 @@ TEST_CASE("diff size") {
         cp(in + "/high_entropy_a", in + "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + std::to_string(i));
     }
     ex("-m1", in, full);
-    ex("-D", in, full, diff);
-    CHECK(siz(diff) < 500);
-    ex("-RD", full, diff, out);
+    size_t f = siz(full);
+    ex("-D", in, full);
+    CHECK(siz(full) - f < 500);
+    ex("-R", full, out);
     cmp();
 }
 
 TEST_CASE("w flag") {
-    // Diff must be smaller without -w than with
-    clean();
-    pick("high_entropy_a");
-    ex("-m1", in, full);
-    ex("-D", in, full, diff);
-    ex("-Dw", in, full, diff + "w");
-    CHECK((siz(diff + "w") > siz(diff) / 2));
-    ex("-RD", full, diff, out);
-    cmp();
-    rm(out);
-    ex("-RD", full, diff + "w", out);
-    cmp();
-
+    {
+        // Diff must be smaller without -w than with
+        clean();
+        pick("high_entropy_a");
+        ex("-m1", in, full);
+        auto s1 = siz(full);
+        ex("-D", in, full);
+        auto s2 = siz(full);
+        ex("-Dw", in, full);
+        auto s3 = siz(full);
+        CHECK(s3 - s2 > (s2 - s1) + 50);
+        ex("-R -S1", full, out);
+        cmp();
+        rm(out);
+        ex("-R -S2", full, out);
+        cmp();
+    }
 #ifdef _WIN32
-    // Recognize file is unchanged despite being passed in different case
-    clean();
-    pick("high_entropy_a");
-    string a = filesystem::absolute(in).string();
-    std::transform(a.begin(), a.end(), a.begin(), [](unsigned char c){ return std::toupper(c); });
-    ex("-m1", a, full);
-    std::transform(a.begin(), a.end(), a.begin(), [](unsigned char c){ return std::tolower(c); });
-    ex("-D", in, full, diff);
-    ex("-Dw", a, full, diff + "w");
-    CHECK((siz(diff + "w") > siz(diff) / 2));
+    {
+        // Recognize file is unchanged despite being passed in different case
+        clean();
+        pick("high_entropy_a");
+        string a = filesystem::absolute(in).string();
+        std::transform(a.begin(), a.end(), a.begin(), [](unsigned char c) { return std::toupper(c); });
+        ex("-m1", a, full);
+        auto s1 = siz(full);
+        std::transform(a.begin(), a.end(), a.begin(), [](unsigned char c) { return std::tolower(c); });
+        ex("-D", in, full);
+        auto s2 = siz(full);
+        ex("-Dw", a, full);
+        auto s3 = siz(full);
+        CHECK((s3 > s2 / 2));
+    }
 #endif
 
     // Recognize that file has changed
     modify(in + "/high_entropy_a");
     rm(out);
-    ex("-Dwf", in, full, diff + "w");
-    ex("-RD", full, diff + "w", out);
+    ex("-Dwf", in, full);
+    ex("-R -S3", full, out);
     cmp();
 }
 
@@ -538,9 +548,9 @@ TEST_CASE("destination directory doesn't exist") {
     rm(out);
     ex("-R", full, out);
     cmp();
-    ex("-D", in, full, diff);
+    ex("-D", in, full);
     rm(out);
-    ex("-RD", full, diff, out);
+    ex("-R -S1", full, out);
     cmp();
 }
 
@@ -647,18 +657,21 @@ TEST_CASE("deduplication") {
     SECTION("duplicated data detected between full backup and diff backup") {
         pick("high_entropy_a", "dir1"); // 65811 bytes
         ex("-m1x0",in, full);
+        size_t f = siz(full);
         pick("high_entropy_a", "dir2"); // 65811 bytes
-        ex("-D", in, full, diff);
-        CHECK(((siz(diff) > 100) && siz(diff) < 8000));
+        ex("-D", in, full);
+        size_t d = siz(full) - f;
+        CHECK(((d > 100) && d < 8000));
     }
 
     SECTION("duplicated data detected within diff backup") {
         pick("a");
         ex("-m1x0",in, full);
+        size_t f = siz(full);
         pick("high_entropy_a", "dir1"); // 65811 bytes
         pick("high_entropy_a", "dir2");
-        ex("-D", in, full, diff);
-        CHECK(((siz(diff) > 65811) && siz(diff) < 76000));
+        ex("-D", in, full);
+        CHECK(((siz(full) - f > 65811) && siz(full) - f < 76000));
     } 
 }
 
