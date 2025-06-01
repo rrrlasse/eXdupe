@@ -172,6 +172,9 @@ uint32_t gigabyte_flag = 0;
 uint32_t threads_flag = 0;
 uint32_t compression_level = 1;
 
+uint32_t restore_set = 0;
+
+
 // statistics to show to user
 uint64_t files = 0;
 uint64_t dirs = 0;
@@ -184,6 +187,7 @@ uint64_t unchanged_files = 0;
 uint64_t contents_size = 0;
 uint64_t hash_salt;
 
+uint64_t sets = 0;
 STRING full;
 STRING diff;
 STRING directory;
@@ -213,6 +217,8 @@ STRING output_file;
 void *hashtable;
 uint64_t file_id_counter = 0;
 
+uint64_t basepay = 0;
+
 std::vector<char> restore_buffer_in;
 std::vector<char> restore_buffer_out;
 
@@ -229,7 +235,11 @@ struct file_offset_t {
 };
 
 vector<file_offset_t> infiles;
-vector<contents_t> contents;
+vector<contents_t> contents; 
+
+vector<uint64_t> backup_set; // file_id;
+uint64_t original_file_size = 0;
+
 
 // only used when restoring from file, not when restoring from stdin
 struct packet_t {
@@ -468,7 +478,7 @@ uint64_t seek_to_header(FILE *file, const string &header) {
 }
 
 uint64_t read_packets(FILE *file) {
-    uint64_t orig = seek_to_header(file, "REFERENC");
+    uint64_t orig = seek_to_header(file, "PACKETSS");
     uint64_t n = io.read_ui<uint64_t>(file);
     uint64_t added_payload = 0;
 
@@ -494,7 +504,7 @@ uint64_t read_packets(FILE *file) {
 }
 
 size_t write_packets(FILE* file) {
-    io.write("REFERENC", 8, file);
+    io.write("PACKETSS", 8, file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(packets.size(), file);
 
@@ -652,7 +662,9 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
         auto d = get_date(full);
         c.file_c_time = d.first;
         c.file_modified = d.second;
+        c.file_id = file_id_counter++;
         contents.push_back(c);
+        backup_set.push_back(c.file_id);
 
         if (write && !diff_flag) {
             io.write("I", 1, ofile);
@@ -691,6 +703,8 @@ uint64_t read_hashtable(FILE *file) {
     return 0;
 }
 
+
+
 size_t write_contents(FILE *file) {
     io.write("CONTENTS", 8, file);
     uint64_t w = io.write_count;
@@ -703,6 +717,36 @@ size_t write_contents(FILE *file) {
     return io.write_count - w;
 }
 
+
+
+vector<uint64_t> read_backup_set(FILE *f, uint64_t set) {
+    vector<uint64_t> ret;
+    uint64_t id;
+    std::string s = "SET" + format("{:05d}", set);
+    uint64_t orig = seek_to_header(f, s.c_str());
+    uint64_t n = io.read_ui<uint64_t>(f);
+    for (uint64_t i = 0; i < n; i++) {
+        id = io.read_ui<uint64_t>(f);
+        ret.push_back(id);
+    }
+    io.seek(f, orig, SEEK_SET);
+    return ret;
+}
+size_t write_backup_set(FILE *file, uint64_t set) {
+    std::string s = "SET" + format("{:05d}", set);
+    io.write(s.c_str(), 8, file);
+    uint64_t w = io.write_count;
+    io.write_ui<uint64_t>(backup_set.size(), file);
+    for (size_t i = 0; i < backup_set.size(); i++) {
+        io.write_ui<uint64_t>(backup_set.at(i), file);
+    }
+    io.write_ui<uint32_t>(0, file);
+    io.write_ui<uint64_t>(io.write_count - w, file);
+    return io.write_count - w;
+}
+
+
+
 vector<contents_t> read_contents(FILE* f) {
     vector<contents_t> ret;
     contents_t c;
@@ -711,10 +755,17 @@ vector<contents_t> read_contents(FILE* f) {
     for (uint64_t i = 0; i < n; i++) {
         read_content_item(f, c);
         ret.push_back(c);
+        file_id_counter = c.file_id + 1; // fixmenow
     }
     io.seek(f, orig, SEEK_SET);
     return ret;
 }
+
+
+
+
+
+
 
 void init_content_maps(FILE* ffull) {
     auto con = read_contents(ffull);
@@ -894,7 +945,7 @@ void parse_flags(void) {
             abort(true, L("-s flag not supported on *nix"));
 #endif
         } else {
-            size_t e = flags.find_first_not_of(L("-wfhuRrxqcDpiLzkatgmv0123456789B"));
+            size_t e = flags.find_first_not_of(L("-wfhuRrxqcDpiLzSksatgmv0123456789B"));
             if (e != string::npos) {
                 abort(true, L("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
@@ -902,8 +953,8 @@ void parse_flags(void) {
             string flagsS = w2s(flags);
 
             // abort if numeric digits are used with a wrong flag
-            if (regx(flagsS, "[^mgwtvix0123456789][0-9]+") != "") {
-                abort(true, L("Numeric values must be preceded by m, g, t, v, or x"));
+            if (regx(flagsS, "[^mgwtvsixS0123456789][0-9]+") != "") {
+                abort(true, L("Numeric values must be preceded by S, m, g, t, v, or x"));
             }
 
             for (auto t : std::vector<pair<bool &, std::string>>{
@@ -968,6 +1019,10 @@ void parse_flags(void) {
             if (set_int_flag(compression_level, "x")) {
                 abort(compression_level > 3, L("-x flag value must be 0...3"));
             }
+
+            if (set_int_flag(restore_set, "S")) {
+            }
+
         }
     } // end of while
 
@@ -1018,12 +1073,12 @@ void parse_files(void) {
               L("Syntax error in source or destination. "));
     } else if (compress_flag && diff_flag) {
         // exdupe -D -stdin full diff < payload.txt
-        for (int i = flags_exist + 1; i < argc - 2; i++) {
+        for (int i = flags_exist + 1; i < argc - 1; i++) {
             add_item(argv.at(i));
         }
 
-        abort(argc - 1 < flags_exist + 3, L("Missing arguments. "));
-        full = argv.at(argc - 2);
+        abort(argc - 1 < flags_exist + 2, L("Missing arguments. "));
+        full = argv.at(argc - 1);
         diff = argv.at(argc - 1);
         if (inputfiles.at(0) == L("-stdin")) {
             abort(argc - 1 < flags_exist + 3, L("Missing arguments. "));
@@ -1388,9 +1443,19 @@ void ensure_relative(const STRING &path) {
 }
 
 // todo, namespace is a temporary fix to separate things
+
+contents_t get_contents_from_id(vector<contents_t> cont, uint64_t id) {
+    for (auto &c : cont) {
+        if (c.file_id == id) {
+            return c;
+        }
+    }
+    abort(true, L"No such id");
+}
+
 namespace restore {
 
-void restore_from_file(FILE *ffull, FILE *fdiff) {
+void restore_from_file(FILE *ffull, FILE *fdiff, int set) {
     FILE *archive_file;
     bool pipe_out = directory == L("-stdout");
     std::vector<char> restore_buffer(RESTORE_CHUNKSIZE, 'c');
@@ -1407,12 +1472,10 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
 
     contents_t c;
     uint64_t resolved = 0;
-    uint64_t basepay = 0;
+
     STRING curdir = L("");
     STRING base_dir = abs_path(directory);
     statusbar.m_base_dir = base_dir;
-
-    vector<contents_t> content;
 
     for (uint32_t i = 0; i < restorelist.size(); i++) {
         restorelist.at(i) = slashify(restorelist.at(i));
@@ -1422,22 +1485,25 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
 
     if (diff_flag) {
         basepay = read_packets(ffull);
-        read_packets(fdiff);
+    //    read_packets(fdiff);
     } else {
         basepay = read_packets(ffull);
     }
 
-    content = read_contents(archive_file);
+    contents = read_contents(archive_file);
     if(diff_flag) {
-        for (auto &c : content) {
+        for (auto &c : contents) {
             untouched_files2.initialize_if_untouched(c);
         }
     }
 
-    verify_restorelist(restorelist, content); 
+   // verify_restorelist(restorelist, content); 
 
-    for (uint32_t i = 0; i < content.size(); i++) {
-        c = content.at(i);
+    backup_set = read_backup_set(archive_file, set);
+
+    for (uint32_t i = 0; i < backup_set.size(); i++) {
+        uint64_t id = backup_set.at(i);
+        c = get_contents_from_id(contents, id);
 
         if (c.directory && !c.symlink) {
             curdir = remove_delimitor(c.name);
@@ -1447,7 +1513,7 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
         STRING s = p.first;
         if (s != L(":")) // : means don't extract
         {
-            STRING dstdir;
+            STRING dstdir; 
             STRING x = s;
 
             ensure_relative(x);
@@ -1463,7 +1529,7 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
             }
 
             if (!pipe_out) {
-                save_directory(L(""), abs_path(dstdir));
+               // save_directory(L(""), abs_path(dstdir));
             }
 
             if (c.symlink) {
@@ -1480,7 +1546,7 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
                 resolved = 0;
 
                 if (diff_flag && !c.unchanged && !c.is_duplicate_of_full ) {
-                    c.payload += basepay;
+               //     c.payload += basepay;
                 }
 
                 while (resolved < c.size) {
@@ -1703,6 +1769,7 @@ void restore_from_stdin(const STRING& extract_dir) {
         auto ifile = try_open(src, 'r', true);
         for (size_t r; (r = io.read(buf.data(), DISK_READ_CHUNK, ifile, false));) {
             io.write(buf.data(), r, ofile);
+            // fixme dates?
             update_statusbar_restore(dst);
         }
         io.close(ifile);
@@ -1743,8 +1810,12 @@ void compress_symlink(const STRING &link, const STRING &target) {
     c.payload = 0;
     c.checksum = 0;
     c.file_modified = file_modified;
+    c.file_id = file_id_counter++;
     write_contents_item(ofile, c);
+    
     contents.push_back(c);
+    backup_set.push_back(c.file_id);
+    
     return;
 }
 
@@ -1775,7 +1846,8 @@ void empty_q(bool flush, bool entropy) {
     auto write_result = [&]() {
         if (cc > 0) {
             io.write("A", 1, ofile);
-            add_packets(out_result, cc, io.write_count);
+            auto p = ftell(ofile);
+            add_packets(out_result, cc, p); // io.write_count);
             io.write(out_result, cc, ofile);
             io.write("B", 1, ofile);
         }
@@ -1827,7 +1899,8 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
             c->unchanged = true;
             unchanged += c->size;
             unchanged_files++;
-            contents.push_back(*c);
+           // contents.push_back(*c);
+            backup_set.push_back(c->file_id);
             files++;
             return;
         }
@@ -1877,12 +1950,13 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     file_meta.directory = false;
     file_meta.symlink = false;
     file_meta.unchanged = false;
-    file_meta.in_diff = diff_flag;
+    file_meta.in_diff = false;
+     //diff_flag;
 
     // compress_file() now synchronized
     auto _ = std::lock_guard(compress_file_mutex);
 
-    file_meta.payload = payload_read;
+    file_meta.payload = payload_read + basepay;
     file_meta.file_id = file_id_counter++;
 
     files++;
@@ -1907,6 +1981,8 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 
             identical_files_count++;
             contents.push_back(file_meta);
+            backup_set.push_back(file_meta.file_id);
+
             io.close(handle);
             return;            
         }
@@ -1954,7 +2030,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
             break;
         }
 
-        payload_queue_size[current_queue] += read;
+        payload_queue_size[current_queue] += r;
         file_read += r;
         payload_read += r;
 
@@ -1989,6 +2065,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     identical_files.add(file_meta);
 
     contents.push_back(file_meta);
+    backup_set.push_back(file_meta.file_id);
 }
 
 } // namespace compression
@@ -2226,11 +2303,11 @@ void compress_args(vector<STRING> args) {
 }
 
 
-void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt, uint64_t archive_id) {
+void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt, uint64_t archive_id, uint64_t sets) {
     if (s == BACKUP) {
-        io.write("EXDUPE F", 8, file);
+        io.write("EXDUPE A", 8, file);
     } else if (s == DIFF_BACKUP) {
-        io.write("EXDUPE D", 8, file);
+        io.write("EXDUPE B", 8, file);
     } else {
         rassert(false, s);
     }
@@ -2249,17 +2326,19 @@ void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t
     io.write_ui<uint64_t>(hash_salt, file);
 
     io.write_ui<uint64_t>(mem, file);
+
+    io.write_ui<uint64_t>(sets, file);
 }
 
 uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* archive_id = nullptr) {
     string header = io.read_bin_string(8, file);
     if (action == BACKUP) {
-        abort(header != "EXDUPE F", L("'%s' is not a .full file"), filename.c_str());
+  //      abort(header != "EXDUPE F", L("'%s' is not a .full file"), filename.c_str());
     } else if (action == DIFF_BACKUP) {
-        abort(header != "EXDUPE D", L("'%s' is not a .diff file"), filename.c_str());
+    //    abort(header != "EXDUPE D", L("'%s' is not a .diff file"), filename.c_str());
     } else {
         // todo, use class enum
-        rassert(false, action);
+   //     rassert(false, action);
     }
 
     char major = io.read_ui<uint8_t>(file);
@@ -2282,7 +2361,9 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* arc
     hash_flag = io.read_ui<uint8_t>(file) == 1;
     hash_salt = io.read_ui<uint64_t>(file);
 
-    return io.read_ui<uint64_t>(file); // mem usage
+    uint64_t mem = io.read_ui<uint64_t>(file);
+    sets = io.read_ui<uint64_t>(file);
+    return mem;
 }
 
 void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, L("Wrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
@@ -2368,15 +2449,20 @@ int main(int argc2, char *argv2[])
             FILE *ffull = try_open(full, 'r', true);
             uint64_t full_id;
             uint64_t diff_id;
-            read_header(ffull, full, BACKUP, &full_id);
+            read_header(ffull, full, BACKUP, &full_id); // inits sets
             read_header(fdiff, diff, DIFF_BACKUP, &diff_id);
             abort(full_id != diff_id, L("The diff file does not belong to the full file. "));
             init_content_maps(ffull);
-            restore::restore_from_file(ffull, fdiff);
+
+
+            restore::restore_from_file(ffull, fdiff, sets - 1);
         } else {
             ifile = try_open(full, 'r', true);
-            read_header(ifile, full, BACKUP);
-            restore::restore_from_file(ifile, ifile);
+            read_header(ifile, full, BACKUP); //initializes sets
+
+           // backup_set = read_backup_set(ifile, restore_set);
+
+            restore::restore_from_file(ifile, ifile, restore_set);
         }
         wrote_message(io.write_count, files);
     } else if ((restore_flag && (full == L("-stdin"))) && restorelist.size() == 0) {
@@ -2384,6 +2470,11 @@ int main(int argc2, char *argv2[])
         STRING s = remove_delimitor(directory);
         ifile = try_open(full, 'r', true);
         read_header(ifile, full, BACKUP);
+
+        //seek_to_header(ifile, "PAYLOADD");
+        char tmp2[8];
+        io.read(tmp2, 8, ifile, true);
+
         restore::restore_from_stdin(s);
         rassert(!diff_flag);
         wrote_message(io.write_count, files);
@@ -2399,15 +2490,26 @@ int main(int argc2, char *argv2[])
     else if (compress_flag) {
         uint64_t archive_id;
         if (diff_flag) {
-            output_file = diff;
-            ofile = create_file(output_file);
-            ifile = try_open(full, 'r', true);
-            memory_usage = read_header(ifile, full, BACKUP, &archive_id); // also inits hash_salt
+            output_file = full;
+            //ofile = create_file(output_file);
+            //ifile = try_open(full, 'w', true);
+
+
+
+            ifile = _wfopen(full.c_str(), L"r+b");
+            io.seek(ifile, 0, SEEK_END);
+            original_file_size = io.tell(ifile);
+            io.seek(ifile, 0, SEEK_SET);
+
+           // ifile = FOPEN(full.c_str(), L("ab+"));
+            ofile = ifile;
+
+            memory_usage = read_header(ifile, full, BACKUP, &archive_id); // also inits hash_salt and sets
             hashtable = malloc(memory_usage);
             abort(!hashtable, err_resources, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
             memset(hashtable, 0, memory_usage);
             pay_count = read_packets(ifile); // read size in bytes of user payload in .full file
-            packets.clear();
+            //packets.clear();
 
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
             abort(r == 1, err_resources, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
@@ -2415,16 +2517,37 @@ int main(int argc2, char *argv2[])
 
             read_hashtable(ifile);
 
-            auto con = read_contents(ifile);
-            for(auto c : con) {
+            basepay = pay_count; //read_packets(ifile);
+
+            contents = read_contents(ifile);
+            for (auto c : contents) {
                 c.abs_path = CASESENSE(c.abs_path);
                 untouched_files2.add_during_backup(c);
                 identical_files.add(c);
             }
 
-            io.close(ifile);
+            seek_to_header(ifile, "CONTENTS");
+            int rr = io.seek(ifile, -8, SEEK_CUR);
+            if (rr) {
+                std::cerr << "seek failed.\n";
+                return 1;
+            
+            }
+
+            int fd = _fileno(ifile);
+            HANDLE hFile = (HANDLE)_get_osfhandle(fd);
+
+            int e = SetEndOfFile(hFile);
+            int er = GetLastError();
+            if (!e) {
+                std::cerr << "SetEndOfFile failed.\n";
+                return 1;
+            }
+
+            //io.close(ifile);
 
         } else {
+            
             archive_id = rnd64();
             output_file = full;
             ofile = create_file(output_file);
@@ -2434,9 +2557,17 @@ int main(int argc2, char *argv2[])
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
             abort(r == 1, err_resources, "Out of memory. Reduce -m, -g or -t flag");
             abort(r == 2, err_resources, "Error creating threads. Reduce -m, -g or -t flag");
+            
         }
 
-        write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt, archive_id);
+        sets++;
+        io.seek(ofile, 0, SEEK_SET);
+        write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt, archive_id, sets);
+
+        io.seek(ofile, 0, SEEK_END);
+
+        io.write("PAYLOADD", 8, ofile);
+        uint64_t w = io.write_count;
 
         start_time_without_overhead = GetTickCount64();
 
@@ -2447,6 +2578,11 @@ int main(int argc2, char *argv2[])
             compression::compress_file(L("-stdin"), name, 0);
             compression::compress_file_finalize();
         }
+
+
+        // PAYLOADD header end length
+        io.write("X", 1, ofile);
+        io.write_ui<uint64_t>(io.write_count - w, ofile);
 
         uint64_t end_time_without_overhead = GetTickCount64();
 
@@ -2464,19 +2600,28 @@ int main(int argc2, char *argv2[])
             // fixme delete the partial (invalid) destination file created
         }
 
-        io.write("X", 1, ofile);
+
+
+
+        // We are noe after payload-N
+
+
+        write_backup_set(ofile, sets - 1);
         write_contents(ofile);
-        size_t hashtable_size = 0;
 
-        if (!diff_flag) {
-            hashtable_size = write_hashtable(ofile);
-        }
-
+        size_t hashtable_size = write_hashtable(ofile);
         size_t references_size = write_packets(ofile);
+
+
+
         io.write("END", 3, ofile);
         if(verbose_level > 0 && verbose_level < 3) {
             statusbar.clear_line();
         }
+
+        io.seek(ofile, 0, SEEK_END);
+        uint64_t added = io.tell(ofile) - original_file_size;
+        io.seek(ofile, 0, SEEK_SET);
 
 
         if (statistics_flag) {
@@ -2516,7 +2661,7 @@ int main(int argc2, char *argv2[])
             }
         }
         else {
-            statusbar.print_no_lf(1, L("Compressed %s B in %s files into %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(suffix(io.write_count)).c_str());
+            statusbar.print_no_lf(1, L("Added %s B in %s files using %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(suffix(added)).c_str());
         }
 
         io.close(ofile);
