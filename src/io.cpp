@@ -54,9 +54,14 @@ FILE *Cio::open(STRING file, char mode) {
         STRING s = slashify(file);
         FILE *f = FOPEN(s.c_str(), L("rb"));
         return f;
-    } else {
+    } else if (mode == 'w') {
         return FOPEN(file.c_str(), L("wb+"));
+    } else if (mode == 'a') {
+        return FOPEN(file.c_str(), L("r+b"));    
+    } else {
+        rassert(false);
     }
+
 }
 
 uint64_t Cio::tell(FILE *_File) { return _ftelli64(_File); }
@@ -69,7 +74,7 @@ size_t Cio::write(const void *Str, size_t Count, FILE *_File) {
         size_t w = minimum(Count - c, 1024 * 1024);
         size_t r = fwrite((char*)Str + c, 1, w, _File);
         write_count += r;
-        abort(r != w, err_resources, "Disk full or write denied while writing destination file");
+        abort(r != w, retvals::err_write, "Disk full or write denied while writing destination file");
         c += r;
     }
     return Count;
@@ -133,4 +138,18 @@ void Cio::write_utf8_string(STRING str, FILE *_File) {
     write_compact<uint64_t>(str.size(), _File);
     write(str.c_str(), str.size(), _File);
 #endif
-}
+    }
+
+void Cio::truncate(FILE *file) {
+#ifdef _WIN32
+        int fd = _fileno(file);
+        HANDLE hFile = (HANDLE)_get_osfhandle(fd);
+        int e = SetEndOfFile(hFile);
+        int er = GetLastError();
+        rassert(e);
+#else
+        long pos = ftell(file);
+        int fd = fileno(file);
+        rassert(ftruncate(fd, pos) == 0);
+#endif
+    }
