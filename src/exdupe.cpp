@@ -449,6 +449,10 @@ void add_packets(const char *src, size_t len, uint64_t archive_offset) {
             // raw data chunk
             ref.is_reference = false;
             ref.archive_offset = archive_offset + pos;
+            if (!(ref.archive_offset > 0 && ref.archive_offset < 200 * G)) {
+                int g = 34;
+            }
+            rassert(ref.archive_offset > 0 && ref.archive_offset < 200 * G);
         } 
         packets.push_back(ref);
         pos += dup_size_compressed(src + pos);
@@ -491,6 +495,10 @@ uint64_t read_packets(FILE *file) {
             ref.payload_reference = io.read_ui<uint64_t>(file);
         } else {
             ref.archive_offset = io.read_ui<uint64_t>(file);
+            if (!(ref.archive_offset > 0 && ref.archive_offset < 200 * G)) {
+                int g = 34;
+            }
+            rassert(ref.archive_offset > 0 && ref.archive_offset < 200 * G);
         }
         ref.payload = io.read_ui<uint64_t>(file);
         ref.length = io.read_ui<uint32_t>(file);
@@ -569,7 +577,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
         } else {
 
             char *b = bytebuffer.buffer_find(ref.payload, ref_has);
-            if (b != 0) {
+            if (false) {
                 memcpy(dst + bytes_resolved, b + prior, ref_has);
             } else {
                 FILE *f;
@@ -583,13 +591,20 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
                 uint64_t p;
                 uint64_t orig = io.tell(f);
                 uint64_t ao = ref.archive_offset.value();
-                io.seek(f, ao, SEEK_SET);
+                int ret = io.seek(f, ao, SEEK_SET);
+                if (ret != 0) {
+                    int g = 4;
+                }
+                rassert(!ret, ao);
                 io.read_vector(restore_buffer_in, DUP_HEADER_LEN, 0, f, true);
                 size_t lenc = dup_size_compressed(restore_buffer_in.data());
                 size_t lend = dup_size_decompressed(restore_buffer_in.data());
                 ensure_size(restore_buffer_out, lend + M);
                 io.read_vector(restore_buffer_in, lenc - DUP_HEADER_LEN, DUP_HEADER_LEN, f, true);
                 int r = dup_decompress(restore_buffer_in.data(), restore_buffer_out.data(), &lenc, &p);
+                if ((r != 0 && r != 1)) {
+                    int g = 543;
+                }
                 massert(!(r != 0 && r != 1), "Internal error or archive corrupted", r);
                 bytebuffer.buffer_add(restore_buffer_out.data(), ref.payload, ref.length);
 
@@ -1846,7 +1861,7 @@ void empty_q(bool flush, bool entropy) {
     auto write_result = [&]() {
         if (cc > 0) {
             io.write("A", 1, ofile);
-            auto p = ftell(ofile);
+            auto p = _ftelli64(ofile);
             add_packets(out_result, cc, p); // io.write_count);
             io.write(out_result, cc, ofile);
             io.write("B", 1, ofile);
@@ -2178,7 +2193,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // First process files
     std::atomic<size_t> ctr = 0;
-    const int max_threads = 6;
+    const int max_threads = 1;
     std::thread threads[max_threads];
 
     auto compress_file_function = [&]() {
