@@ -1978,16 +1978,17 @@ void empty_q(bool flush, bool entropy) {
     }
 }
 
-void compress_file_finalize() {
+bool compress_file_finalize() {
     empty_q(true, false);
+    return true; // fixme, need to check anything?
 }
 
-void compress_file(const STRING& input_file, const STRING& filename, int attributes) {
+[[nodiscard]] bool compress_file(const STRING& input_file, const STRING& filename, int attributes) {
 
     if (input_file != L("-stdin") && ISNAMEDPIPE(attributes) && !named_pipes) {
         auto _ = std::lock_guard(compress_file_mutex);
         statusbar.print(2, L("Skipped, no -p flag for named pipes: %s"), input_file.c_str());
-        return;
+        return true;
     }
 
     pair<time_ms_t, time_ms_t> file_time = input_file == L("-stdin") ? pair<time_ms_t, time_ms_t>(cur_date(), cur_date()) : get_date(input_file);
@@ -2010,7 +2011,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
            // contents.push_back(*c);
             backup_set.push_back(c->file_id);
             files++;
-            return;
+            return true;
         }
     }
 #endif
@@ -2021,15 +2022,16 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
             statusbar.print(2, L("Skipped, error reading source file: %s"), input_file.c_str());
         }
         else {
-            abort(true, L("Aborted, error reading source file: %s"), input_file.c_str());
+            statusbar.print(0, L("Aborted, error reading source file: %s"), input_file.c_str());
+            return false;
         }
+        return true;
     };
 
     FILE* handle = try_open(input_file.c_str(), 'r', false);
 
     if (!handle) {
-        error_reading();
-        return;
+        return error_reading();
     }
 
     if (input_file != L("-stdin")) {
@@ -2041,8 +2043,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
         // fread() can fail on Windows even if the file is opened successfully for reading
         if(r < minimum(file_size, prefetch)) {
             fclose(handle);
-            error_reading();
-            return;
+            return error_reading();
         }
         io.seek(handle, 0, SEEK_SET);
     } else {
@@ -2092,7 +2093,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
             backup_set.push_back(file_meta.file_id);
 
             io.close(handle);
-            return;            
+            return true;            
         }
         else {
             identical = original;
@@ -2174,6 +2175,8 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 
     contents.push_back(file_meta);
     backup_set.push_back(file_meta.file_id);
+
+    return true;
 }
 
 } // namespace compression
@@ -2237,15 +2240,18 @@ bool include(const STRING &name, bool top_level) {
     return true;
 }
 
-void fail_list_dir(const STRING &dir) {
+// todo simplify, maybe don't make this a function
+[[nodiscard]] bool fail_list_dir(const STRING &dir) {
     if (continue_flag) {
         statusbar.print(2, L("Skipped, error listing directory: %s"), dir.c_str());
     } else {
-        abort(true, L("Aborted, error listing directory: %s"), dir.c_str());
+        statusbar.print(0, L("Aborted, error listing directory: %s"), dir.c_str());
+        return false;
     }
+    return true;
 }
 
-void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_level) {
+[[nodiscard]] bool compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_level) {
     // Todo, simplify this function by initially creating three distinct lists
     // for files, dirs and symlinks. Instead of iterating through the same list
     // with each their if-conditions
@@ -2265,7 +2271,8 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
             if (continue_flag) {
                 statusbar.print(2, L("Skipped, access error: %s"), sub.c_str());
             } else {
-                abort(true, L("Aborted, access error: %s"), sub.c_str());
+                statusbar.print(2, L("Aborted, access error: %s"), sub.c_str());
+                return false;
             }
         } else {
             // avoid including full and diff file when compressing
@@ -2288,17 +2295,26 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
     std::atomic<size_t> ctr = 0;
     const int max_threads = 6;
     std::thread threads[max_threads];
+    std::atomic<bool> abort = false;
 
-    auto compress_file_function = [&]() {
+    auto compress_file_function = [&]() -> bool {
         size_t j = ctr.fetch_add(1);
         while (j < files.size()) {
+            if (abort) {
+                return false;
+            }
             rassert(j < files.size());
             STRING sub = base_dir + files.at(j).first;
             STRING L = files.at(j).first;
             STRING s = right(L) == L("") ? L : right(L);
-            compression::compress_file(sub, s, files.at(j).second);            
+            bool ok = compression::compress_file(sub, s, files.at(j).second);
+            if (!ok) {
+                abort = true;
+                return false;
+            }
             j = ctr.fetch_add(1);
         }
+        return true;
     };
 
     if(files.size() > 1) {
@@ -2311,9 +2327,15 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
         }
     }
     else {
-        compress_file_function();
+        bool ok = compress_file_function();
+        if (!ok) {
+            return false;
+        }
     }
 
+    if (abort) {
+        return false;     
+    }
 
     // then process symlinks (if followed, they will be contained in the files list above instead of here)
     if (!follow_symlinks) {
@@ -2345,7 +2367,10 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
             bContinue = hFind != INVALID_HANDLE_VALUE;
 
             if (hFind == INVALID_HANDLE_VALUE && GetLastError() != ERROR_FILE_NOT_FOUND) {
-                fail_list_dir(sub);
+                bool ok = fail_list_dir(sub);
+                if (!ok) {
+                    return false;
+                }
             } else {
                 while (bContinue) {
                     if (STRING(data.cFileName) != L(".") && STRING(data.cFileName) != L("..")) {
@@ -2375,17 +2400,25 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
                 dirs++;
             }
             save_directory(base_dir, dir.first, true);
-            compress_recursive(base_dir, newdirs, false);
+            bool ok = compress_recursive(base_dir, newdirs, false);
+            if (!ok) {
+                return false;
+            }
         }
     }
+    return true;
 }
 
-void compress(const STRING &base_dir, vector<STRING> items) {
-    compress_recursive(base_dir, items, true);
-    compression::compress_file_finalize();
+bool compress(const STRING &base_dir, vector<STRING> items) {
+    bool ok = compress_recursive(base_dir, items, true);
+    if (!ok) {
+        return false;
+    }
+    ok = compression::compress_file_finalize();
+    return ok;
 }
 
-void compress_args(vector<STRING> args) {
+[[nodiscard]] bool compress_args(vector<STRING> args) {
     uint32_t i = 0;
     for (i = 0; i < args.size(); i++) {
         args.at(i) = remove_leading_curdir(args.at(i));
@@ -2407,7 +2440,8 @@ void compress_args(vector<STRING> args) {
         args.at(i) = args.at(i).substr(base_dir.length());
     }
 
-    compress(base_dir, args);
+    bool ok = compress(base_dir, args);
+    return ok;
 }
 
 
@@ -2617,15 +2651,17 @@ int main(int argc2, char *argv2[])
         uint64_t w = io.write_count;
 
         start_time_without_overhead = GetTickCount64();
+        bool ok = false;
 
         if (inputfiles.size() > 0 && inputfiles.at(0) != L("-stdin")) {
-            compress_args(inputfiles);
+            ok = compress_args(inputfiles);
         } else if (inputfiles.size() > 0 && inputfiles.at(0) == L("-stdin")) {
             name = L("stdin");
-            compression::compress_file(L("-stdin"), name, 0);
-            compression::compress_file_finalize();
+            ok = compression::compress_file(L("-stdin"), name, 0);
+            if (ok) {
+                ok = compression::compress_file_finalize();
+            }
         }
-
 
         // PAYLOADD header end length
         io.write("X", 1, ofile);
@@ -2640,6 +2676,7 @@ int main(int argc2, char *argv2[])
             }
             if (no_recursion_flag) {
                 // todo, delete, wildcard no longer needed
+                // fixme, set "ok" here too
                 abort(true, err_nofiles, "0 source files or directories. Missing '*' wildcard with -r flag?");
             } else {
                 abort(true, err_nofiles, "0 source files or directories");
@@ -2647,15 +2684,13 @@ int main(int argc2, char *argv2[])
             // fixme delete the partial (invalid) destination file created
         }
 
-
-
-
-        // We are noe after payload-N
-
-        time_ms_t d = cur_date();
-        uint64_t s = backup_set_size();
-        uint64_t f = files;
-        write_backup_set(ofile, sets - 1, d, s, f);
+        if (ok) {
+            // We are noe after payload-N
+            time_ms_t d = cur_date();
+            uint64_t s = backup_set_size();
+            uint64_t f = files;
+            write_backup_set(ofile, sets - 1, d, s, f);
+        }
         write_contents(ofile);
 
         size_t hashtable_size = write_hashtable(ofile);
@@ -2666,6 +2701,19 @@ int main(int argc2, char *argv2[])
         io.write("END", 3, ofile);
         if(verbose_level > 0 && verbose_level < 3) {
             statusbar.clear_line();
+        }
+
+
+        if (!ok) {
+            sets--;
+            io.seek(ofile, 0, SEEK_SET);
+            write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt, archive_id, sets);
+
+            io.close(ofile);
+#ifdef _WIN32
+            unshadow(); // todo raii
+#endif
+            exit(1); // todo return code
         }
 
         io.seek(ofile, 0, SEEK_END);
