@@ -171,8 +171,7 @@ uint32_t megabyte_flag = 0;
 uint32_t gigabyte_flag = 0;
 uint32_t threads_flag = 0;
 uint32_t compression_level = 1;
-
-uint32_t restore_set = 0;
+uint32_t set_flag = -1;
 
 
 // statistics to show to user
@@ -315,7 +314,7 @@ STRING date2str(time_ms_t date) {
 
     CHR dst[1000];
     tm date2 = local_time_tm(date);
-    SPRINTF(dst, L("%04u-%02u-%02u %02u:%02u"), date2.tm_year + 1900, date2.tm_mon + 1, date2.tm_mday, date2.tm_hour, date2.tm_min);
+    SPRINTF(dst, L("%04u-%02u-%02u %02u:%02u:%02u"), date2.tm_year + 1900, date2.tm_mon + 1, date2.tm_mday, date2.tm_hour, date2.tm_min, date2.tm_sec);
     return STRING(dst);
 }
 
@@ -577,7 +576,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
         } else {
 
             char *b = bytebuffer.buffer_find(ref.payload, ref_has);
-            if (false) {
+            if (b != 0) {
                 memcpy(dst + bytes_resolved, b + prior, ref_has);
             } else {
                 FILE *f;
@@ -621,7 +620,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile, FILE *fdiff,
 void print_file(STRING filename, uint64_t size, time_ms_t file_modified = 0) {
 #ifdef _WIN32
     statusbar.print_no_lf(0, L("%s  %s  %s\n"), 
-        size == std::numeric_limits<uint64_t>::max() ? L("                   ") : del(size, 19).c_str(),
+        size == std::numeric_limits<uint64_t>::max() ? L("                      ") : del(size, 19).c_str(),
 /*
         attributes & FILE_ATTRIBUTE_ARCHIVE ? 'A' : ' ', 
         attributes & FILE_ATTRIBUTE_SYSTEM ? 'S' : ' ',
@@ -734,20 +733,28 @@ size_t write_contents(FILE *file) {
 
 
 
-vector<uint64_t> read_backup_set(FILE *f, uint64_t set) {
-    vector<uint64_t> ret;
+void read_backup_set(FILE *f, uint64_t set, time_ms_t &date, uint64_t &size, uint64_t &files, vector<uint64_t>* ret) {
     uint64_t id;
     std::string s = "SET" + format("{:05d}", set);
-    uint64_t orig = seek_to_header(f, s.c_str());
+    uint64_t orig = seek_to_header(f, s.c_str());    
     uint64_t n = io.read_ui<uint64_t>(f);
-    for (uint64_t i = 0; i < n; i++) {
-        id = io.read_ui<uint64_t>(f);
-        ret.push_back(id);
+    if (ret) {
+        for (uint64_t i = 0; i < n; i++) {
+            id = io.read_ui<uint64_t>(f);
+            ret->push_back(id);
+        }
+    } 
+    else {
+        io.seek(f, n * sizeof(uint64_t), SEEK_CUR);
     }
+    date = io.read_ui<uint64_t>(f);
+    size = io.read_ui<uint64_t>(f);
+    files = io.read_ui<uint64_t>(f);
+
     io.seek(f, orig, SEEK_SET);
-    return ret;
 }
-size_t write_backup_set(FILE *file, uint64_t set) {
+
+size_t write_backup_set(FILE *file, uint64_t set, time_ms_t date, uint64_t size, uint64_t files) {
     std::string s = "SET" + format("{:05d}", set);
     io.write(s.c_str(), 8, file);
     uint64_t w = io.write_count;
@@ -755,7 +762,11 @@ size_t write_backup_set(FILE *file, uint64_t set) {
     for (size_t i = 0; i < backup_set.size(); i++) {
         io.write_ui<uint64_t>(backup_set.at(i), file);
     }
-    io.write_ui<uint32_t>(0, file);
+
+    io.write_ui<uint64_t>(date, file);
+    io.write_ui<uint64_t>(size, file);
+    io.write_ui<uint64_t>(files, file);
+    
     io.write_ui<uint64_t>(io.write_count - w, file);
     return io.write_count - w;
 }
@@ -816,22 +827,108 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
 }
 
 
+void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt, uint64_t archive_id, uint64_t sets) {
+    if (s == BACKUP) {
+        io.write("EXDUPE A", 8, file);
+    } else if (s == DIFF_BACKUP) {
+        io.write("EXDUPE B", 8, file);
+    } else {
+        rassert(false, s);
+    }
+
+    io.write_ui<uint8_t>(VER_MAJOR, file);
+    io.write_ui<uint8_t>(VER_MINOR, file);
+    io.write_ui<uint8_t>(VER_REVISION, file);
+    io.write_ui<uint8_t>(VER_DEV, file);
+
+    io.write_ui<uint64_t>(archive_id, file);
+
+    io.write_ui<uint64_t>(DEDUPE_SMALL, file);
+    io.write_ui<uint64_t>(DEDUPE_LARGE, file);
+
+    io.write_ui<uint8_t>(hash_flag ? 1 : 0, file);
+    io.write_ui<uint64_t>(hash_salt, file);
+
+    io.write_ui<uint64_t>(mem, file);
+    io.write_ui<uint64_t>(sets, file);
+}
+
+uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t *archive_id = nullptr) {
+    string header = io.read_bin_string(8, file);
+    if (action == BACKUP) {
+        //      abort(header != "EXDUPE F", L("'%s' is not a .full file"), filename.c_str());
+    } else if (action == DIFF_BACKUP) {
+        //    abort(header != "EXDUPE D", L("'%s' is not a .diff file"), filename.c_str());
+    } else {
+        // todo, use class enum
+        //     rassert(false, action);
+    }
+
+    char major = io.read_ui<uint8_t>(file);
+    char minor = io.read_ui<uint8_t>(file);
+    char revision = io.read_ui<uint8_t>(file);
+    char dev = io.read_ui<uint8_t>(file);
+    (void)dev;
+
+    uint64_t id = io.read_ui<uint64_t>(file);
+    if (archive_id) {
+        *archive_id = id;
+    }
+
+    DEDUPE_SMALL = io.read_ui<uint64_t>(file);
+    DEDUPE_LARGE = io.read_ui<uint64_t>(file);
+
+    abort(major != 3, err_other, format("This file was created with eXdupe version {}.{}.{}. Please use %d.x.x on it", major, minor, revision, major));
+    abort(dev != VER_DEV, err_other, format("This file was created with eXdupe version {}.{}.{}.dev-{}. Please use the exact same version on it", major, minor, revision, dev));
+
+    hash_flag = io.read_ui<uint8_t>(file) == 1;
+    hash_salt = io.read_ui<uint64_t>(file);
+
+    uint64_t mem = io.read_ui<uint64_t>(file);
+    sets = io.read_ui<uint64_t>(file);
+    return mem;
+}
+
+contents_t get_contents_from_id2(vector<contents_t>& cont, uint64_t id) {
+    for (auto &c : cont) {
+        if (c.file_id == id) {
+            return c;
+        }
+    }
+    abort(true, L"No such id");
+}
+
 uint64_t list_contents() {
     FILE* ffile = try_open(full, 'r', true);
-    FILE* file = diff_flag ? try_open(diff, 'r', true) : ffile;
-    string header = io.read_bin_string(8, file);
-    abort(header == "EXDUPE D" && !diff_flag, L("File is a diff backup. Please use -LD <full file> <diff file to list>"));
 
-    init_content_maps(ffile);
+    uint64_t id = 0;
+    read_header(ffile, {}, BACKUP);
 
-    //todo rewrite into using read_content()
-    seek_to_header(file, "CONTENTS");
-    uint64_t payload = 0, files = 0;
+    time_ms_t d = 0;
+    uint64_t s = 0;
+    uint64_t f = 0;
 
-    uint64_t n = io.read_ui<uint64_t>(file);
-    for (uint64_t i = 0; i < n; i++) {
-        contents_t c;
-        read_content_item(file, c); 
+    if (set_flag == -1) {
+        uint64_t set = 0;
+        for (uint64_t set = 0; set < sets; set++) {
+            read_backup_set(ffile, set, d, s, f, nullptr);
+            auto ds = date2str(d);
+            statusbar.print(0, L"%d  %s  %s B  %s files", set, ds.c_str(), del(s).c_str(), del(f).c_str());
+        }
+        return 0;
+    }
+
+    vector<uint64_t> set;
+    read_backup_set(ffile, set_flag, d, s, f, &set);
+    contents = read_contents(ffile);
+
+    std::map<uint64_t, contents_t> content_map;
+    for (auto &c : contents) {
+        content_map.insert({c.file_id, c});
+    }
+
+    for (auto& id : set) {
+        contents_t c = content_map[id];
 
         if (c.symlink) {
             print_file(STRING(c.name + L(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_modified);
@@ -853,13 +950,9 @@ uint64_t list_contents() {
             }
         } else {
             untouched_files2.initialize_if_untouched(c);
-            payload += c.size;
-            files++;
             print_file(c.name, c.size, c.file_modified);
         }
     }
-
-    statusbar.print_no_lf(0, L("\n%s B in %s files\n"), del(payload).c_str(), del(files).c_str());
 
     fclose(ffile);
     return 0;
@@ -968,7 +1061,7 @@ void parse_flags(void) {
             string flagsS = w2s(flags);
 
             // abort if numeric digits are used with a wrong flag
-            if (regx(flagsS, "[^mgwtvsixS0123456789][0-9]+") != "") {
+            if (regx(flagsS, "[^mgwtvsiLxS0123456789][0-9]+") != "") {
                 abort(true, L("Numeric values must be preceded by S, m, g, t, v, or x"));
             }
 
@@ -1035,7 +1128,7 @@ void parse_flags(void) {
                 abort(compression_level > 3, L("-x flag value must be 0...3"));
             }
 
-            if (set_int_flag(restore_set, "S")) {
+            if (set_int_flag(set_flag, "S")) {
             }
 
         }
@@ -1136,7 +1229,7 @@ void parse_files(void) {
         abort(full == L("-stdout") || diff == L("-stdout") || (full == L("-stdin") && diff == L("-stdin")) || (argc < 4 + flags_exist), L("Syntax error in source or destination. "));
     } else if (list_flag) {
         abort(!diff_flag && argv.size() < 3, L("Specify a full file. "));
-        abort(!diff_flag && argv.size() > 3, L("Too many arguments. "));
+        abort(!diff_flag && argv.size() > 4, L("Too many arguments. "));
         abort(diff_flag && argv.size() != 4, L("Specify both a full and a diff file. "));
         full = argv.at(1 + flags_exist);
         if(diff_flag) {
@@ -1459,14 +1552,7 @@ void ensure_relative(const STRING &path) {
 
 // todo, namespace is a temporary fix to separate things
 
-contents_t get_contents_from_id(vector<contents_t> cont, uint64_t id) {
-    for (auto &c : cont) {
-        if (c.file_id == id) {
-            return c;
-        }
-    }
-    abort(true, L"No such id");
-}
+
 
 namespace restore {
 
@@ -1513,12 +1599,19 @@ void restore_from_file(FILE *ffull, FILE *fdiff, int set) {
     }
 
    // verify_restorelist(restorelist, content); 
+    time_ms_t d;
+    uint64_t s;
+    uint64_t f;
+    read_backup_set(archive_file, set, d, s, f, &backup_set);
 
-    backup_set = read_backup_set(archive_file, set);
+    std::map<uint64_t, contents_t> content_map;
+    for (auto &c : contents) {
+        content_map.insert({c.file_id, c});
+    }
 
     for (uint32_t i = 0; i < backup_set.size(); i++) {
         uint64_t id = backup_set.at(i);
-        c = get_contents_from_id(contents, id);
+        c = content_map[id]; // get_contents_from_id(contents, id);
 
         if (c.directory && !c.symlink) {
             curdir = remove_delimitor(c.name);
@@ -2193,7 +2286,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // First process files
     std::atomic<size_t> ctr = 0;
-    const int max_threads = 1;
+    const int max_threads = 6;
     std::thread threads[max_threads];
 
     auto compress_file_function = [&]() {
@@ -2318,68 +2411,7 @@ void compress_args(vector<STRING> args) {
 }
 
 
-void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt, uint64_t archive_id, uint64_t sets) {
-    if (s == BACKUP) {
-        io.write("EXDUPE A", 8, file);
-    } else if (s == DIFF_BACKUP) {
-        io.write("EXDUPE B", 8, file);
-    } else {
-        rassert(false, s);
-    }
 
-    io.write_ui<uint8_t>(VER_MAJOR, file);
-    io.write_ui<uint8_t>(VER_MINOR, file);
-    io.write_ui<uint8_t>(VER_REVISION, file);
-    io.write_ui<uint8_t>(VER_DEV, file);
-
-    io.write_ui<uint64_t>(archive_id, file);
-
-    io.write_ui<uint64_t>(DEDUPE_SMALL, file);
-    io.write_ui<uint64_t>(DEDUPE_LARGE, file);
-
-    io.write_ui<uint8_t>(hash_flag ? 1 : 0, file);
-    io.write_ui<uint64_t>(hash_salt, file);
-
-    io.write_ui<uint64_t>(mem, file);
-
-    io.write_ui<uint64_t>(sets, file);
-}
-
-uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* archive_id = nullptr) {
-    string header = io.read_bin_string(8, file);
-    if (action == BACKUP) {
-  //      abort(header != "EXDUPE F", L("'%s' is not a .full file"), filename.c_str());
-    } else if (action == DIFF_BACKUP) {
-    //    abort(header != "EXDUPE D", L("'%s' is not a .diff file"), filename.c_str());
-    } else {
-        // todo, use class enum
-   //     rassert(false, action);
-    }
-
-    char major = io.read_ui<uint8_t>(file);
-    char minor = io.read_ui<uint8_t>(file);
-    char revision = io.read_ui<uint8_t>(file);
-    char dev = io.read_ui<uint8_t>(file);
-    (void)dev;
-
-    uint64_t id = io.read_ui<uint64_t>(file);
-    if(archive_id) {
-        *archive_id = id;
-    }
-
-    DEDUPE_SMALL = io.read_ui<uint64_t>(file);
-    DEDUPE_LARGE = io.read_ui<uint64_t>(file);
-
-    abort(major != 3, err_other, format("This file was created with eXdupe version {}.{}.{}. Please use %d.x.x on it", major, minor, revision, major));
-    abort(dev != VER_DEV, err_other, format("This file was created with eXdupe version {}.{}.{}.dev-{}. Please use the exact same version on it", major, minor, revision, dev));
-
-    hash_flag = io.read_ui<uint8_t>(file) == 1;
-    hash_salt = io.read_ui<uint64_t>(file);
-
-    uint64_t mem = io.read_ui<uint64_t>(file);
-    sets = io.read_ui<uint64_t>(file);
-    return mem;
-}
 
 void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, L("Wrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
 
@@ -2477,7 +2509,7 @@ int main(int argc2, char *argv2[])
 
            // backup_set = read_backup_set(ifile, restore_set);
 
-            restore::restore_from_file(ifile, ifile, restore_set);
+            restore::restore_from_file(ifile, ifile, set_flag == -1 ? 0 : set_flag);
         }
         wrote_message(io.write_count, files);
     } else if ((restore_flag && (full == L("-stdin"))) && restorelist.size() == 0) {
@@ -2620,8 +2652,10 @@ int main(int argc2, char *argv2[])
 
         // We are noe after payload-N
 
-
-        write_backup_set(ofile, sets - 1);
+        time_ms_t d = cur_date();
+        uint64_t s = backup_set_size();
+        uint64_t f = files;
+        write_backup_set(ofile, sets - 1, d, s, f);
         write_contents(ofile);
 
         size_t hashtable_size = write_hashtable(ofile);
