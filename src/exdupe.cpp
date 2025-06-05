@@ -234,25 +234,32 @@ struct file_offset_t {
 };
 
 vector<file_offset_t> infiles;
-vector<contents_t> contents; 
-
-vector<uint64_t> backup_set; // file_id;
-uint64_t original_file_size = 0;
-
 
 // only used when restoring from file, not when restoring from stdin
 struct packet_t {
     bool is_reference = false;
     uint64_t payload = 0;
     size_t length = 0;
-    
+
     // if is_reference, then this points into the stream of restored data.
     std::optional<uint64_t> payload_reference;
 
     // if !is_reference, then this points at a literal packet into the full or diff file
     std::optional<uint64_t> archive_offset;
 };
+
+vector<contents_t> contents; 
+vector<contents_t> contents_added;
+
 vector<packet_t> packets;
+vector<packet_t> packets_added;
+
+
+vector<uint64_t> backup_set; // file_id;
+uint64_t original_file_size = 0;
+
+
+
 
 uint64_t backup_set_size() {
     // unchanged and identical are not sent to libexdupe
@@ -453,7 +460,9 @@ void add_packets(const char *src, size_t len, uint64_t archive_offset) {
             }
             rassert(ref.archive_offset > 0 && ref.archive_offset < 200 * G);
         } 
-        packets.push_back(ref);
+        packets.push_back(ref); // fixme still needed?
+        packets_added.push_back(ref);
+
         pos += dup_size_compressed(src + pos);
     }
 }
@@ -481,51 +490,58 @@ uint64_t seek_to_header(FILE *file, const string &header) {
 }
 
 uint64_t read_packets(FILE *file) {
-    uint64_t orig = seek_to_header(file, "PACKETSS");
-    uint64_t n = io.read_ui<uint64_t>(file);
     uint64_t added_payload = 0;
 
-    for (uint64_t i = 0; i < n; i++) {
-        packet_t ref;
-        uint8_t r = io.read_ui<uint8_t>(file);
-        massert(r == DUP_REFERENCE || r == DUP_LITERAL, "Internal error or archive corrupted", "");
-        ref.is_reference = r == DUP_REFERENCE;
-        if (ref.is_reference) {
-            ref.payload_reference = io.read_ui<uint64_t>(file);
-        } else {
-            ref.archive_offset = io.read_ui<uint64_t>(file);
-            if (!(ref.archive_offset > 0 && ref.archive_offset < 200 * G)) {
-                int g = 34;
+    for (int p = 0; p < sets; p++) {
+        std::string s = "PAC" + format("{:05d}", p);
+
+        uint64_t orig = seek_to_header(file, s);
+        uint64_t n = io.read_ui<uint64_t>(file);
+
+        for (uint64_t i = 0; i < n; i++) {
+            packet_t ref;
+            uint8_t r = io.read_ui<uint8_t>(file);
+            massert(r == DUP_REFERENCE || r == DUP_LITERAL, "Internal error or archive corrupted", "");
+            ref.is_reference = r == DUP_REFERENCE;
+            if (ref.is_reference) {
+                ref.payload_reference = io.read_ui<uint64_t>(file);
+            } else {
+                ref.archive_offset = io.read_ui<uint64_t>(file);
+                if (!(ref.archive_offset > 0 && ref.archive_offset < 200 * G)) {
+                    int g = 34;
+                }
+                rassert(ref.archive_offset > 0 && ref.archive_offset < 200 * G);
             }
-            rassert(ref.archive_offset > 0 && ref.archive_offset < 200 * G);
+            ref.payload = io.read_ui<uint64_t>(file);
+            ref.length = io.read_ui<uint32_t>(file);
+
+            added_payload += ref.length;
+            packets.push_back(ref);
         }
-        ref.payload = io.read_ui<uint64_t>(file);
-        ref.length = io.read_ui<uint32_t>(file);
 
-        added_payload += ref.length;
-        packets.push_back(ref);
+        io.seek(file, orig, SEEK_SET);
     }
-
-    io.seek(file, orig, SEEK_SET);
     return added_payload;
 }
 
-size_t write_packets(FILE* file) {
-    io.write("PACKETSS", 8, file);
+size_t write_packets_added(FILE* file, uint64_t set) {
+    std::string s = "PAC" + format("{:05d}", set);
+    io.write(s.c_str(), 8, file);
+//    io.write("PACKETSS", 8, file);
     uint64_t w = io.write_count;
-    io.write_ui<uint64_t>(packets.size(), file);
+    io.write_ui<uint64_t>(packets_added.size(), file);
 
-    for (size_t i = 0; i < packets.size(); i++) {
-        io.write_ui<uint8_t>(packets.at(i).is_reference ? DUP_REFERENCE : DUP_LITERAL, file);
-        if (packets.at(i).is_reference) {
-            io.write_ui<uint64_t>(packets.at(i).payload_reference.value(), file);
+    for (size_t i = 0; i < packets_added.size(); i++) {
+        io.write_ui<uint8_t>(packets_added.at(i).is_reference ? DUP_REFERENCE : DUP_LITERAL, file);
+        if (packets_added.at(i).is_reference) {
+            io.write_ui<uint64_t>(packets_added.at(i).payload_reference.value(), file);
         }
         else {
-            io.write_ui<uint64_t>(packets.at(i).archive_offset.value(), file);
+            io.write_ui<uint64_t>(packets_added.at(i).archive_offset.value(), file);
         }
 
-        io.write_ui<uint64_t>(packets.at(i).payload, file);
-        io.write_ui<uint32_t>(static_cast<uint32_t>(packets.at(i).length), file);
+        io.write_ui<uint64_t>(packets_added.at(i).payload, file);
+        io.write_ui<uint32_t>(static_cast<uint32_t>(packets_added.at(i).length), file);
     }
 
     io.write_ui<uint32_t>(0, file);
@@ -677,7 +693,10 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
         c.file_c_time = d.first;
         c.file_modified = d.second;
         c.file_id = file_id_counter++;
+        
         contents.push_back(c);
+        contents_added.push_back(c);
+
         backup_set.push_back(c.file_id);
 
         if (write && !diff_flag) {
@@ -719,12 +738,14 @@ uint64_t read_hashtable(FILE *file) {
 
 
 
-size_t write_contents(FILE *file) {
-    io.write("CONTENTS", 8, file);
+size_t write_contents_added(FILE *file, uint64_t set) {
+    std::string s = "CON" + format("{:05d}", set);
+    io.write(s.c_str(), 8, file);
+//    io.write("CONTENTS", 8, file);
     uint64_t w = io.write_count;
-    io.write_ui<uint64_t>(contents.size(), file);
-    for (size_t i = 0; i < contents.size(); i++) {
-        write_contents_item(file, contents.at(i));
+    io.write_ui<uint64_t>(contents_added.size(), file);
+    for (size_t i = 0; i < contents_added.size(); i++) {
+        write_contents_item(file, contents_added.at(i));
     }
     io.write_ui<uint32_t>(0, file);
     io.write_ui<uint64_t>(io.write_count - w, file);
@@ -776,14 +797,19 @@ size_t write_backup_set(FILE *file, uint64_t set, time_ms_t date, uint64_t size,
 vector<contents_t> read_contents(FILE* f) {
     vector<contents_t> ret;
     contents_t c;
-    uint64_t orig = seek_to_header(f, "CONTENTS");
-    uint64_t n = io.read_ui<uint64_t>(f);
-    for (uint64_t i = 0; i < n; i++) {
-        read_content_item(f, c);
-        ret.push_back(c);
-        file_id_counter = c.file_id + 1; // fixmenow
+
+    for (int p = 0; p < sets; p++) {
+        std::string s = "CON" + format("{:05d}", p);
+
+        uint64_t orig = seek_to_header(f, s);
+        uint64_t n = io.read_ui<uint64_t>(f);
+        for (uint64_t i = 0; i < n; i++) {
+            read_content_item(f, c);
+            ret.push_back(c);
+            file_id_counter = c.file_id + 1; // fixmenow, bad method of finding next id
+        }
+        io.seek(f, orig, SEEK_SET);
     }
-    io.seek(f, orig, SEEK_SET);
     return ret;
 }
 
@@ -1585,7 +1611,7 @@ void restore_from_file(FILE *ffull, FILE *fdiff, int set) {
     }
 
     if (diff_flag) {
-        basepay = read_packets(ffull);
+        basepay = read_packets(ffull); // fixme basepay still needed?
     //    read_packets(fdiff);
     } else {
         basepay = read_packets(ffull);
@@ -1922,6 +1948,8 @@ void compress_symlink(const STRING &link, const STRING &target) {
     write_contents_item(ofile, c);
     
     contents.push_back(c);
+    contents_added.push_back(c);
+
     backup_set.push_back(c.file_id);
     
     return;
@@ -2088,7 +2116,10 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
             }
 
             identical_files_count++;
+
             contents.push_back(file_meta);
+            contents_added.push_back(file_meta);
+
             backup_set.push_back(file_meta.file_id);
 
             io.close(handle);
@@ -2172,7 +2203,9 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     file_meta.hash = file_meta.ct.result();
     identical_files.add(file_meta);
 
-    contents.push_back(file_meta);
+    contents.push_back(file_meta); // fixme, use method that guarantees we push to both vectors
+    contents_added.push_back(file_meta);
+
     backup_set.push_back(file_meta.file_id);
 }
 
@@ -2583,7 +2616,7 @@ int main(int argc2, char *argv2[])
                 identical_files.add(c);
             }
 
-            seek_to_header(ifile, "CONTENTS");
+            seek_to_header(ifile, "HASHTBLE");
             int rr = io.seek(ifile, -8, SEEK_CUR);
             if (rr) {
                 std::cerr << "seek failed.\n";
@@ -2662,18 +2695,22 @@ int main(int argc2, char *argv2[])
             // fixme delete the partial (invalid) destination file created
         }
 
+        size_t contents_size = 0;
+        size_t references_size = 0;
+
         if (ok) {
             // We are noe after payload-N
             time_ms_t d = cur_date();
             uint64_t s = backup_set_size();
             uint64_t f = files;
             write_backup_set(ofile, sets - 1, d, s, f);
+            contents_size = write_contents_added(ofile, sets - 1);
+            references_size = write_packets_added(ofile, sets - 1);
         }
-        write_contents(ofile);
+        
 
+        
         size_t hashtable_size = write_hashtable(ofile);
-        size_t references_size = write_packets(ofile);
-
 
 
         io.write("END", 3, ofile);
