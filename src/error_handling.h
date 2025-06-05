@@ -16,11 +16,12 @@
 
 enum retvals {err_other = 1, err_parameters = 2, err_resources = 3, err_nofiles = 4, err_assert = 5};
 
-[[noreturn]] inline void cleanup_and_exit(int ret) {
+inline void cleanup_and_exit(int ret) {
 #ifdef _WIN32
     unshadow();
 #endif
-    exit(ret);
+    //exit(ret);
+    throw std::exception();
 }
 
 template<typename T> inline void print_argument(const T& arg) {

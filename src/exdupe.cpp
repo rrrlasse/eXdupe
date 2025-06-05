@@ -1978,17 +1978,16 @@ void empty_q(bool flush, bool entropy) {
     }
 }
 
-bool compress_file_finalize() {
+void compress_file_finalize() {
     empty_q(true, false);
-    return true; // fixme, need to check anything?
 }
 
-[[nodiscard]] bool compress_file(const STRING& input_file, const STRING& filename, int attributes) {
+void compress_file(const STRING& input_file, const STRING& filename, int attributes) {
 
     if (input_file != L("-stdin") && ISNAMEDPIPE(attributes) && !named_pipes) {
         auto _ = std::lock_guard(compress_file_mutex);
         statusbar.print(2, L("Skipped, no -p flag for named pipes: %s"), input_file.c_str());
-        return true;
+        return;
     }
 
     pair<time_ms_t, time_ms_t> file_time = input_file == L("-stdin") ? pair<time_ms_t, time_ms_t>(cur_date(), cur_date()) : get_date(input_file);
@@ -2011,7 +2010,7 @@ bool compress_file_finalize() {
            // contents.push_back(*c);
             backup_set.push_back(c->file_id);
             files++;
-            return true;
+            return;
         }
     }
 #endif
@@ -2022,16 +2021,15 @@ bool compress_file_finalize() {
             statusbar.print(2, L("Skipped, error reading source file: %s"), input_file.c_str());
         }
         else {
-            statusbar.print(0, L("Aborted, error reading source file: %s"), input_file.c_str());
-            return false;
+            abort(true, L("Aborted, error reading source file: %s"), input_file.c_str());
         }
-        return true;
     };
 
     FILE* handle = try_open(input_file.c_str(), 'r', false);
 
     if (!handle) {
-        return error_reading();
+        error_reading();
+        return;
     }
 
     if (input_file != L("-stdin")) {
@@ -2043,7 +2041,8 @@ bool compress_file_finalize() {
         // fread() can fail on Windows even if the file is opened successfully for reading
         if(r < minimum(file_size, prefetch)) {
             fclose(handle);
-            return error_reading();
+            error_reading();
+            return;
         }
         io.seek(handle, 0, SEEK_SET);
     } else {
@@ -2093,7 +2092,7 @@ bool compress_file_finalize() {
             backup_set.push_back(file_meta.file_id);
 
             io.close(handle);
-            return true;            
+            return;            
         }
         else {
             identical = original;
@@ -2175,8 +2174,6 @@ bool compress_file_finalize() {
 
     contents.push_back(file_meta);
     backup_set.push_back(file_meta.file_id);
-
-    return true;
 }
 
 } // namespace compression
@@ -2240,18 +2237,15 @@ bool include(const STRING &name, bool top_level) {
     return true;
 }
 
-// todo simplify, maybe don't make this a function
-[[nodiscard]] bool fail_list_dir(const STRING &dir) {
+void fail_list_dir(const STRING &dir) {
     if (continue_flag) {
         statusbar.print(2, L("Skipped, error listing directory: %s"), dir.c_str());
     } else {
-        statusbar.print(0, L("Aborted, error listing directory: %s"), dir.c_str());
-        return false;
+        abort(true, L("Aborted, error listing directory: %s"), dir.c_str());
     }
-    return true;
 }
 
-[[nodiscard]] bool compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_level) {
+void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_level) {
     // Todo, simplify this function by initially creating three distinct lists
     // for files, dirs and symlinks. Instead of iterating through the same list
     // with each their if-conditions
@@ -2271,8 +2265,7 @@ bool include(const STRING &name, bool top_level) {
             if (continue_flag) {
                 statusbar.print(2, L("Skipped, access error: %s"), sub.c_str());
             } else {
-                statusbar.print(2, L("Aborted, access error: %s"), sub.c_str());
-                return false;
+                abort(true, L("Aborted, access error: %s"), sub.c_str());
             }
         } else {
             // avoid including full and diff file when compressing
@@ -2297,24 +2290,22 @@ bool include(const STRING &name, bool top_level) {
     std::thread threads[max_threads];
     std::atomic<bool> abort = false;
 
-    auto compress_file_function = [&]() -> bool {
+    auto compress_file_function = [&]() {
         size_t j = ctr.fetch_add(1);
-        while (j < files.size()) {
-            if (abort) {
-                return false;
-            }
+        while (!abort && j < files.size()) {
             rassert(j < files.size());
             STRING sub = base_dir + files.at(j).first;
             STRING L = files.at(j).first;
             STRING s = right(L) == L("") ? L : right(L);
-            bool ok = compression::compress_file(sub, s, files.at(j).second);
-            if (!ok) {
+
+            try {
+                compression::compress_file(sub, s, files.at(j).second);
+            } catch (std::exception &_) {
                 abort = true;
-                return false;
+                return;
             }
             j = ctr.fetch_add(1);
         }
-        return true;
     };
 
     if(files.size() > 1) {
@@ -2327,14 +2318,11 @@ bool include(const STRING &name, bool top_level) {
         }
     }
     else {
-        bool ok = compress_file_function();
-        if (!ok) {
-            return false;
-        }
+        compress_file_function();
     }
 
     if (abort) {
-        return false;     
+        throw std::exception();
     }
 
     // then process symlinks (if followed, they will be contained in the files list above instead of here)
@@ -2367,10 +2355,7 @@ bool include(const STRING &name, bool top_level) {
             bContinue = hFind != INVALID_HANDLE_VALUE;
 
             if (hFind == INVALID_HANDLE_VALUE && GetLastError() != ERROR_FILE_NOT_FOUND) {
-                bool ok = fail_list_dir(sub);
-                if (!ok) {
-                    return false;
-                }
+                fail_list_dir(sub);
             } else {
                 while (bContinue) {
                     if (STRING(data.cFileName) != L(".") && STRING(data.cFileName) != L("..")) {
@@ -2400,25 +2385,17 @@ bool include(const STRING &name, bool top_level) {
                 dirs++;
             }
             save_directory(base_dir, dir.first, true);
-            bool ok = compress_recursive(base_dir, newdirs, false);
-            if (!ok) {
-                return false;
-            }
+            compress_recursive(base_dir, newdirs, false);
         }
     }
-    return true;
 }
 
-bool compress(const STRING &base_dir, vector<STRING> items) {
-    bool ok = compress_recursive(base_dir, items, true);
-    if (!ok) {
-        return false;
-    }
-    ok = compression::compress_file_finalize();
-    return ok;
+void compress(const STRING &base_dir, vector<STRING> items) {
+    compress_recursive(base_dir, items, true);
+    compression::compress_file_finalize();
 }
 
-[[nodiscard]] bool compress_args(vector<STRING> args) {
+void compress_args(vector<STRING> args) {
     uint32_t i = 0;
     for (i = 0; i < args.size(); i++) {
         args.at(i) = remove_leading_curdir(args.at(i));
@@ -2440,8 +2417,7 @@ bool compress(const STRING &base_dir, vector<STRING> items) {
         args.at(i) = args.at(i).substr(base_dir.length());
     }
 
-    bool ok = compress(base_dir, args);
-    return ok;
+    compress(base_dir, args);
 }
 
 
@@ -2651,16 +2627,18 @@ int main(int argc2, char *argv2[])
         uint64_t w = io.write_count;
 
         start_time_without_overhead = GetTickCount64();
-        bool ok = false;
+        bool ok = true;
 
-        if (inputfiles.size() > 0 && inputfiles.at(0) != L("-stdin")) {
-            ok = compress_args(inputfiles);
-        } else if (inputfiles.size() > 0 && inputfiles.at(0) == L("-stdin")) {
-            name = L("stdin");
-            ok = compression::compress_file(L("-stdin"), name, 0);
-            if (ok) {
-                ok = compression::compress_file_finalize();
+        try {
+            if (inputfiles.size() > 0 && inputfiles.at(0) != L("-stdin")) {
+                compress_args(inputfiles);
+            } else if (inputfiles.size() > 0 && inputfiles.at(0) == L("-stdin")) {
+                name = L("stdin");
+                compression::compress_file(L("-stdin"), name, 0);
+                compression::compress_file_finalize();
             }
+        } catch (std::exception &_) {
+            ok = false;
         }
 
         // PAYLOADD header end length
