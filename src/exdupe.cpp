@@ -186,7 +186,6 @@ uint64_t unchanged_files = 0;
 uint64_t contents_size = 0;
 uint64_t hash_salt;
 
-uint64_t sets = 0;
 STRING full;
 STRING diff;
 STRING directory;
@@ -259,7 +258,10 @@ vector<uint64_t> backup_set; // file_id;
 uint64_t original_file_size = 0;
 
 
+std::vector<std::pair<string, uint64_t>> headers;
+std::vector<uint64_t> sets;
 
+const char file_footer[] = {'E', 'N', 'D'};
 
 uint64_t backup_set_size() {
     // unchanged and identical are not sent to libexdupe
@@ -499,85 +501,64 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t *arc
     hash_salt = io.read_ui<uint64_t>(file);
 
     uint64_t mem = io.read_ui<uint64_t>(file);
-    sets = io.read_ui<uint64_t>(file);
     uint64_t last = io.read_ui<uint64_t>(file);
     if (lastgood) {
         *lastgood = last;
     }
+    uint64_t zero = io.read_ui<uint64_t>(file);
+    rassert(zero == 0);
     return mem;
 }
 
 uint64_t seek_to_header(FILE *file, const string &header) {
     //  archive   HEADER  data  sizeofdata  HEADER  data  sizeofdata
     uint64_t orig = io.tell(file);
-    uint64_t s;
-    string h = "";
 
-    uint64_t lastgood = 0;
-    io.seek(file, 0, SEEK_SET);
-    read_header(file, {}, BACKUP, 0, &lastgood);
-    if (lastgood == 0) {
-        io.seek(file, 0, SEEK_END); // file was written to stdout that cannot seek to update header
-    } else {
-        io.seek(file, lastgood, SEEK_SET);    
+    for (auto &h : headers) {
+        if (h.first == header) {
+            io.seek(file, h.second, SEEK_SET);
+            return orig;
+        }
     }
-    /*
-    int i = io.seek(file, -3, SEEK_END);
-    abort(i != 0, L("Archive corrupted or on a non-seekable device"));
-    abort(io.read_bin_string(3, file) != "END", L("Unexpected end of archive (header end tag)"));
-    io.seek(file, -3, SEEK_END);
-    */
-    while (h != header) {
-        auto msg = L("Archive is corrupted. You can only list its contents (-L flag) or restore (-R flag)");
-        abort(io.seek(file, -8, SEEK_CUR) != 0, msg);
-        s = io.read_ui<uint64_t>(file);
-        abort(io.seek(file, -8 - s - 8, SEEK_CUR) != 0, msg);
-        h = io.read_bin_string(8, file);
-        abort(io.seek(file, -8, SEEK_CUR) != 0, msg);
-    }
-    io.seek(file, 8, SEEK_CUR);
+    abort(true, L"File is not an eXdupe archive, or archive is corrupted");
     return orig;
 }
 
-uint64_t read_packets(FILE *file, int set) {
+uint64_t read_packets(FILE *file) {
     uint64_t added_payload = 0;
+    for (auto &h : headers) {
+        if (h.first == "PACKETSS") {
+            io.seek(file, h.second, SEEK_SET);
+            uint64_t n = io.read_ui<uint64_t>(file);
 
-    for (int p = 0; p <= set; p++) {
-        std::string s = "PAC" + format("{:05d}", p);
-
-        uint64_t orig = seek_to_header(file, s);
-        uint64_t n = io.read_ui<uint64_t>(file);
-
-        for (uint64_t i = 0; i < n; i++) {
-            packet_t ref;
-            uint8_t r = io.read_ui<uint8_t>(file);
-            massert(r == DUP_REFERENCE || r == DUP_LITERAL, "Internal error or archive corrupted", "");
-            ref.is_reference = r == DUP_REFERENCE;
-            if (ref.is_reference) {
-                ref.payload_reference = io.read_ui<uint64_t>(file);
-            } else {
-                ref.archive_offset = io.read_ui<uint64_t>(file);
-                if (!(ref.archive_offset > 0 && ref.archive_offset < 200 * G)) {
-                    int g = 34;
+            for (uint64_t i = 0; i < n; i++) {
+                packet_t ref;
+                uint8_t r = io.read_ui<uint8_t>(file);
+                massert(r == DUP_REFERENCE || r == DUP_LITERAL, "Internal error or archive corrupted", "");
+                ref.is_reference = r == DUP_REFERENCE;
+                if (ref.is_reference) {
+                    ref.payload_reference = io.read_ui<uint64_t>(file);
+                } else {
+                    ref.archive_offset = io.read_ui<uint64_t>(file);
+                    if (!(ref.archive_offset > 0 && ref.archive_offset < 200 * G)) {
+                        int g = 34;
+                    }
+                    rassert(ref.archive_offset > 0 && ref.archive_offset < 200 * G);
                 }
-                rassert(ref.archive_offset > 0 && ref.archive_offset < 200 * G);
+                ref.payload = io.read_ui<uint64_t>(file);
+                ref.length = io.read_ui<uint32_t>(file);
+
+                added_payload += ref.length;
+                packets.push_back(ref);
             }
-            ref.payload = io.read_ui<uint64_t>(file);
-            ref.length = io.read_ui<uint32_t>(file);
-
-            added_payload += ref.length;
-            packets.push_back(ref);
         }
-
-        io.seek(file, orig, SEEK_SET);
     }
     return added_payload;
 }
 
-size_t write_packets_added(FILE* file, uint64_t set) {
-    std::string s = "PAC" + format("{:05d}", set);
-    io.write(s.c_str(), 8, file);
-//    io.write("PACKETSS", 8, file);
+size_t write_packets_added(FILE* file) {
+
+    io.write("PACKETSS", 8, file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(packets_added.size(), file);
 
@@ -788,10 +769,8 @@ uint64_t read_hashtable(FILE *file) {
 
 
 
-size_t write_contents_added(FILE *file, uint64_t set) {
-    std::string s = "CON" + format("{:05d}", set);
-    io.write(s.c_str(), 8, file);
-//    io.write("CONTENTS", 8, file);
+size_t write_contents_added(FILE *file) {
+    io.write("CONTENTS", 8, file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(contents_added.size(), file);
     for (size_t i = 0; i < contents_added.size(); i++) {
@@ -804,10 +783,9 @@ size_t write_contents_added(FILE *file, uint64_t set) {
 
 
 
-void read_backup_set(FILE *f, uint64_t set, time_ms_t &date, uint64_t &size, uint64_t &files, vector<uint64_t>* ret) {
+void read_backup_set(FILE *f, uint64_t filepos, time_ms_t &date, uint64_t &size, uint64_t &files, vector<uint64_t>* ret) {
     uint64_t id;
-    std::string s = "SET" + format("{:05d}", set);
-    uint64_t orig = seek_to_header(f, s.c_str());    
+    uint64_t orig = io.seek(f, filepos, SEEK_SET);
     uint64_t n = io.read_ui<uint64_t>(f);
     if (ret) {
         for (uint64_t i = 0; i < n; i++) {
@@ -821,12 +799,11 @@ void read_backup_set(FILE *f, uint64_t set, time_ms_t &date, uint64_t &size, uin
     date = io.read_ui<uint64_t>(f);
     size = io.read_ui<uint64_t>(f);
     files = io.read_ui<uint64_t>(f);
-
     io.seek(f, orig, SEEK_SET);
 }
 
-size_t write_backup_set(FILE *file, uint64_t set, time_ms_t date, uint64_t size, uint64_t files) {
-    std::string s = "SET" + format("{:05d}", set);
+size_t write_backup_set(FILE *file, time_ms_t date, uint64_t size, uint64_t files) {
+    std::string s = "BACKUPST";//    +format("{:05d}", set);
     io.write(s.c_str(), 8, file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(backup_set.size(), file);
@@ -844,33 +821,71 @@ size_t write_backup_set(FILE *file, uint64_t set, time_ms_t date, uint64_t size,
 
 
 
-vector<contents_t> read_contents(FILE* f, int set) {
+vector<contents_t> read_contents(FILE* f) {
     vector<contents_t> ret;
     contents_t c;
-
-    for (int p = 0; p <= set; p++) {
-        std::string s = "CON" + format("{:05d}", p);
-
-        uint64_t orig = seek_to_header(f, s);
-        uint64_t n = io.read_ui<uint64_t>(f);
-        for (uint64_t i = 0; i < n; i++) {
-            read_content_item(f, c);
-            ret.push_back(c);
-            file_id_counter = c.file_id + 1; // fixmenow, bad method of finding next id
+    for (auto& h : headers) {
+        if (h.first == "CONTENTS") {
+            io.seek(f, h.second, SEEK_SET);
+            uint64_t n = io.read_ui<uint64_t>(f);
+            for (uint64_t i = 0; i < n; i++) {
+                read_content_item(f, c);
+                ret.push_back(c);
+                if (c.file_id >= file_id_counter) {
+                    file_id_counter = c.file_id + 1;
+                }
+            }
         }
-        io.seek(f, orig, SEEK_SET);
     }
     return ret;
 }
 
 
+bool read_headers(FILE* file) {
+    bool file_ok = true;
+    uint64_t lastgood = 0;
+    io.seek(file, 0, SEEK_SET);
+    read_header(file, {}, BACKUP, 0, &lastgood);
+    io.seek(file, -sizeof(file_footer), SEEK_END); // file was written to stdout that cannot seek to update header
 
+    string e = io.read_bin_string(3, file);
+    if (e != "END") {
+        file_ok = false;
+        io.seek(file, lastgood, SEEK_SET);
+    } else {
+        io.seek(file, -sizeof(file_footer), SEEK_END); // file was written to stdout that cannot seek to update header    
+    }
+
+    uint64_t s;
+    string h = "";
+
+    for (;;) {
+        auto msg = L("Archive is corrupted");
+        abort(io.seek(file, -8, SEEK_CUR) != 0, msg);
+        s = io.read_ui<uint64_t>(file);
+        // file-header ends with a 0
+        if (s == 0) {
+            return file_ok;
+        }
+        abort(io.seek(file, -8 - s - 8, SEEK_CUR) != 0, msg);
+
+        h = io.read_bin_string(8, file);
+
+        auto p = make_pair(h, io.tell(file));
+        headers.insert(headers.begin(), p);
+        if (h == "BACKUPST") {
+            sets.insert(sets.begin(), io.tell(file));
+        }
+        abort(io.seek(file, -8, SEEK_CUR) != 0, msg);
+    }
+    return file_ok;
+}
 
 
 
 
 void init_content_maps(FILE* ffull) {
-    auto con = read_contents(ffull, sets);
+    auto con = read_contents(ffull);
     for(auto& c : con) {
         // fixme, verify this works for .is_dublicate
         if(!c.directory && !c.symlink) {
@@ -903,7 +918,7 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
 }
 
 
-void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt, uint64_t archive_id, uint64_t sets, uint64_t lastgood) {
+void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t hash_salt, uint64_t archive_id, uint64_t lastgood) {
     if (s == BACKUP) {
         io.write("EXDUPE A", 8, file);
     } else if (s == DIFF_BACKUP) {
@@ -926,9 +941,9 @@ void write_header(FILE *file, status_t s, uint64_t mem, bool hash_flag, uint64_t
     io.write_ui<uint64_t>(hash_salt, file);
 
     io.write_ui<uint64_t>(mem, file);
-    io.write_ui<uint64_t>(sets, file);
-
     io.write_ui<uint64_t>(lastgood, file);
+
+    io.write_ui<uint64_t>(0, file);
 }
 
 
@@ -942,64 +957,74 @@ contents_t get_contents_from_id2(vector<contents_t>& cont, uint64_t id) {
     abort(true, L"No such id");
 }
 
-uint64_t list_contents() {
+void corrupted() {
+    statusbar.print(0, L("\nArchive is corrupted, you can only list contents (-L flag) or restore (-R flag)"));
+}
+
+void list_contents() {
     FILE *ffile = io.open(full.c_str(), 'r');
+    read_header(ffile, {}, BACKUP, 0, 0);
+    bool ok = read_headers(ffile);
 
     uint64_t id = 0;
-    read_header(ffile, {}, BACKUP, 0, 0);
     time_ms_t d = 0;
     uint64_t s = 0;
     uint64_t f = 0;
 
     if (set_flag == -1) {
         uint64_t set = 0;
-        for (uint64_t set = 0; set < sets; set++) {
-            read_backup_set(ffile, set, d, s, f, nullptr);
+        uint64_t prev_c = 0;
+        for (size_t set = 0; set < sets.size(); set++) {
+            uint64_t c = sets.at(set) - prev_c;
+            prev_c = c;
+            read_backup_set(ffile, sets.at(set), d, s, f, nullptr);
             auto ds = date2str(d);
-            statusbar.print(0, L"%d  %s  %s B  %s files", set, ds.c_str(), del(s).c_str(), del(f).c_str());
+            statusbar.print(0, L"%d  %s  %s B  %s files  %sB", set, ds.c_str(), del(s).c_str(), del(f).c_str(), s2w(suffix(c)).c_str());
         }
-        return 0;
-    }
+    } else {
 
-    abort(set_flag > sets, L"Backup set does not exist"); // fixme, allows you to specify the last set even if its corrupted
-    vector<uint64_t> set;
-    read_backup_set(ffile, set_flag, d, s, f, &set);
-    contents = read_contents(ffile, set_flag);
+        abort(set_flag > sets.size(), L"Backup set does not exist"); // fixme, allows you to specify the last set even if its corrupted
+        vector<uint64_t> set;
+        read_backup_set(ffile, sets.at(set_flag), d, s, f, &set);
+        contents = read_contents(ffile);
 
-    std::map<uint64_t, contents_t> content_map;
-    for (auto &c : contents) {
-        content_map.insert({c.file_id, c});
-    }
+        std::map<uint64_t, contents_t> content_map;
+        for (auto &c : contents) {
+            content_map.insert({c.file_id, c});
+        }
 
-    for (auto& id : set) {
-        contents_t c = content_map[id];
+        for (auto &id : set) {
+            contents_t c = content_map[id];
 
-        if (c.symlink) {
-            print_file(STRING(c.name + L(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_modified);
-            files++;
-        } else if (c.directory && !c.unchanged) { // if unchanged, then all other fields except file_id have arbitrary values
-            if (c.name != L(".\\") && c.name != L("./") && c.name != L("")) {
-                static STRING last_full = L("");
-                static bool first_time = true;
+            if (c.symlink) {
+                print_file(STRING(c.name + L(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_modified);
+                files++;
+            } else if (c.directory && !c.unchanged) { // if unchanged, then all other fields except file_id have arbitrary values
+                if (c.name != L(".\\") && c.name != L("./") && c.name != L("")) {
+                    static STRING last_full = L("");
+                    static bool first_time = true;
 
-                STRING full = c.name;
-                full = remove_delimitor(full);
-                STRING full_orig = full;
+                    STRING full = c.name;
+                    full = remove_delimitor(full);
+                    STRING full_orig = full;
 
-                if (full != last_full || first_time) {
-                    statusbar.print_no_lf(0, L("%s%s\n"), STRING(full_orig != full ? L("*") : L("")).c_str(), full.c_str());
-                    last_full = full;
-                    first_time = false;
+                    if (full != last_full || first_time) {
+                        statusbar.print_no_lf(0, L("%s%s\n"), STRING(full_orig != full ? L("*") : L("")).c_str(), full.c_str());
+                        last_full = full;
+                        first_time = false;
+                    }
                 }
+            } else {
+                untouched_files2.initialize_if_untouched(c);
+                print_file(c.name, c.size, c.file_modified);
             }
-        } else {
-            untouched_files2.initialize_if_untouched(c);
-            print_file(c.name, c.size, c.file_modified);
         }
+        fclose(ffile);
     }
 
-    fclose(ffile);
-    return 0;
+    if (!ok) {
+        corrupted();
+    }
 }
 
 void print_build_info() {
@@ -1600,8 +1625,8 @@ void ensure_relative(const STRING &path) {
 
 namespace restore {
 
-void restore_from_file(FILE *ffull, FILE *fdiff, int set) {
-    abort(set > sets, L"Backup set does not exist");
+void restore_from_file(FILE *ffull, FILE *fdiff, uint64_t backup_set_number) {
+    abort(backup_set_number >= sets.size(), L"Backup set does not exist");
     FILE *archive_file;
     bool pipe_out = directory == L("-stdout");
     std::vector<char> restore_buffer(RESTORE_CHUNKSIZE, 'c');
@@ -1629,14 +1654,16 @@ void restore_from_file(FILE *ffull, FILE *fdiff, int set) {
         restorelist.at(i) = CASESENSE(restorelist.at(i));
     }
 
+    uint64_t backup_set_offset = sets.at(backup_set_number);
+
     if (diff_flag) {
-        basepay = read_packets(ffull, set); // fixme basepay still needed?
+        basepay = read_packets(ffull); // fixme basepay still needed?
     //    read_packets(fdiff);
     } else {
-        basepay = read_packets(ffull, set);
+        basepay = read_packets(ffull);
     }
 
-    contents = read_contents(archive_file, set);
+    contents = read_contents(archive_file);
     if(diff_flag) {
         for (auto &c : contents) {
             untouched_files2.initialize_if_untouched(c);
@@ -1647,7 +1674,7 @@ void restore_from_file(FILE *ffull, FILE *fdiff, int set) {
     time_ms_t d;
     uint64_t s;
     uint64_t f;
-    read_backup_set(archive_file, set, d, s, f, &backup_set);
+    read_backup_set(archive_file, backup_set_offset, d, s, f, &backup_set);
 
     std::map<uint64_t, contents_t> content_map;
     for (auto &c : contents) {
@@ -2549,6 +2576,7 @@ int main(int argc2, char *argv2[])
     }
 
     if (list_flag) {
+
         list_contents();
     }
     else if (restore_flag && full != L("-stdin") && diff != L("-stdin")) {
@@ -2565,13 +2593,11 @@ int main(int argc2, char *argv2[])
             init_content_maps(ffull);
 
 
-            restore::restore_from_file(ffull, fdiff, sets - 1);
+            //restore::restore_from_file(ffull, fdiff, sets - 1);
         } else {
             ifile = try_open(full, 'r', true);
             read_header(ifile, full, BACKUP); //initializes sets
-
-           // backup_set = read_backup_set(ifile, restore_set);
-
+            read_headers(ifile);
             restore::restore_from_file(ifile, ifile, set_flag == -1 ? 0 : set_flag);
         }
         wrote_message(io.write_count, files);
@@ -2604,22 +2630,25 @@ int main(int argc2, char *argv2[])
         uint64_t archive_id;
         if (diff_flag) {
             output_file = full;
-            //ofile = create_file(output_file);
-            //ifile = try_open(full, 'w', true);
-           
             ifile = _wfopen(full.c_str(), L"r+b");
             io.seek(ifile, 0, SEEK_END);
             original_file_size = io.tell(ifile);
             io.seek(ifile, 0, SEEK_SET);
-
-           // ifile = FOPEN(full.c_str(), L("ab+"));
             ofile = ifile;
 
             memory_usage = read_header(ifile, full, BACKUP, &archive_id, &lastgood); // also inits hash_salt and sets
+            bool ok = read_headers(ifile);
+            if (!ok) {
+                corrupted();
+#ifdef _WIN32
+                unshadow();
+#endif
+                return 1;
+            }
             hashtable = malloc(memory_usage);
             abort(!hashtable, err_resources, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
             memset(hashtable, 0, memory_usage);
-            pay_count = read_packets(ifile, sets - 1); // read size in bytes of user payload in .full file
+            pay_count = read_packets(ifile); // read size in bytes of user payload in .full file
             //packets.clear();
 
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
@@ -2627,10 +2656,10 @@ int main(int argc2, char *argv2[])
             abort(r == 2, err_resources, format("Error creating threads. This differential backup requires {} MB memory. Try -t1 flag", memory_usage >> 20));
 
             read_hashtable(ifile);
-
+            
             basepay = pay_count; //read_packets(ifile);
 
-            contents = read_contents(ifile, sets - 1);
+            contents = read_contents(ifile);
             for (auto c : contents) {
                 c.abs_path = CASESENSE(c.abs_path);
                 untouched_files2.add_during_backup(c);
@@ -2642,9 +2671,7 @@ int main(int argc2, char *argv2[])
             if (rr) {
                 std::cerr << "seek failed.\n";
                 return 1;
-            
             }
-
             int fd = _fileno(ifile);
             HANDLE hFile = (HANDLE)_get_osfhandle(fd);
 
@@ -2656,6 +2683,8 @@ int main(int argc2, char *argv2[])
             }
             
             //io.close(ifile);
+            //io.seek(ofile, lastgood, SEEK_SET);
+            
 
         } else {
             
@@ -2668,20 +2697,22 @@ int main(int argc2, char *argv2[])
             int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
             abort(r == 1, err_resources, "Out of memory. Reduce -m, -g or -t flag");
             abort(r == 2, err_resources, "Error creating threads. Reduce -m, -g or -t flag");
-            
+            write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt, archive_id, 0);
         }
+
+
 
         auto commit = [&]() {
             if (output_file != L("-stdout")) {
                 lastgood = _ftelli64_nolock(ofile);
                 io.seek(ofile, 0, SEEK_SET);
-                write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt, archive_id, sets, lastgood);
-                io.seek(ofile, 0, SEEK_END);
+                write_header(ofile, diff_flag ? DIFF_BACKUP : BACKUP, memory_usage, hash_flag, hash_salt, archive_id, lastgood);
+                io.seek(ofile, lastgood, SEEK_SET);
             }
         };
 
-        sets++;
-        commit();
+
+        //commit();
 
         io.write("PAYLOADD", 8, ofile);
         uint64_t w = io.write_count;
@@ -2727,7 +2758,10 @@ int main(int argc2, char *argv2[])
         size_t references_size = 0;
         size_t set_size = 0;
 
+        references_size = write_packets_added(ofile);
+        contents_size = write_contents_added(ofile);
 
+        commit();
 
         if (ok) {
             // We are noe after payload-N
@@ -2735,9 +2769,8 @@ int main(int argc2, char *argv2[])
             uint64_t s = backup_set_size();
             uint64_t f = files;
 
-            contents_size = write_contents_added(ofile, sets - 1);
-            references_size = write_packets_added(ofile, sets - 1);
-            set_size = write_backup_set(ofile, sets - 1, d, s, f);
+
+            set_size = write_backup_set(ofile, d, s, f);
 
             commit();
         }
@@ -2745,23 +2778,13 @@ int main(int argc2, char *argv2[])
         size_t hashtable_size = write_hashtable(ofile);
 
 
-        commit();
         
-        //io.write("END", 3, ofile);
+        io.write(file_footer, sizeof(file_footer), ofile);
 
         if(verbose_level > 0 && verbose_level < 3) {
             statusbar.clear_line();
         }
 
-
-        if (!ok) {
-            sets--;
-            commit();
-#ifdef _WIN32
-            unshadow(); // todo raii
-#endif
-            exit(1); // todo return code
-        }
 
         io.seek(ofile, 0, SEEK_END);
         uint64_t added = io.tell(ofile) - original_file_size;
