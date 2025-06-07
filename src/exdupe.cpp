@@ -976,7 +976,7 @@ void list_contents() {
         uint64_t prev_c = 0;
         for (size_t set = 0; set < sets.size(); set++) {
             uint64_t c = sets.at(set) - prev_c;
-            prev_c = c;
+            prev_c = sets.at(set);
             read_backup_set(ffile, sets.at(set), d, s, f, nullptr);
             auto ds = date2str(d);
             statusbar.print(0, L"%d  %s  %s B  %s files  %sB", set, ds.c_str(), del(s).c_str(), del(f).c_str(), s2w(suffix(c)).c_str());
@@ -2740,7 +2740,7 @@ int main(int argc2, char *argv2[])
         uint64_t end_time_without_overhead = GetTickCount64();
 
         if (files + dirs == 0) {
-            if (output_file != L("-stdout")) {
+            if (output_file != L("-stdout") && !diff_flag) {
                 fclose(ofile);
                 std::filesystem::remove(output_file);
             }
