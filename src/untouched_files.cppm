@@ -35,19 +35,6 @@ public:
         contents_full_ids[c.file_id] = CASESENSE(c.abs_path);
     }
 
-    void initialize_if_untouched(contents_t& c) {
-        if(c.unchanged) {
-            auto id_iter = contents_full_ids.find(c.file_id);
-            rassert(id_iter != contents_full_ids.end());
-            auto p = id_iter->second;
-            auto path_iter = contents_full.find(p);
-            rassert(path_iter != contents_full.end());
-            // todo, maybe it's better to remove this and let the payload writer access contents_full directly                
-            c = path_iter->second;
-            c.unchanged = true;
-        }
-    }
-
 private:
     std::unordered_map<STRING, contents_t> contents_full; // {abs_path, contents}
     std::unordered_map<uint64_t, STRING> contents_full_ids; // {file_id, abs_path}

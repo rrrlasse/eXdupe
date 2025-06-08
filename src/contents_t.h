@@ -8,7 +8,6 @@
 
 class contents_t {
 public:
-    bool unchanged = false;
     STRING name;
     STRING link;
     uint64_t size = 0;

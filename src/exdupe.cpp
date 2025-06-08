@@ -341,15 +341,12 @@ void read_content_item(FILE* file, contents_t& c) {
     uint8_t type = io.read_ui<uint8_t>(file);
     c.directory = ((type >> 0) & 1) == 1;
     c.symlink = ((type >> 1) & 1) == 1;
-    c.unchanged = ((type >> 2) & 1) == 1;
     c.is_duplicate_of_full = ((type >> 3) & 1) == 1;
     c.is_duplicate_of_diff = ((type >> 4) & 1) == 1;
     c.in_diff = ((type >> 5) & 1) == 1;
 
     c.file_id = io.read_compact<uint64_t>(file);
-    if (c.unchanged) {
-        return;
-    }
+
     c.abs_path = slashify(io.read_utf8_string(file));
     c.payload = io.read_compact<uint64_t>(file);
     c.name = slashify(io.read_utf8_string(file));
@@ -376,7 +373,6 @@ void write_contents_item(FILE *file, const contents_t &c) {
     uint64_t written = io.write_count;
     uint8_t type = ((c.directory ? 1 : 0) << 0) 
         | ((c.symlink ? 1 : 0) << 1) 
-        | ((c.unchanged ? 1 : 0) << 2)
         | ((c.is_duplicate_of_full ? 1 : 0) << 3) 
         | ((c.is_duplicate_of_diff ? 1 : 0) << 4) 
         | ((c.in_diff ? 1 : 0) << 5);
@@ -384,19 +380,18 @@ void write_contents_item(FILE *file, const contents_t &c) {
     io.write_ui<uint8_t>(type, file);
     io.write_compact<uint64_t>(c.file_id, file);
 
-    if(!c.unchanged) {
-        io.write_utf8_string(c.abs_path, file);
-        io.write_compact<uint64_t>(c.payload, file);
-        io.write_utf8_string(c.name, file);
-        io.write_utf8_string(c.link, file);
-        io.write_compact<uint64_t>(c.size, file);
-        io.write_ui<uint32_t>(c.checksum, file);
-        io.write_compact<uint64_t>(c.file_c_time, file);
-        io.write_compact<uint64_t>(c.file_modified, file);
-        io.write_ui<uint32_t>(c.attributes, file);
-        io.write_compact<uint64_t>(c.duplicate, file);
-        write_hash(file, c);
-    }
+    io.write_utf8_string(c.abs_path, file);
+    io.write_compact<uint64_t>(c.payload, file);
+    io.write_utf8_string(c.name, file);
+    io.write_utf8_string(c.link, file);
+    io.write_compact<uint64_t>(c.size, file);
+    io.write_ui<uint32_t>(c.checksum, file);
+    io.write_compact<uint64_t>(c.file_c_time, file);
+    io.write_compact<uint64_t>(c.file_modified, file);
+    io.write_ui<uint32_t>(c.attributes, file);
+    io.write_compact<uint64_t>(c.duplicate, file);
+    write_hash(file, c);
+    
     contents_size += io.write_count - written;
 }
 
@@ -999,7 +994,7 @@ void list_contents() {
             if (c.symlink) {
                 print_file(STRING(c.name + L(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_modified);
                 files++;
-            } else if (c.directory && !c.unchanged) { // if unchanged, then all other fields except file_id have arbitrary values
+            } else if (c.directory) {
                 if (c.name != L(".\\") && c.name != L("./") && c.name != L("")) {
                     static STRING last_full = L("");
                     static bool first_time = true;
@@ -1015,7 +1010,6 @@ void list_contents() {
                     }
                 }
             } else {
-                untouched_files2.initialize_if_untouched(c);
                 print_file(c.name, c.size, c.file_modified);
             }
         }
@@ -1656,19 +1650,8 @@ void restore_from_file(FILE *ffull, FILE *fdiff, uint64_t backup_set_number) {
 
     uint64_t backup_set_offset = sets.at(backup_set_number);
 
-    if (diff_flag) {
-        basepay = read_packets(ffull); // fixme basepay still needed?
-    //    read_packets(fdiff);
-    } else {
-        basepay = read_packets(ffull);
-    }
-
+    basepay = read_packets(ffull); // fixme basepay still needed?
     contents = read_contents(archive_file);
-    if(diff_flag) {
-        for (auto &c : contents) {
-            untouched_files2.initialize_if_untouched(c);
-        }
-    }
 
    // verify_restorelist(restorelist, content); 
     time_ms_t d;
@@ -1724,10 +1707,6 @@ void restore_from_file(FILE *ffull, FILE *fdiff, uint64_t backup_set_number) {
                 update_statusbar_restore(outfile);
                 ofile = pipe_out ? stdout : create_file(outfile);
                 resolved = 0;
-
-                if (diff_flag && !c.unchanged && !c.is_duplicate_of_full ) {
-               //     c.payload += basepay;
-                }
 
                 while (resolved < c.size) {
                     size_t process = minimum(c.size - resolved, RESTORE_CHUNKSIZE);
@@ -1981,7 +1960,6 @@ void compress_symlink(const STRING &link, const STRING &target) {
     files++;
 
     contents_t c;
-    c.unchanged = false;
     c.directory = is_dir;
     c.symlink = true;
     c.link = STRING(tmp);
@@ -2078,7 +2056,6 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
         if(c) {
             auto _ = std::lock_guard(compress_file_mutex);
             update_statusbar_backup(input_file);
-            c->unchanged = true;
             unchanged += c->size;
             unchanged_files++;
            // contents.push_back(*c);
@@ -2131,7 +2108,6 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     file_meta.attributes = attributes;
     file_meta.directory = false;
     file_meta.symlink = false;
-    file_meta.unchanged = false;
     file_meta.in_diff = false;
      //diff_flag;
 
@@ -2143,7 +2119,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 
     files++;
 
-#if 1 // Detect files with identical payload, both within current bacup set, and between full and diff sets
+#if 1 // Detect files with identical payload, both within current backup set, and between full and diff sets
     if(file_size >= IDENTICAL_FILE_SIZE && input_file != L("-stdin")) {
         auto original = identical;
         contents_t cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, STRING file) { identical += n; update_statusbar_backup(file); }, input_file);
@@ -2681,10 +2657,6 @@ int main(int argc2, char *argv2[])
                 std::cerr << "SetEndOfFile failed.\n";
                 return 1;
             }
-            
-            //io.close(ifile);
-            //io.seek(ofile, lastgood, SEEK_SET);
-            
 
         } else {
             
