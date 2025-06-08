@@ -195,7 +195,7 @@ template<typename... Args> void ex(const Args&... args) {
 }
 
 bool cmp_diff() {
-    auto ret = sys(diff_tool, "--no-dereference -r", in, out, nul);
+    auto ret = sys(diff_tool, "--no-dereference -r", in, out, "2>&1");
     return ret.empty();
 }
 
@@ -390,9 +390,9 @@ TEST_CASE("case rename") {
 #else  
     sys("mv", p(in + "/a"), p(in + "/A"));
 #endif
-    ex("-D", in, full, diff);
+    ex("-D", in, full);
     rm(out);
-    ex("-RD", full, diff, out);
+    ex("-R -S1", full, out);
     cmp();
 }
 
@@ -403,9 +403,9 @@ TEST_CASE("simple backup, diff backup and restore") {
     ex("-R", full, out);
     cmp();
 
-    ex("-D", in, full, diff);
+    ex("-D", in, full);
     rm(out);
-    ex("-RD", full, diff, out);
+    ex("-R -S1", full, out);
     cmp();
 }
 
@@ -463,8 +463,8 @@ TEST_CASE("w flag") {
     // Recognize that file has changed
     modify(in + "/high_entropy_a");
     rm(out);
-    ex("-Dwf", in, full, diff + "w");
-    ex("-RD", full, diff + "w", out);
+    ex("-Dwf", in, full);
+    ex("-R -S3", full, out);
     cmp();
 }
 
@@ -475,9 +475,9 @@ TEST_CASE("destination directory doesn't exist") {
     rm(out);
     ex("-R", full, out);
     cmp();
-    ex("-D", in, full, diff);
+    ex("-D", in, full);
     rm(out);
-    ex("-RD", full, diff, out);
+    ex("-R -S1", full, out);
     cmp();
 }
 
@@ -510,6 +510,7 @@ TEST_CASE("lua all or none") {
         // no full file created, so we expect restore to fail
         ex("-m1 -u\"return false\"", in, full);
         rm(in);
+        md(in);
     }
 
     ex("-R", full, out); 
