@@ -341,9 +341,6 @@ void read_content_item(FILE* file, contents_t& c) {
     uint8_t type = io.read_ui<uint8_t>(file);
     c.directory = ((type >> 0) & 1) == 1;
     c.symlink = ((type >> 1) & 1) == 1;
-    c.is_duplicate_of_full = ((type >> 3) & 1) == 1;
-    c.is_duplicate_of_diff = ((type >> 4) & 1) == 1;
-    c.in_diff = ((type >> 5) & 1) == 1;
 
     c.file_id = io.read_compact<uint64_t>(file);
 
@@ -372,10 +369,7 @@ void read_content_item(FILE* file, contents_t& c) {
 void write_contents_item(FILE *file, const contents_t &c) {
     uint64_t written = io.write_count;
     uint8_t type = ((c.directory ? 1 : 0) << 0) 
-        | ((c.symlink ? 1 : 0) << 1) 
-        | ((c.is_duplicate_of_full ? 1 : 0) << 3) 
-        | ((c.is_duplicate_of_diff ? 1 : 0) << 4) 
-        | ((c.in_diff ? 1 : 0) << 5);
+        | ((c.symlink ? 1 : 0) << 1);
 
     io.write_ui<uint8_t>(type, file);
     io.write_compact<uint64_t>(c.file_id, file);
@@ -2108,7 +2102,6 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     file_meta.attributes = attributes;
     file_meta.directory = false;
     file_meta.symlink = false;
-    file_meta.in_diff = false;
      //diff_flag;
 
     // compress_file() now synchronized
@@ -2127,8 +2120,6 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
         if(!cont.hash.empty()) {
             file_meta.payload = cont.payload;
             file_meta.checksum = cont.checksum;
-            file_meta.is_duplicate_of_full = !cont.in_diff;
-            file_meta.is_duplicate_of_diff = cont.in_diff;
             file_meta.duplicate = cont.file_id;
 
             if (!diff_flag) {
