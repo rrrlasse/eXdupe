@@ -2586,23 +2586,11 @@ int main(int argc2, char *argv2[])
             }
 
             seek_to_header(ifile, "HASHTBLE");
-            int rr = io.seek(ifile, -8, SEEK_CUR);
-            if (rr) {
-                std::cerr << "seek failed.\n";
-                return 1;
-            }
-            int fd = _fileno(ifile);
-            HANDLE hFile = (HANDLE)_get_osfhandle(fd);
-
-            int e = SetEndOfFile(hFile);
-            int er = GetLastError();
-            if (!e) {
-                std::cerr << "SetEndOfFile failed.\n";
-                return 1;
-            }
+            io.seek(ifile, -8, SEEK_CUR);
+            io.truncate(ifile);
 
         } else {
-            
+    
             archive_id = rnd64();
             output_file = full;
             ofile = create_file(output_file);
@@ -2615,8 +2603,6 @@ int main(int argc2, char *argv2[])
             write_header(ofile, memory_usage, hash_flag, hash_salt, 0);
         }
 
-
-
         auto commit = [&]() {
             if (output_file != L("-stdout")) {
                 lastgood = _ftelli64_nolock(ofile);
@@ -2626,14 +2612,11 @@ int main(int argc2, char *argv2[])
             }
         };
 
-
-        //commit();
-
         io.write("PAYLOADD", 8, ofile);
         uint64_t w = io.write_count;
 
         start_time_without_overhead = GetTickCount64();
-        bool ok = true;
+        bool backup_aborted = false;
 
         try {
             if (inputfiles.size() > 0 && inputfiles.at(0) != L("-stdin")) {
@@ -2644,7 +2627,7 @@ int main(int argc2, char *argv2[])
                 compression::compress_file_finalize();
             }
         } catch (std::exception &_) {
-            ok = false;
+            backup_aborted = true;
         }
          
         io.write("X", 1, ofile);
@@ -2678,22 +2661,17 @@ int main(int argc2, char *argv2[])
 
         commit();
 
-        if (ok) {
+        if (!backup_aborted) {
             // We are noe after payload-N
             time_ms_t d = cur_date();
             uint64_t s = backup_set_size();
             uint64_t f = files;
-
-
             set_size = write_backup_set(ofile, d, s, f);
-
             commit();
         }
                 
         size_t hashtable_size = write_hashtable(ofile);
 
-
-        
         io.write(file_footer, sizeof(file_footer), ofile);
 
         if(verbose_level > 0 && verbose_level < 3) {

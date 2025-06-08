@@ -13,6 +13,7 @@
 #include <cstdint>
 #ifdef _WIN32
 #include <windows.h>
+#include <io.h>
 #endif
 
 #include "gsl/gsl"
@@ -34,6 +35,12 @@ class Cio {
     STRING read_utf8_string(FILE *_File);
     void write_utf8_string(STRING str, FILE *_File);
     std::string read_bin_string(size_t Count, FILE *_File);
+    void truncate(FILE *file);
+
+    static bool stdin_tty();
+    
+    uint64_t read_count;
+    uint64_t write_count;
 
     template <std::unsigned_integral T> size_t write_ui(T value, FILE* _File) {
         uint64_t v = value;
@@ -110,9 +117,5 @@ class Cio {
         return result;
     }
 
-    static bool stdin_tty();
-
-    uint64_t read_count;
-    uint64_t write_count;
 
 };

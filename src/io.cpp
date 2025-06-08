@@ -132,4 +132,17 @@ void Cio::write_utf8_string(STRING str, FILE *_File) {
     write_compact<uint64_t>(str.size(), _File);
     write(str.c_str(), str.size(), _File);
 #endif
-}
+    }
+
+void Cio::truncate(FILE *file) {
+#ifdef _WIN32
+        int fd = _fileno(file);
+        HANDLE hFile = (HANDLE)_get_osfhandle(fd);
+        int e = SetEndOfFile(hFile);
+        int er = GetLastError();
+        rassert(e);
+#else
+        int fd = fileno(file);
+        rassert(ftruncate(fd, pos) == 0);
+#endif
+    }
