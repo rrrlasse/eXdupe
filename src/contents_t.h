@@ -18,7 +18,6 @@ public:
     int attributes = 0;
     bool directory = false;
     bool symlink = false;
-    checksum_t ct{};
     STRING extra;
     STRING abs_path;
     uint64_t file_id = 0; // diff files refer to this for unchanged files

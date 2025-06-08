@@ -1990,6 +1990,8 @@ size_t out_current_queue = 0;
 vector<contents_t> file_queue;
 std::mutex compress_file_mutex;
 
+checksum_t file_meta_ct;
+
 vector<char> dummy(DISK_READ_CHUNK);
 
 void empty_q(bool flush, bool entropy) {
@@ -2144,7 +2146,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     }
 #endif
 
-    checksum_init(&file_meta.ct);
+    checksum_init(&file_meta_ct);
 
     if(!diff_flag) {
         io.write("F", 1, ofile);
@@ -2176,7 +2178,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
         size_t read = minimum(file_size - file_read, DISK_READ_CHUNK);
         size_t r = io.read_vector(payload_queue[current_queue], read, payload_queue_size[current_queue], handle, false);
         abort(io.stdin_tty() && r != read, (L("Unexpected midway read error, cannot continue: ") + input_file).c_str());
-        checksum(payload_queue[current_queue].data() + payload_queue_size[current_queue], r, &file_meta.ct);
+        checksum(payload_queue[current_queue].data() + payload_queue_size[current_queue], r, &file_meta_ct);
 
         if (overflows && input_file == L("-stdin") && r == 0) {
             break;
@@ -2189,8 +2191,8 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
         if (file_read == file_size && file_size > 0) {
             // No CRC block for 0-sized files
             io.write("C", 1, ofile);
-            file_meta.checksum = file_meta.ct.result32();
-            io.write_ui<uint32_t>(file_meta.ct.result32(), ofile);
+            file_meta.checksum = file_meta_ct.result32();
+            io.write_ui<uint32_t>(file_meta_ct.result32(), ofile);
         }
 
         if (overflows && file_read >= file_size) {
@@ -2212,8 +2214,8 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
         file_meta.size = file_read;
     }
 
-    file_meta.checksum = file_meta.ct.result32();
-    file_meta.hash = file_meta.ct.result();
+    file_meta.checksum = file_meta_ct.result32();
+    file_meta.hash = file_meta_ct.result();
     identical_files.add(file_meta);
 
     contents.push_back(file_meta); // fixme, use method that guarantees we push to both vectors
