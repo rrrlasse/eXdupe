@@ -1954,7 +1954,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
             break;
         }
 
-        payload_queue_size[current_queue] += read;
+        payload_queue_size[current_queue] += r;
         file_read += r;
         payload_read += r;
 
