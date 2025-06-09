@@ -270,27 +270,36 @@ std::tm local_time_tm(const time_ms_t &t) {
 // Returns {created time, modified time} on Windows and {status change time, modified time} on nix
 pair<time_ms_t, time_ms_t> get_date(const STRING& file) {
 #ifdef _WIN32
-    FILETIME fileTimeModified;
-    FILETIME fileTimeCreated;
-
-    HANDLE hFile = CreateFile(file.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT , NULL);
+    ULARGE_INTEGER modified;
+    ULARGE_INTEGER created;
+    HANDLE hFile = CreateFile(file.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
     if (hFile != INVALID_HANDLE_VALUE) {
+        FILETIME fileTimeModified;
+        FILETIME fileTimeCreated;
         if (GetFileTime(hFile, &fileTimeCreated, nullptr, &fileTimeModified)) {
-            ULARGE_INTEGER modified;
-            ULARGE_INTEGER created;
             created.LowPart = fileTimeCreated.dwLowDateTime;
             created.HighPart = fileTimeCreated.dwHighDateTime;
             modified.LowPart = fileTimeModified.dwLowDateTime;
             modified.HighPart = fileTimeModified.dwHighDateTime;
-            CloseHandle(hFile);
-            return {static_cast<time_ms_t>((created.QuadPart - 116444736000000000ull) / 10000ull), static_cast<time_ms_t>((modified.QuadPart - 116444736000000000ull) / 10000ull)};
         } else {
+            CloseHandle(hFile);
             return {};
         }
         CloseHandle(hFile);
     } else {
-        return {};
+        WIN32_FIND_DATAW findData;
+        HANDLE hFind = FindFirstFileW(file.c_str(), &findData);
+        if (hFind == INVALID_HANDLE_VALUE) {
+            return {};
+        }
+        created.LowPart = findData.ftCreationTime.dwLowDateTime;
+        created.HighPart = findData.ftCreationTime.dwHighDateTime;
+        modified.LowPart = findData.ftLastWriteTime.dwLowDateTime;
+        modified.HighPart = findData.ftLastWriteTime.dwHighDateTime;
+        FindClose(hFind);
     }
+    return {static_cast<time_ms_t>((created.QuadPart - 116444736000000000ull) / 10000ull), 
+        static_cast<time_ms_t>((modified.QuadPart - 116444736000000000ull) / 10000ull)};
 #else
     struct stat attrib;
 
