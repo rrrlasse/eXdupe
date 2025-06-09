@@ -252,15 +252,20 @@ vector<contents_t> contents_added;
 vector<packet_t> packets;
 vector<packet_t> packets_added;
 
-
 vector<uint64_t> backup_set; // file_id;
 uint64_t original_file_size = 0;
 
 
 std::vector<std::pair<string, uint64_t>> headers;
 std::vector<uint64_t> sets;
+std::map<uint64_t, contents_t> content_map;
 
-const char file_footer[] = {'E', 'N', 'D'};
+const string file_footer = "END";
+const string backup_set_header = "BCKUPSET";
+const string all_contents_header = "CONTENTS";
+const string hashtable_header = "HASHTBLE";
+const string packets_header = "PACKETSS";
+const string payload_header = "PAYLOADD";
 
 uint64_t backup_set_size() {
     // unchanged and identical are not sent to libexdupe
@@ -365,6 +370,27 @@ void read_content_item(FILE* file, contents_t& c) {
     }
 }
 
+
+vector<contents_t> read_contents(FILE *f) {
+    vector<contents_t> ret;
+    contents_t c;
+    for (auto &h : headers) {
+        if (h.first == all_contents_header) {
+            io.seek(f, h.second, SEEK_SET);
+            uint64_t n = io.read_ui<uint64_t>(f);
+            for (uint64_t i = 0; i < n; i++) {
+                read_content_item(f, c);
+                ret.push_back(c);
+                if (c.file_id >= file_id_counter) {
+                    file_id_counter = c.file_id + 1;
+                }
+            }
+        }
+    }
+    return ret;
+}
+
+
 void write_contents_item(FILE *file, const contents_t &c) {
     uint64_t written = io.write_count;
     uint8_t type = ((c.directory ? 1 : 0) << 0) 
@@ -386,6 +412,13 @@ void write_contents_item(FILE *file, const contents_t &c) {
     write_hash(file, c);
     
     contents_size += io.write_count - written;
+}
+
+void read_content_map(FILE* file) {
+    contents = read_contents(file);
+    for (auto &c : contents) {
+        content_map.insert({c.file_id, c});
+    }
 }
 
 
@@ -502,7 +535,7 @@ uint64_t seek_to_header(FILE *file, const string &header) {
 uint64_t read_packets(FILE *file) {
     uint64_t added_payload = 0;
     for (auto &h : headers) {
-        if (h.first == "PACKETSS") {
+        if (h.first == packets_header) {
             io.seek(file, h.second, SEEK_SET);
             uint64_t n = io.read_ui<uint64_t>(file);
 
@@ -533,7 +566,7 @@ uint64_t read_packets(FILE *file) {
 
 size_t write_packets_added(FILE* file) {
 
-    io.write("PACKETSS", 8, file);
+    io.write(packets_header.c_str(), packets_header.size(), file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(packets_added.size(), file);
 
@@ -713,7 +746,7 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
 
 size_t write_hashtable(FILE *file) {
     size_t t = dup_compress_hashtable(memory_begin);
-    io.write("HASHTBLE", 8, file);
+    io.write(hashtable_header.c_str(), hashtable_header.size(), file);
     io.write_ui<uint64_t>(t, file);
     io.write(memory_begin, t, file);
     io.write_ui<uint64_t>(t + 8, file);
@@ -721,7 +754,7 @@ size_t write_hashtable(FILE *file) {
 }
 
 uint64_t read_hashtable(FILE *file) {
-    uint64_t orig = seek_to_header(file, "HASHTBLE");
+    uint64_t orig = seek_to_header(file, hashtable_header);
     uint64_t s = io.read_ui<uint64_t>(file);
     if (verbose_level > 0) {
         statusbar.clear_line();
@@ -738,7 +771,7 @@ uint64_t read_hashtable(FILE *file) {
 
 
 size_t write_contents_added(FILE *file) {
-    io.write("CONTENTS", 8, file);
+    io.write(all_contents_header.c_str(), all_contents_header.size(), file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(contents_added.size(), file);
     for (size_t i = 0; i < contents_added.size(); i++) {
@@ -771,8 +804,7 @@ void read_backup_set(FILE *f, uint64_t filepos, time_ms_t &date, uint64_t &size,
 }
 
 size_t write_backup_set(FILE *file, time_ms_t date, uint64_t size, uint64_t files) {
-    std::string s = "BACKUPST";//    +format("{:05d}", set);
-    io.write(s.c_str(), 8, file);
+    io.write(backup_set_header.c_str(), backup_set_header.size(), file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(backup_set.size(), file);
     for (size_t i = 0; i < backup_set.size(); i++) {
@@ -788,40 +820,19 @@ size_t write_backup_set(FILE *file, time_ms_t date, uint64_t size, uint64_t file
 }
 
 
-
-vector<contents_t> read_contents(FILE* f) {
-    vector<contents_t> ret;
-    contents_t c;
-    for (auto& h : headers) {
-        if (h.first == "CONTENTS") {
-            io.seek(f, h.second, SEEK_SET);
-            uint64_t n = io.read_ui<uint64_t>(f);
-            for (uint64_t i = 0; i < n; i++) {
-                read_content_item(f, c);
-                ret.push_back(c);
-                if (c.file_id >= file_id_counter) {
-                    file_id_counter = c.file_id + 1;
-                }
-            }
-        }
-    }
-    return ret;
-}
-
-
 bool read_headers(FILE* file) {
     bool file_ok = true;
     uint64_t lastgood = 0;
     io.seek(file, 0, SEEK_SET);
     read_header(file, &lastgood);
-    io.seek(file, -sizeof(file_footer), SEEK_END); // file was written to stdout that cannot seek to update header
+    io.seek(file, -file_footer.size(), SEEK_END); // file was written to stdout that cannot seek to update header
 
     string e = io.read_bin_string(3, file);
-    if (e != "END") {
+    if (e != file_footer) {
         file_ok = false;
         io.seek(file, lastgood, SEEK_SET);
     } else {
-        io.seek(file, -sizeof(file_footer), SEEK_END); // file was written to stdout that cannot seek to update header    
+        io.seek(file, -file_footer.size(), SEEK_END); // file was written to stdout that cannot seek to update header    
     }
 
     uint64_t s;
@@ -841,15 +852,13 @@ bool read_headers(FILE* file) {
 
         auto p = make_pair(h, io.tell(file));
         headers.insert(headers.begin(), p);
-        if (h == "BACKUPST") {
+        if (h == backup_set_header) {
             sets.insert(sets.begin(), io.tell(file));
         }
         abort(io.seek(file, -8, SEEK_CUR) != 0, msg);
     }
     return file_ok;
 }
-
-
 
 
 void init_content_maps(FILE* ffull) {
@@ -932,52 +941,70 @@ void list_contents() {
     uint64_t s = 0;
     uint64_t f = 0;
 
+    auto print_item = [](contents_t& c) {
+        if (c.abs_path.empty()) {
+            return;
+        }
+
+        if (c.symlink) {
+            print_file(STRING(c.name + L(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_modified);
+            files++;
+        } else if (c.directory) {
+            if (c.name != L(".\\") && c.name != L("./") && c.name != L("")) {
+                static STRING last_full = L("");
+                static bool first_time = true;
+
+                STRING full = c.name;
+                full = remove_delimitor(full);
+                STRING full_orig = full;
+
+                if (full != last_full || first_time) {
+                    statusbar.print_no_lf(0, L("%s%s\n"), STRING(full_orig != full ? L("*") : L("")).c_str(), full.c_str());
+                    last_full = full;
+                    first_time = false;
+                }
+            }
+        } else {
+            print_file(c.name, c.size, c.file_modified);
+        }
+    };
+
     if (set_flag == -1) {
+        statusbar.print(0, L"Backup sets:");
         uint64_t set = 0;
         uint64_t prev_c = 0;
         for (size_t set = 0; set < sets.size(); set++) {
             uint64_t c = sets.at(set) - prev_c;
             prev_c = sets.at(set);
+            
             read_backup_set(ffile, sets.at(set), d, s, f, nullptr);
             auto ds = date2str(d);
-            statusbar.print(0, L"%d  %s  %s B  %s files  %sB", set, ds.c_str(), del(s).c_str(), del(f).c_str(), s2w(suffix(c)).c_str());
+            statusbar.print(0, L"%s  %s  %sB  %s files  %sB+", del(set, 3).c_str(), ds.c_str(), s2w(suffix(s, true)).c_str(), s2w(suffix(f, true)).c_str(), s2w(suffix(c, true)).c_str());
         }
+
+        statusbar.print(0, L"\nA few files:");
+        read_content_map(ffile);
+        for (uint64_t i = 1; i < content_map.size(); i += content_map.size() / 8) {
+            auto s = content_map[i].abs_path;
+            if (!s.empty()) {
+                if (s.length() > 77) {
+                    s = s.substr(0, minimum(s.length(), 75)) + L"..";
+                }
+                statusbar.print(0, L"  %s", s.c_str());
+            }
+        }
+
     } else {
 
-        abort(set_flag > sets.size(), L"Backup set does not exist"); // fixme, allows you to specify the last set even if its corrupted
+        abort(set_flag >= sets.size(), L"Backup set does not exist"); // fixme, allows you to specify the last set even if its corrupted?
         vector<uint64_t> set;
         read_backup_set(ffile, sets.at(set_flag), d, s, f, &set);
-        contents = read_contents(ffile);
 
-        std::map<uint64_t, contents_t> content_map;
-        for (auto &c : contents) {
-            content_map.insert({c.file_id, c});
-        }
+        read_content_map(ffile);
 
         for (auto &id : set) {
             contents_t c = content_map[id];
-
-            if (c.symlink) {
-                print_file(STRING(c.name + L(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_modified);
-                files++;
-            } else if (c.directory) {
-                if (c.name != L(".\\") && c.name != L("./") && c.name != L("")) {
-                    static STRING last_full = L("");
-                    static bool first_time = true;
-
-                    STRING full = c.name;
-                    full = remove_delimitor(full);
-                    STRING full_orig = full;
-
-                    if (full != last_full || first_time) {
-                        statusbar.print_no_lf(0, L("%s%s\n"), STRING(full_orig != full ? L("*") : L("")).c_str(), full.c_str());
-                        last_full = full;
-                        first_time = false;
-                    }
-                }
-            } else {
-                print_file(c.name, c.size, c.file_modified);
-            }
+            print_item(c);
         }
         fclose(ffile);
     }
@@ -1315,7 +1342,7 @@ paths to restore, written as printed by the -L flag.
 Flags:
     -f Overwrite existing files (default is to abort)
     -c Continue if a source file cannot be read (default is to abort)
-    -w Read contents of files during differential backup to determine if they
+    -w Read contents of files during incremental backup to determine if they
        have changed (default is to look at timestamps only)
    -t# Use # threads (default = 8)
    -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
@@ -1336,8 +1363,10 @@ Flags:
  -e"x" Don't compress or deduplicate files with the file extension x. See
        more with -e? flag.
 
-Example of backup, differential backups and restore:
-  exdupe my_dir backup.full
+Example of backup, incremental backups and restore:
+  exdupe my_dir backup.ex
+
+
   exdupe -D my_dir backup.full backup1.diff
   exdupe -D my_dir backup.full backup2.diff
   exdupe -RD backup.full backup2.diff restore_dir
@@ -1350,22 +1379,22 @@ More examples:
     std::string short_help = R"(Full backup:
   [flags] <sources | -stdin> <dest file | -stdout>
 
-Restore full backup:
+Restore backup:
   [flags] -R <full backup file> <dest dir | -stdout>
   [flags] -R -stdin <dest dir>
 
-Differential backup:
+Incremental backup:
   [flags] -D <sources> <full backup file> <dest file | -stdout>
   [flags] -D -stdin <full backup file> <dest file>
   
-Restore differential backup:
+Restore incremental backup:
   [flags] -RD <full backup file> <diff backup file> <dest dir | -stdout>
 
-Most common flags:
+A few flags:
     -f Overwrite existing files (default is to abort)
     -c Continue if a source file cannot be read (default is to abort)
    -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
-       input data for best result
+       of a backup set for best result
    -x# Use compression level # after deduplication (0, 1 = default, 2, 3)
     -? Show complete help)";
  
@@ -1607,7 +1636,6 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
     uint64_t backup_set_offset = sets.at(backup_set_number);
 
     basepay = read_packets(ffull); // fixme basepay still needed?
-    contents = read_contents(ffull);
 
    // verify_restorelist(restorelist, content); 
     time_ms_t d;
@@ -1615,10 +1643,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
     uint64_t f;
     read_backup_set(ffull, backup_set_offset, d, s, f, &backup_set);
 
-    std::map<uint64_t, contents_t> content_map;
-    for (auto &c : contents) {
-        content_map.insert({c.file_id, c});
-    }
+    read_content_map(ffull);
 
     for (uint32_t i = 0; i < backup_set.size(); i++) {
         uint64_t id = backup_set.at(i);
@@ -2296,7 +2321,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // First process files
     std::atomic<size_t> ctr = 0;
-    const int max_threads = 6;
+    const int max_threads = 1;
     std::thread threads[max_threads];
     std::atomic<bool> abort = false;
 
@@ -2585,7 +2610,7 @@ int main(int argc2, char *argv2[])
                 identical_files.add(c);
             }
 
-            seek_to_header(ifile, "HASHTBLE");
+            seek_to_header(ifile, hashtable_header);
             io.seek(ifile, -8, SEEK_CUR);
             io.truncate(ifile);
 
@@ -2612,7 +2637,7 @@ int main(int argc2, char *argv2[])
             }
         };
 
-        io.write("PAYLOADD", 8, ofile);
+        io.write(payload_header.data(), payload_header.size(), ofile);
         uint64_t w = io.write_count;
 
         start_time_without_overhead = GetTickCount64();
@@ -2672,7 +2697,7 @@ int main(int argc2, char *argv2[])
                 
         size_t hashtable_size = write_hashtable(ofile);
 
-        io.write(file_footer, sizeof(file_footer), ofile);
+        io.write(file_footer.data(), file_footer.size(), ofile);
 
         if(verbose_level > 0 && verbose_level < 3) {
             statusbar.clear_line();

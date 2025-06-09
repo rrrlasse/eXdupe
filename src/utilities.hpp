@@ -60,7 +60,7 @@ enum status_t { BACKUP, DIFF_BACKUP, RESTORE, DIFF_RESTORE, LIST, DIFF_LIST };
 typedef long long time_ms_t; 
 
 std::tm local_time_tm(const time_ms_t &t);
-std::string suffix(uint64_t size);
+std::string suffix(uint64_t size, bool column = false);
 uint64_t rnd64();
 bool is_valid_utf8(const std::string& input) ;
 void replace_stdstr(std::string &str, const std::string &oldStr, const std::string &newStr);
