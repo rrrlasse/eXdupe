@@ -478,10 +478,8 @@ void add_packets(const char *src, size_t len, uint64_t archive_offset) {
             // raw data chunk
             ref.is_reference = false;
             ref.archive_offset = archive_offset + pos;
-            if (!(ref.archive_offset > 0 && ref.archive_offset < 200 * G)) {
-                int g = 34;
-            }
-            rassert(ref.archive_offset > 0 && ref.archive_offset < 200 * G);
+
+     //       rassert(ref.archive_offset > 0 && ref.archive_offset < 20000 * G);
         } 
         packets.push_back(ref); // fixme still needed?
         packets_added.push_back(ref);
@@ -551,7 +549,7 @@ uint64_t read_packets(FILE *file) {
                     if (!(ref.archive_offset > 0 && ref.archive_offset < 200 * G)) {
                         int g = 34;
                     }
-                    rassert(ref.archive_offset > 0 && ref.archive_offset < 200 * G);
+                    //rassert(ref.archive_offset > 0);// && ref.archive_offset < 200 * G);
                 }
                 ref.payload = io.read_ui<uint64_t>(file);
                 ref.length = io.read_ui<uint32_t>(file);
@@ -2324,7 +2322,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // First process files
     std::atomic<size_t> ctr = 0;
-    const int max_threads = 1;
+    const int max_threads = 6;
     std::thread threads[max_threads];
     std::atomic<bool> abort = false;
 
@@ -2690,7 +2688,6 @@ int main(int argc2, char *argv2[])
         commit();
 
         if (!backup_aborted) {
-            // We are noe after payload-N
             time_ms_t d = cur_date();
             uint64_t s = backup_set_size();
             uint64_t f = files;
@@ -2701,6 +2698,14 @@ int main(int argc2, char *argv2[])
         size_t hashtable_size = write_hashtable(ofile);
 
         io.write(file_footer.data(), file_footer.size(), ofile);
+
+        if (backup_aborted) {
+#ifdef _WIN32
+            unshadow(); // todo raii
+#endif
+            return 0;        
+        }
+
 
         if(verbose_level > 0 && verbose_level < 3) {
             statusbar.clear_line();

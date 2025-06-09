@@ -6,12 +6,12 @@
 #include <string>
 #include <type_traits>
 #include <stdarg.h>
+#include <mutex>
 
 #include "unicode.h"
 #ifdef _WIN32
 #include "shadow/shadow.h"
 #endif
-
 
 
 enum retvals {err_other = 1, err_parameters = 2, err_resources = 3, err_nofiles = 4, err_assert = 5};
@@ -77,9 +77,17 @@ inline void abort(bool b, int ret, const std::string& s) {
     }
 }
 
-// todo, legacy
 inline void abort(bool b, const CHR* fmt, ...) {
+    // multiple threads from compress_recursive() usually enter simultaneously due to
+    // file system access errors, so just allow one. Todo, maybe check atomic abort flag
+    // instead of this
+    static std::mutex abort_mutex;
     if (b) {
+        bool success = abort_mutex.try_lock();
+        if (!success) {
+            return;
+        }
+            
         CERR << std::endl;
         va_list argv;
         va_start(argv, fmt);
