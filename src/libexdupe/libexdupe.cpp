@@ -1068,8 +1068,8 @@ int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload
             t = dup_size_decompressed(src);
             memcpy(dst, src + 1 + DUP_HEADER_LEN, t);
         } else if (level == '1' || level == '2' || level == '3') {
-            int32_t len_de = dup_size_decompressed(src);
-            int32_t len = dup_size_compressed(src) - DUP_HEADER_LEN - 1;
+            size_t len_de = dup_size_decompressed(src);
+            size_t len = dup_size_compressed(src) - DUP_HEADER_LEN - 1;
             t = zstd_decompress((char *)src + DUP_HEADER_LEN + 1, len, dst, len_de, 0, 0, zstd_decompress_state);
             t = len_de;
         } else {

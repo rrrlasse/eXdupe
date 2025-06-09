@@ -84,16 +84,14 @@ inline void abort(bool b, const CHR* fmt, ...) {
     static std::mutex abort_mutex;
     if (b) {
         bool success = abort_mutex.try_lock();
-        if (!success) {
-            return;
+        if (success) {
+            CERR << std::endl;
+            va_list argv;
+            va_start(argv, fmt);
+            VFPRINTF(stderr, fmt, argv);
+            va_end(argv);
+            CERR << std::endl;
         }
-            
-        CERR << std::endl;
-        va_list argv;
-        va_start(argv, fmt);
-        VFPRINTF(stderr, fmt, argv);
-        va_end(argv);
-        CERR << std::endl;
         cleanup_and_exit(err_other);
     }
 }

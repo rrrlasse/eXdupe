@@ -47,7 +47,7 @@ string nul = "2>/dev/null";
 // Please customize, use "/" for path delimitors on Windows
 string root = win ? "e:/exdupe" : "/mnt/hgfs/E/exdupe"; // the dir that contains README.md
 string work = win ? "e:/exdupe/tmp" : "~/out/tmp"; // tests will read and write here, it must support symlinks
-string bin = win ? "e:/exdupe/exdupe.exe" : "~/out/exdupe";
+string bin = win ? "e:/exdupe/exdupe.exe" : "~/exdupe/exdupe";
 
 // No need to edit
 string tmp = work + "/tmp";

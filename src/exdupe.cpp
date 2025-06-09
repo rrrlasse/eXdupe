@@ -114,8 +114,8 @@ const size_t G = 1024 * M;
 // Increase values to improve compression ratio for large data sets; decrease to
 // improve for small data sets (also increase memory_usage to improve for any
 // size).
-uint32_t DEDUPE_SMALL = 4 * K;
-size_t DEDUPE_LARGE = 128 * K;
+uint64_t DEDUPE_SMALL = 4 * K;
+uint64_t DEDUPE_LARGE = 128 * K;
 
 // Data is read from disk and deduplicated in DISK_READ_CHUNK bytes at a time
 // during backup.
@@ -333,8 +333,8 @@ STRING date2str(time_ms_t date) {
 
 STRING validchars(STRING filename) {
 #ifdef _WIN32
-    std::wregex invalid(L"[<>:\"/\\|?*]");
-    return std::regex_replace(filename, invalid, L"=");
+    std::wregex invalid(L("[<>:\"/\\|?*]"));
+    return std::regex_replace(filename, invalid, L("="));
 #else
     return filename;
 #endif
@@ -526,7 +526,7 @@ uint64_t seek_to_header(FILE *file, const string &header) {
             return orig;
         }
     }
-    abort(true, L"File is not an eXdupe archive, or archive is corrupted");
+    abort(true, L("File is not an eXdupe archive, or archive is corrupted"));
     return orig;
 }
 
@@ -823,14 +823,14 @@ bool read_headers(FILE* file) {
     uint64_t lastgood = 0;
     io.seek(file, 0, SEEK_SET);
     read_header(file, &lastgood);
-    io.seek(file, -file_footer.size(), SEEK_END); // file was written to stdout that cannot seek to update header
+    io.seek(file, -static_cast<int64_t>(file_footer.size()), SEEK_END); // file was written to stdout that cannot seek to update header
 
     string e = io.read_bin_string(3, file);
     if (e != file_footer) {
         file_ok = false;
         io.seek(file, lastgood, SEEK_SET);
     } else {
-        io.seek(file, -file_footer.size(), SEEK_END); // file was written to stdout that cannot seek to update header    
+        io.seek(file, -static_cast<int64_t>(file_footer.size()), SEEK_END); // file was written to stdout that cannot seek to update header    
     }
 
     uint64_t s;
@@ -874,7 +874,7 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
 #ifdef _WIN32
     // todo fix properly. A long *relative* path wont work
     if (file.size() > 250) {
-        file = wstring(L"\\\\?\\") + file;
+        file = wstring(L("\\\\?\\")) + file;
     }
 #endif
     FILE *f;
@@ -922,7 +922,7 @@ contents_t get_contents_from_id2(vector<contents_t>& cont, uint64_t id) {
             return c;
         }
     }
-    abort(true, L"No such id");
+    abort(true, L("No such id"));
 }
 
 void corrupted() {
@@ -968,10 +968,10 @@ void list_contents() {
     };
 
     if (set_flag == -1) {
-        statusbar.print(0, L"Uses %sB during backups, suitable for backup sets of %sB each\n", s2w(suffix(mem)).c_str(), s2w(suffix(20*mem)).c_str());
+        statusbar.print(0, L("Uses %sB during backups, suitable for backup sets of %sB each\n"), s2w(suffix(mem)).c_str(), s2w(suffix(20*mem)).c_str());
 
 
-        statusbar.print(0, L"Backup sets:");
+        statusbar.print(0, L("Backup sets:"));
         uint64_t set = 0;
         uint64_t prev_c = 0;
         for (size_t set = 0; set < sets.size(); set++) {
@@ -979,10 +979,10 @@ void list_contents() {
             prev_c = sets.at(set);            
             read_backup_set(ffile, sets.at(set), d, s, f, nullptr);
             auto ds = date2str(d);
-            statusbar.print(0, L"%s  %s  %sB  %s files  %sB+", del(set, 3).c_str(), ds.c_str(), s2w(suffix(s, true)).c_str(), s2w(suffix(f, true)).c_str(), s2w(suffix(c, true)).c_str());
+            statusbar.print(0, L("%s  %s  %sB  %s files  %sB+"), del(set, 3).c_str(), ds.c_str(), s2w(suffix(s, true)).c_str(), s2w(suffix(f, true)).c_str(), s2w(suffix(c, true)).c_str());
         }
 
-        statusbar.print(0, L"\nA few files:");
+        statusbar.print(0, L("\nA few files:"));
         read_content_map(ffile);
         size_t add = content_map.size() / 5 + 1;
         for (size_t i = 1; i < content_map.size(); i += add) {
@@ -992,14 +992,14 @@ void list_contents() {
                 continue;
             }
             if (s.length() + 2 > statusbar.m_term_width) {
-                s = s.substr(0, minimum(s.length(), statusbar.m_term_width - 2 - 2)) + L"..";
+                s = s.substr(0, minimum(s.length(), statusbar.m_term_width - 2 - 2)) + L("..");
             }
-            statusbar.print(0, L"  %s", s.c_str());
+            statusbar.print(0, L("  %s"), s.c_str());
         }
 
     } else {
 
-        abort(set_flag >= sets.size(), L"Backup set does not exist"); // fixme, allows you to specify the last set even if its corrupted?
+        abort(set_flag >= sets.size(), L("Backup set does not exist")); // fixme, allows you to specify the last set even if its corrupted?
         vector<uint64_t> set;
         read_backup_set(ffile, sets.at(set_flag), d, s, f, &set);
 
@@ -1608,7 +1608,7 @@ void ensure_relative(const STRING &path) {
 namespace restore {
 
 void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
-    abort(backup_set_number >= sets.size(), L"Backup set does not exist");
+    abort(backup_set_number >= sets.size(), L("Backup set does not exist"));
     bool pipe_out = directory == L("-stdout");
     std::vector<char> restore_buffer(RESTORE_CHUNKSIZE, 'c');
 
@@ -1990,7 +1990,7 @@ void empty_q(bool flush, bool entropy) {
     auto write_result = [&]() {
         if (cc > 0) {
             io.write("A", 1, ofile);
-            auto p = _ftelli64(ofile);
+            auto p = io.tell(ofile);
             add_packets(out_result, cc, p); // io.write_count);
             io.write(out_result, cc, ofile);
             io.write("B", 1, ofile);
@@ -2336,7 +2336,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
             try {
                 compression::compress_file(sub, s, files.at(j).second);
-            } catch (std::exception &_) {
+            } catch (std::exception &) {
                 abort = true;
                 return;
             }
@@ -2576,7 +2576,7 @@ int main(int argc2, char *argv2[])
         uint64_t archive_id;
         if (diff_flag) {
             output_file = full;
-            ifile = _wfopen(full.c_str(), L"r+b");
+            ifile = io.open(full.c_str(), 'a');
             io.seek(ifile, 0, SEEK_END);
             original_file_size = io.tell(ifile);
             io.seek(ifile, 0, SEEK_SET);
@@ -2631,7 +2631,7 @@ int main(int argc2, char *argv2[])
 
         auto commit = [&]() {
             if (output_file != L("-stdout")) {
-                lastgood = _ftelli64_nolock(ofile);
+                lastgood = io.tell(ofile);
                 io.seek(ofile, 0, SEEK_SET);
                 write_header(ofile, memory_usage, hash_flag, hash_salt, lastgood);
                 io.seek(ofile, lastgood, SEEK_SET);
@@ -2652,7 +2652,7 @@ int main(int argc2, char *argv2[])
                 compression::compress_file(L("-stdin"), name, 0);
                 compression::compress_file_finalize();
             }
-        } catch (std::exception &_) {
+        } catch (std::exception &) {
             backup_aborted = true;
         }
          
