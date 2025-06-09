@@ -933,7 +933,7 @@ void corrupted() {
 
 void list_contents() {
     FILE *ffile = io.open(full.c_str(), 'r');
-    read_header(ffile, 0);
+    uint64_t mem = read_header(ffile, 0);
     bool ok = read_headers(ffile);
 
     uint64_t id = 0;
@@ -970,13 +970,15 @@ void list_contents() {
     };
 
     if (set_flag == -1) {
+        statusbar.print(0, L"Uses %sB during backups, suitable for backup sets of %sB each\n", s2w(suffix(mem)).c_str(), s2w(suffix(20*mem)).c_str());
+
+
         statusbar.print(0, L"Backup sets:");
         uint64_t set = 0;
         uint64_t prev_c = 0;
         for (size_t set = 0; set < sets.size(); set++) {
             uint64_t c = sets.at(set) - prev_c;
-            prev_c = sets.at(set);
-            
+            prev_c = sets.at(set);            
             read_backup_set(ffile, sets.at(set), d, s, f, nullptr);
             auto ds = date2str(d);
             statusbar.print(0, L"%s  %s  %sB  %s files  %sB+", del(set, 3).c_str(), ds.c_str(), s2w(suffix(s, true)).c_str(), s2w(suffix(f, true)).c_str(), s2w(suffix(c, true)).c_str());
@@ -984,14 +986,17 @@ void list_contents() {
 
         statusbar.print(0, L"\nA few files:");
         read_content_map(ffile);
-        for (uint64_t i = 1; i < content_map.size(); i += content_map.size() / 8) {
+        size_t add = content_map.size() / 5 + 1;
+        for (size_t i = 1; i < content_map.size(); i += add) {
             auto s = content_map[i].abs_path;
-            if (!s.empty()) {
-                if (s.length() > 77) {
-                    s = s.substr(0, minimum(s.length(), 75)) + L"..";
-                }
-                statusbar.print(0, L"  %s", s.c_str());
+            if (s.empty()) {
+                i = i - add + 1;
+                continue;
             }
+            if (s.length() + 2 > statusbar.m_term_width) {
+                s = s.substr(0, minimum(s.length(), statusbar.m_term_width - 2 - 2)) + L"..";
+            }
+            statusbar.print(0, L"  %s", s.c_str());
         }
 
     } else {
@@ -1314,25 +1319,22 @@ void parse_files(void) {
 STRING tostring(std::string s) { return STRING(s.begin(), s.end()); }
 
 void print_usage(bool show_long) {
-    std::string long_help = R"(eXdupe %v file archiver. GPLv2 or later. Copyright 2010 - 2024
+    std::string long_help = R"(eXdupe %v file archiver. GPLv2 or later. Copyright 2010 - 2025
 
-Full backup:
-  [flags] <sources | -stdin> <dest file | -stdout>
+Create first backup:
+  exdupe [flags] <sources | -stdin> <backup file | -stdout>
 
-Restore full backup:
-  [flags] -R <full backup file> <dest dir | -stdout> [items]
-  [flags] -R -stdin <dest dir>
+Add incremental backup:
+  exdupe -D [flags] <sources> <backup file>
 
-Differential backup:
-  [flags] -D <sources> <full backup file> <dest file | -stdout>
-  [flags] -D -stdin <full backup file> <dest file>
-  
-Restore differential backup:
-  [flags] -RD <full backup file> <diff backup file> <dest dir | -stdout> [items]
+Show available backup sets:
+  exdupe -L <backup file>
 
-List contents:
-  -L <full backup file to list>
-  -LD <full backup file> <diff backup file to list>
+Show contents of backup set:
+  exdupe -L -S# <backup file>
+
+Restore backup set:
+  exdupe -R -S# [flags] <backup file> <dest dir> [items]
 
 Show build info: -B
 
@@ -1343,10 +1345,11 @@ Flags:
     -f Overwrite existing files (default is to abort)
     -c Continue if a source file cannot be read (default is to abort)
     -w Read contents of files during incremental backup to determine if they
-       have changed (default is to look at timestamps only)
+       have changed (default is to look at timestamps only).
    -t# Use # threads (default = 8)
-   -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
-       of input data for best result. Use -m# to specify MB instead.
+   -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per 20 GB 
+       of data in a single backup set for best result. Use -m# to specify MB
+       instead.
    -x# Use compression level # after deduplication (0, 1 = default, 2, 3). Level
        0 means no compression and lets you apply your own
     -- Prefix items in the <sources> list with "--" to exclude them
@@ -1364,39 +1367,35 @@ Flags:
        more with -e? flag.
 
 Example of backup, incremental backups and restore:
-  exdupe my_dir backup.ex
-
-
-  exdupe -D my_dir backup.full backup1.diff
-  exdupe -D my_dir backup.full backup2.diff
-  exdupe -RD backup.full backup2.diff restore_dir
+  exdupe my_dir backup.exd
+  exdupe -D my_dir backup.exd
+  exdupe -D my_dir backup.exd
+  exdupe -R -S2 backup.exd restore_dir
 
 More examples:
   exdupe -t12 -g8 dir1 dir2 backup.full
-  exdupe -R backup.full restore_dir dir2%/file.txt
-  exdupe file.txt -stdout | exdupe -R -stdin restore_dir)";
+  exdupe -R -S0 backup.full restore_dir dir2%/file.txt
+  exdupe file.txt -stdout | exdupe -R -S0 -stdin restore_dir)";
 
-    std::string short_help = R"(Full backup:
-  [flags] <sources | -stdin> <dest file | -stdout>
+    std::string short_help = R"(Create first backup:
+  exdupe [flags] <sources | -stdin> <backup file | -stdout>
 
-Restore backup:
-  [flags] -R <full backup file> <dest dir | -stdout>
-  [flags] -R -stdin <dest dir>
+Add incremental backup:
+  exdupe -D [flags] <sources> <backup file>
 
-Incremental backup:
-  [flags] -D <sources> <full backup file> <dest file | -stdout>
-  [flags] -D -stdin <full backup file> <dest file>
-  
-Restore incremental backup:
-  [flags] -RD <full backup file> <diff backup file> <dest dir | -stdout>
+Show available backup sets:
+  exdupe -L <backup file>
+
+Restore backup set:
+  exdupe -R -S# [flags] <backup file> <dest dir>
 
 A few flags:
-    -f Overwrite existing files (default is to abort)
-    -c Continue if a source file cannot be read (default is to abort)
-   -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per 20 GB
-       of a backup set for best result
-   -x# Use compression level # after deduplication (0, 1 = default, 2, 3)
-    -? Show complete help)";
+  -f Overwrite existing files (default is to abort)
+  -c Continue if a source file cannot be read (default is to abort)
+ -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per 20 GB of
+     data in a single backup set for best result
+ -x# Use compression level # after deduplication (0, 1 = default, 2, 3)
+  -? Show complete help)";
  
     auto delim = [](std::string& s) {
         s = std::regex_replace(s, std::regex("%/"), WIN ? "\\" : "/");
@@ -1673,7 +1672,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
             }
 
             if (!pipe_out) {
-               // save_directory(L(""), abs_path(dstdir));
+                //save_directory(L(""), abs_path(dstdir));
             }
 
             if (c.symlink) {
@@ -1822,6 +1821,10 @@ void restore_from_stdin(const STRING& extract_dir) {
     size_t r = 0;
     STRING base_dir = abs_path(extract_dir);
     statusbar.m_base_dir = base_dir;
+
+    if (!exists(extract_dir)) {
+        create_directories(extract_dir, 0);
+    }
 
     curdir = extract_dir;
     // ensure_relative(curdir);
@@ -2703,11 +2706,14 @@ int main(int argc2, char *argv2[])
             statusbar.clear_line();
         }
 
-
-        io.seek(ofile, 0, SEEK_END);
-        uint64_t added = io.tell(ofile) - original_file_size;
-        io.seek(ofile, 0, SEEK_SET);
-
+        uint64_t added = 0;
+        if (ofile != stdout) {
+            io.seek(ofile, 0, SEEK_END);
+            added = io.tell(ofile) - original_file_size;
+            io.seek(ofile, 0, SEEK_SET);
+        } else {
+            added = io.write_count;
+        }
 
         if (statistics_flag) {
             uint64_t end_time = GetTickCount64();
