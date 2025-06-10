@@ -940,10 +940,6 @@ void list_contents() {
     uint64_t f = 0;
 
     auto print_item = [](contents_t& c) {
-        if (c.abs_path.empty()) {
-            return;
-        }
-
         if (c.symlink) {
             print_file(STRING(c.name + L(" -> ") + STRING(c.link)).c_str(), std::numeric_limits<uint64_t>::max(), c.file_modified);
             files++;
@@ -955,7 +951,7 @@ void list_contents() {
                 STRING full = c.name;
                 full = remove_delimitor(full);
                 STRING full_orig = full;
-
+                // fixme, prevent identical directory names in the archive
                 if (full != last_full || first_time) {
                     statusbar.print_no_lf(0, L("%s%s\n"), STRING(full_orig != full ? L("*") : L("")).c_str(), full.c_str());
                     last_full = full;
