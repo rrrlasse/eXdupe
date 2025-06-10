@@ -5,10 +5,10 @@
 // Copyrights:
 // 2010 - 2024: Lasse Mikkel Reinhold
 
-#define VER_MAJOR 3
+#define VER_MAJOR 4
 #define VER_MINOR 0
 #define VER_REVISION 0
-#define VER_DEV 6
+#define VER_DEV 1
 
 #define Q(x) #x
 #define QUOTE(x) Q(x)
@@ -503,7 +503,7 @@ uint64_t read_header(FILE *file, uint64_t *lastgood) {
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-    abort(major != 3, err_other, format("This file was created with eXdupe version {}.{}.{}. Please use %d.x.x on it", major, minor, revision, major));
+    abort(major != VER_MAJOR, err_other, format("This file was created with eXdupe version {}.{}.{}. Please use %d.x.x on it", major, minor, revision, major));
     abort(dev != VER_DEV, err_other, format("This file was created with eXdupe version {}.{}.{}.dev-{}. Please use the exact same version on it", major, minor, revision, dev));
 
     hash_flag = io.read_ui<uint8_t>(file) == 1;
@@ -1382,7 +1382,7 @@ A few flags:
     statusbar.print(0, show_long ? tostring(long_help).c_str() : tostring(short_help).c_str());
 
     if (VER_DEV != 0) {
-        statusbar.print(0, L("\nUNSTABLE DEVELOPMENT VERSION"));
+        statusbar.print(0, L("\nHIGHLY UNSTABLE PREVIEW VERSION"));
     }
 }
 
