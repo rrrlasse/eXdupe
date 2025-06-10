@@ -268,6 +268,8 @@ const string hashtable_header = "HASHTBLE";
 const string packets_header = "PACKETSS";
 const string payload_header = "PAYLOADD";
 
+const STRING corrupted_msg = L("\nArchive is corrupted, you can only list contents (-L flag) or restore (-R flag)");
+
 uint64_t backup_set_size() {
     // unchanged and identical are not sent to libexdupe
     return dup_counter_payload() + unchanged + identical;
@@ -916,10 +918,6 @@ contents_t get_contents_from_id2(vector<contents_t>& cont, uint64_t id) {
     abort(true, L("No such id"));
 }
 
-void corrupted() {
-    statusbar.print(0, L("\nArchive is corrupted, you can only list contents (-L flag) or restore (-R flag)"));
-}
-
 void list_contents() {
     time_ms_t d = 0;
     uint64_t s = 0;
@@ -927,7 +925,7 @@ void list_contents() {
 
     FILE *ffile = io.open(full.c_str(), 'r');
     uint64_t mem = read_header(ffile, 0);
-    bool ok = read_headers(ffile);
+    abort(read_headers(ffile), corrupted_msg.c_str());
 
     auto print_item = [](contents_t& c) {
         if (c.symlink) {
@@ -993,10 +991,6 @@ void list_contents() {
             print_item(c);
         }
         fclose(ffile);
-    }
-
-    if (!ok) {
-        corrupted();
     }
 }
 
@@ -2462,13 +2456,13 @@ int wmain(int argc2, CHR *argv2[])
 int main(int argc2, char *argv2[])
 #endif
 {
-    struct unshadow_t {
-        ~unshadow_t() {
+    // fixme, not ideal
+    std::set_terminate([]() -> void {
 #ifdef _WIN32
-            unshadow();
+        unshadow();
 #endif
-        }
-    } Unshadow;
+        std::exit(1);
+    });
 
     tidy_args(argc2, argv2);
 
@@ -2573,14 +2567,7 @@ int main(int argc2, char *argv2[])
             ofile = ifile;
 
             memory_usage = read_header(ifile, &lastgood); // also inits hash_salt and sets
-            bool ok = read_headers(ifile);
-            if (!ok) {
-                corrupted();
-#ifdef _WIN32
-                unshadow();
-#endif
-                return 1;
-            }
+            abort(read_headers(ifile), corrupted_msg.c_str());
             hashtable = malloc(memory_usage);
             abort(!hashtable, err_resources, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
             memset(hashtable, 0, memory_usage);
