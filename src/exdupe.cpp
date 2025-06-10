@@ -213,8 +213,9 @@ STRING flags;
 STRING output_file;
 void *hashtable;
 uint64_t file_id_counter = 0;
-
 uint64_t basepay = 0;
+
+const uint64_t max_payload = 20;
 
 std::vector<char> restore_buffer_in;
 std::vector<char> restore_buffer_out;
@@ -546,10 +547,6 @@ uint64_t read_packets(FILE *file) {
                     ref.payload_reference = io.read_ui<uint64_t>(file);
                 } else {
                     ref.archive_offset = io.read_ui<uint64_t>(file);
-                    if (!(ref.archive_offset > 0 && ref.archive_offset < 200 * G)) {
-                        int g = 34;
-                    }
-                    //rassert(ref.archive_offset > 0);// && ref.archive_offset < 200 * G);
                 }
                 ref.payload = io.read_ui<uint64_t>(file);
                 ref.length = io.read_ui<uint32_t>(file);
@@ -637,9 +634,6 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
                 uint64_t orig = io.tell(ifile);
                 uint64_t ao = ref.archive_offset.value();
                 int ret = io.seek(ifile, ao, SEEK_SET);
-                if (ret != 0) {
-                    int g = 4;
-                }
                 rassert(!ret, ao);
                 io.read_vector(restore_buffer_in, DUP_HEADER_LEN, 0, ifile, true);
                 size_t lenc = dup_size_compressed(restore_buffer_in.data());
@@ -647,9 +641,6 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
                 ensure_size(restore_buffer_out, lend + M);
                 io.read_vector(restore_buffer_in, lenc - DUP_HEADER_LEN, DUP_HEADER_LEN, ifile, true);
                 int r = dup_decompress(restore_buffer_in.data(), restore_buffer_out.data(), &lenc, &p);
-                if ((r != 0 && r != 1)) {
-                    int g = 543;
-                }
                 massert(!(r != 0 && r != 1), "Internal error or archive corrupted", r);
                 bytebuffer.buffer_add(restore_buffer_out.data(), ref.payload, ref.length);
 
@@ -930,14 +921,13 @@ void corrupted() {
 }
 
 void list_contents() {
-    FILE *ffile = io.open(full.c_str(), 'r');
-    uint64_t mem = read_header(ffile, 0);
-    bool ok = read_headers(ffile);
-
-    uint64_t id = 0;
     time_ms_t d = 0;
     uint64_t s = 0;
     uint64_t f = 0;
+
+    FILE *ffile = io.open(full.c_str(), 'r');
+    uint64_t mem = read_header(ffile, 0);
+    bool ok = read_headers(ffile);
 
     auto print_item = [](contents_t& c) {
         if (c.symlink) {
@@ -964,12 +954,11 @@ void list_contents() {
     };
 
     if (set_flag == -1) {
-        statusbar.print(0, L("Uses %sB during backups, suitable for backup sets of %sB each\n"), s2w(suffix(mem)).c_str(), s2w(suffix(20*mem)).c_str());
-
-
+        statusbar.print(0, L("Uses %sB during backups, suitable for backup sets of %sB each\n"), s2w(suffix(mem)).c_str(), s2w(suffix(max_payload * mem)).c_str());
         statusbar.print(0, L("Backup sets:"));
         uint64_t set = 0;
         uint64_t prev_c = 0;
+
         for (size_t set = 0; set < sets.size(); set++) {
             uint64_t c = sets.at(set) - prev_c;
             prev_c = sets.at(set);            
@@ -992,9 +981,7 @@ void list_contents() {
             }
             statusbar.print(0, L("  %s"), s.c_str());
         }
-
     } else {
-
         abort(set_flag >= sets.size(), L("Backup set does not exist")); // fixme, allows you to specify the last set even if its corrupted?
         vector<uint64_t> set;
         read_backup_set(ffile, sets.at(set_flag), d, s, f, &set);
@@ -1341,7 +1328,7 @@ Flags:
     -w Read contents of files during incremental backup to determine if they
        have changed (default is to look at timestamps only).
    -t# Use # threads (default = 8)
-   -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per 20 GB 
+   -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per )" + std::to_string(max_payload) + R"( GB 
        of data in a single backup set for best result. Use -m# to specify MB
        instead.
    -x# Use compression level # after deduplication (0, 1 = default, 2, 3). Level
@@ -1386,7 +1373,7 @@ Restore backup set:
 A few flags:
   -f Overwrite existing files (default is to abort)
   -c Continue if a source file cannot be read (default is to abort)
- -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per 20 GB of
+ -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per )" + std::to_string(max_payload) + R"( GB of
      data in a single backup set for best result
  -x# Use compression level # after deduplication (0, 1 = default, 2, 3)
   -? Show complete help)";
@@ -2475,6 +2462,14 @@ int wmain(int argc2, CHR *argv2[])
 int main(int argc2, char *argv2[])
 #endif
 {
+    struct unshadow_t {
+        ~unshadow_t() {
+#ifdef _WIN32
+            unshadow();
+#endif
+        }
+    } Unshadow;
+
     tidy_args(argc2, argv2);
 
     if (argc2 == 1) {
@@ -2569,7 +2564,6 @@ int main(int argc2, char *argv2[])
     else if (compress_flag) {
         uint64_t lastgood = 0;
 
-        uint64_t archive_id;
         if (diff_flag) {
             output_file = full;
             ifile = io.open(full.c_str(), 'a');
@@ -2612,8 +2606,6 @@ int main(int argc2, char *argv2[])
             io.truncate(ifile);
 
         } else {
-    
-            archive_id = rnd64();
             output_file = full;
             ofile = create_file(output_file);
             hash_salt = hash_flag ? rnd64() : 0;
@@ -2695,14 +2687,6 @@ int main(int argc2, char *argv2[])
 
         io.write(file_footer.data(), file_footer.size(), ofile);
 
-        if (backup_aborted) {
-#ifdef _WIN32
-            unshadow(); // todo raii
-#endif
-            return 0;        
-        }
-
-
         if(verbose_level > 0 && verbose_level < 3) {
             statusbar.clear_line();
         }
@@ -2711,7 +2695,9 @@ int main(int argc2, char *argv2[])
         if (ofile != stdout) {
             io.seek(ofile, 0, SEEK_END);
             added = io.tell(ofile) - original_file_size;
-            io.seek(ofile, 0, SEEK_SET);
+
+            io.close(ofile);
+
         } else {
             added = io.write_count;
         }
@@ -2753,16 +2739,10 @@ int main(int argc2, char *argv2[])
             }
         }
         else {
-            statusbar.print_no_lf(1, L("Added %s B in %s files using %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(suffix(added)).c_str());
+           statusbar.print_no_lf(1, L("Added %s B in %s files using %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(suffix(added)).c_str());
         }
-
-        io.close(ofile);
     } else {
         print_usage(false);
     }
-
-#ifdef _WIN32
-    unshadow();
-#endif
     return 0;
 }
