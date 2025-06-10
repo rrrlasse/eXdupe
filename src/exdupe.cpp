@@ -916,6 +916,7 @@ contents_t get_contents_from_id2(vector<contents_t>& cont, uint64_t id) {
         }
     }
     abort(true, L("No such id"));
+    return {}; // todo fix error handling
 }
 
 void list_contents() {
@@ -925,7 +926,7 @@ void list_contents() {
 
     FILE *ffile = io.open(full.c_str(), 'r');
     uint64_t mem = read_header(ffile, 0);
-    abort(read_headers(ffile), corrupted_msg.c_str());
+    abort(!read_headers(ffile), corrupted_msg.c_str());
 
     auto print_item = [](contents_t& c) {
         if (c.symlink) {
@@ -951,10 +952,9 @@ void list_contents() {
         }
     };
 
-    if (set_flag == -1) {
+    if (set_flag == static_cast<uint32_t>(-1)) {
         statusbar.print(0, L("Uses %sB during backups, suitable for backup sets of %sB each\n"), s2w(suffix(mem)).c_str(), s2w(suffix(max_payload * mem)).c_str());
         statusbar.print(0, L("Backup sets:"));
-        uint64_t set = 0;
         uint64_t prev_c = 0;
 
         for (size_t set = 0; set < sets.size(); set++) {
@@ -974,7 +974,7 @@ void list_contents() {
                 i = i - add + 1;
                 continue;
             }
-            if (s.length() + 2 > statusbar.m_term_width) {
+            if (s.length() + 2 > gsl::narrow<size_t>(statusbar.m_term_width)) {
                 s = s.substr(0, minimum(s.length(), statusbar.m_term_width - 2 - 2)) + L("..");
             }
             statusbar.print(0, L("  %s"), s.c_str());
@@ -2529,7 +2529,7 @@ int main(int argc2, char *argv2[])
             ifile = try_open(full, 'r', true);
             read_header(ifile, nullptr); //initializes sets
             read_headers(ifile);
-            restore::restore_from_file(ifile, set_flag == -1 ? 0 : set_flag);
+            restore::restore_from_file(ifile, set_flag == static_cast<uint32_t>(-1) ? 0 : set_flag);
         }
         wrote_message(io.write_count, files);
     } else if ((restore_flag && (full == L("-stdin"))) && restorelist.size() == 0) {
@@ -2567,7 +2567,7 @@ int main(int argc2, char *argv2[])
             ofile = ifile;
 
             memory_usage = read_header(ifile, &lastgood); // also inits hash_salt and sets
-            abort(read_headers(ifile), corrupted_msg.c_str());
+            abort(!read_headers(ifile), corrupted_msg.c_str());
             hashtable = malloc(memory_usage);
             abort(!hashtable, err_resources, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
             memset(hashtable, 0, memory_usage);
@@ -2655,7 +2655,6 @@ int main(int argc2, char *argv2[])
 
         size_t contents_size = 0;
         size_t references_size = 0;
-        size_t set_size = 0;
 
         references_size = write_packets_added(ofile);
         contents_size = write_contents_added(ofile);
@@ -2666,7 +2665,7 @@ int main(int argc2, char *argv2[])
             time_ms_t d = cur_date();
             uint64_t s = backup_set_size();
             uint64_t f = files;
-            set_size = write_backup_set(ofile, d, s, f);
+            write_backup_set(ofile, d, s, f);
             commit();
         }
                 
