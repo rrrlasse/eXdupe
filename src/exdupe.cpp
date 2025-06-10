@@ -968,7 +968,7 @@ void list_contents() {
         statusbar.print(0, L("\nA few files:"));
         read_content_map(ffile);
         size_t add = content_map.size() / 5 + 1;
-        for (size_t i = 1; i < content_map.size(); i += add) {
+        for (size_t i = 0; i < content_map.size(); i += add) {
             auto s = content_map[i].abs_path;
             if (s.empty()) {
                 i = i - add + 1;
