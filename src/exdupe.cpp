@@ -955,7 +955,7 @@ void list_contents() {
     };
 
     if (set_flag == static_cast<uint32_t>(-1)) {
-        statusbar.print(0, L("Uses %sB during backups, suitable for backup sets of %sB each\n"), s2w(suffix(mem)).c_str(), s2w(suffix(max_payload * mem)).c_str());
+        statusbar.print(0, L("Using %sB memory during backups, suitable for backup sets of %sB each\n"), s2w(suffix(mem)).c_str(), s2w(suffix(max_payload * mem)).c_str());
         statusbar.print(0, L("Backup sets:"));
         uint64_t prev_c = 0;
 
