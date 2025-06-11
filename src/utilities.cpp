@@ -82,8 +82,14 @@ bool is_valid_utf8(const std::string& input) {
 }
 
 std::string suffix(uint64_t size, bool column) {
+    string ret;
+
     if (size <= 999) {
-        return std::to_string(size) + " ";
+        ret = std::to_string(size) + (!column ? " " : "");
+        if (column && ret.size() < 6) {
+            ret = string(6 - ret.size(), ' ') + ret;
+        }
+        return ret;
     }
 
     const char *suffixes[] = {" ", " K", " M", " G", " T", " P" };
@@ -117,7 +123,7 @@ std::string suffix(uint64_t size, bool column) {
     oss << sizeInKB << "" << suffixes[suffixIndex];
 
     std::fesetround(prev_round);
-    string ret = oss.str();
+    ret = oss.str();
     if (column && ret.size() < 6) {
         ret = string(6 - ret.size(), ' ') + ret;
     }
