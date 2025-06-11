@@ -659,7 +659,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
 void print_file(STRING filename, uint64_t size, time_ms_t file_modified = 0) {
 #ifdef _WIN32
     statusbar.print_no_lf(0, L("%s  %s  %s\n"), 
-        size == std::numeric_limits<uint64_t>::max() ? L("                      ") : del(size, 19).c_str(),
+        size == std::numeric_limits<uint64_t>::max() ? L("                   ") : del(size, 19).c_str(),
 /*
         attributes & FILE_ATTRIBUTE_ARCHIVE ? 'A' : ' ', 
         attributes & FILE_ATTRIBUTE_SYSTEM ? 'S' : ' ',
