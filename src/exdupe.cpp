@@ -871,7 +871,7 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
     }
 #endif
     FILE *f;
-    rassert(mode == 'r' || mode == 'w');
+    rassert(mode == 'r' || mode == 'w' || mode == 'a');
     if (file == L("-stdin")) {
         f = stdin;
     } else if (file == L("-stdout")) {
@@ -924,7 +924,7 @@ void list_contents() {
     uint64_t s = 0;
     uint64_t f = 0;
 
-    FILE *ffile = io.open(full.c_str(), 'r');
+    FILE *ffile = try_open(full.c_str(), 'r', true);
     uint64_t mem = read_header(ffile, 0);
     if (!read_headers(ffile)) {
         statusbar.print(0, L("%s"), corrupted_msg.c_str());
@@ -2562,7 +2562,7 @@ int main(int argc2, char *argv2[])
 
         if (diff_flag) {
             output_file = full;
-            ifile = io.open(full.c_str(), 'a');
+            ifile = try_open(full.c_str(), 'a', true);
             io.seek(ifile, 0, SEEK_END);
             original_file_size = io.tell(ifile);
             io.seek(ifile, 0, SEEK_SET);
