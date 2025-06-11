@@ -926,7 +926,9 @@ void list_contents() {
 
     FILE *ffile = io.open(full.c_str(), 'r');
     uint64_t mem = read_header(ffile, 0);
-    abort(!read_headers(ffile), corrupted_msg.c_str());
+    if (!read_headers(ffile)) {
+        statusbar.print(0, L("%s"), corrupted_msg.c_str());
+    }
 
     auto print_item = [](contents_t& c) {
         if (c.symlink) {
