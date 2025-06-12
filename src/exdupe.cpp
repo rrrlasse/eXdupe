@@ -8,7 +8,7 @@
 #define VER_MAJOR 4
 #define VER_MINOR 0
 #define VER_REVISION 0
-#define VER_DEV 1
+#define VER_DEV 2
 
 #define Q(x) #x
 #define QUOTE(x) Q(x)
@@ -964,7 +964,7 @@ void list_contents() {
             prev_c = sets.at(set);            
             read_backup_set(ffile, sets.at(set), d, s, f, nullptr);
             auto ds = date2str(d);
-            statusbar.print(0, L("%s  %s  %sB  %s files  %sB+"), del(set, 3).c_str(), ds.c_str(), s2w(suffix(s, true)).c_str(), s2w(suffix(f, true)).c_str(), s2w(suffix(c, true)).c_str());
+            statusbar.print(0, L("%s  %s  %sB  %s files  %sB"), del(set, 3).c_str(), ds.c_str(), s2w(suffix(s, true)).c_str(), s2w(suffix(f, true)).c_str(), s2w(suffix(c, true)).c_str());
         }
 
         statusbar.print(0, L("\nA few files:"));
