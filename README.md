@@ -9,6 +9,6 @@ Latest development version from 24-mar-2025:
 
 It will soon be released as stable.
 
-You can also check out the latest 4.x release that supports incremental backups instead of differential backups: https://github.com/rrrlasse/eXdupe/releases/tag/v4.0.0.0.dev1
+You can also check out the latest 4.x release that supports incremental backups instead of differential backups: https://github.com/rrrlasse/eXdupe/releases/tag/v4.0.0
 
 You can of course also use the stable 2.x version on the new domain at www.exdupe.net.
