@@ -2262,10 +2262,10 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* arc
         rassert(false, action);
     }
 
-    char major = io.read_ui<uint8_t>(file);
-    char minor = io.read_ui<uint8_t>(file);
-    char revision = io.read_ui<uint8_t>(file);
-    char dev = io.read_ui<uint8_t>(file);
+    int major = io.read_ui<uint8_t>(file);
+    int minor = io.read_ui<uint8_t>(file);
+    int revision = io.read_ui<uint8_t>(file);
+    int dev = io.read_ui<uint8_t>(file);
     (void)dev;
 
     uint64_t id = io.read_ui<uint64_t>(file);
@@ -2276,7 +2276,7 @@ uint64_t read_header(FILE *file, STRING filename, status_t action, uint64_t* arc
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-    abort(major != 3, err_other, format("This file was created with eXdupe version {}.{}.{}. Please use %d.x.x on it", major, minor, revision, major));
+    abort(major != 3, err_other, format("This file was created with eXdupe version {}.{}.{}. Please use {}.x.x on it", major, minor, revision, major));
     abort(dev != VER_DEV, err_other, format("This file was created with eXdupe version {}.{}.{}.dev-{}. Please use the exact same version on it", major, minor, revision, dev));
 
     hash_flag = io.read_ui<uint8_t>(file) == 1;
@@ -2359,6 +2359,9 @@ int main(int argc2, char *argv2[])
     }
 
     if (list_flag) {
+        FILE *ffull = try_open(full, 'r', true);
+        read_header(ffull, full, BACKUP); // tests that file version is compatible
+        io.close(ffull);
         list_contents();
     } else if (restore_flag && full != L("-stdin") && diff != L("-stdin")) {
         // Restore from file.
