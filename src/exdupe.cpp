@@ -3,7 +3,7 @@
 // eXdupe deduplication library and file archiver.
 //
 // Copyrights:
-// 2010 - 2024: Lasse Mikkel Reinhold
+// 2010 - 2025: Lasse Mikkel Reinhold
 
 #define VER_MAJOR 3
 #define VER_MINOR 0
@@ -1099,7 +1099,7 @@ void parse_files(void) {
 STRING tostring(std::string s) { return STRING(s.begin(), s.end()); }
 
 void print_usage(bool show_long) {
-    std::string long_help = R"(eXdupe %v file archiver. GPLv2 or later. Copyright 2010 - 2024
+    std::string long_help = R"(eXdupe %v file archiver. GPLv2 or later. Copyright 2010 - 2025
 
 Full backup:
   [flags] <sources | -stdin> <dest file | -stdout>
