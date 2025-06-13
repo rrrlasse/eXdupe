@@ -1,6 +1,6 @@
 eXdupe is a file archiver that supports differential backups and sliding-window deduplication at gigabytes/second.
 
-Latest development version from 24-mar-2025:
+Latest development version from 13-jun-2025:
 
 &nbsp;&nbsp;&nbsp;&nbsp;[exdupe_3.0.0.dev7.exe](https://github.com/rrrlasse/eXdupe/releases/download/v3.0.0.devX/exdupe3.0.0.dev7.exe)<br>
 &nbsp;&nbsp;&nbsp;&nbsp;[exdupe_3.0.0.dev7_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/releases/download/v3.0.0.devX/exdupe_3.0.0.dev7_linux_amd64.tar.gz)
