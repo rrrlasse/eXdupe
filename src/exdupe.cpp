@@ -122,8 +122,8 @@ const size_t G = 1024 * M;
 // Increase values to improve compression ratio for large data sets; decrease to
 // improve for small data sets (also increase memory_usage to improve for any
 // size).
-size_t DEDUPE_SMALL = 4 * K;
-size_t DEDUPE_LARGE = 128 * K;
+size_t DEDUPE_SMALL = 1 * K;
+size_t DEDUPE_LARGE = 32 * K;
 
 // Data is read from disk and deduplicated in DISK_READ_CHUNK bytes at a time
 // during backup.
@@ -176,6 +176,9 @@ bool no_timestamp_flag = false;
 bool lua_help_flag = false;
 bool e_help_flag = false;
 bool usage_flag = false;
+
+bool new_flag = false;
+
 
 uint32_t verbose_level = 1;
 uint32_t megabyte_flag = 0;
@@ -541,6 +544,8 @@ uint64_t read_header(FILE *file, uint64_t *lastgood) {
     return mem;
 }
 
+std::mutex provide_mutex;
+
 uint64_t seek_to_header(FILE *file, const string &header) {
     //  archive   HEADER  data  sizeofdata  HEADER  data  sizeofdata
     uint64_t orig = io.tell(file);
@@ -729,6 +734,7 @@ void print_file(STRING filename, uint64_t size, time_ms_t file_modified = 0) {
 // clang-format on
 
 bool save_directory(STRING base_dir, STRING path, bool write = false) {
+    std::lock_guard<std::mutex> lg(provide_mutex);
     static STRING last_full = L("");
     static bool first_time = true;
 
@@ -1160,7 +1166,7 @@ void parse_flags(void) {
             abort(true, L("-s flag not supported on *nix"));
 #endif
         } else {
-            size_t e = flags.find_first_not_of(L("-wfhuPRrxqcDpiLzSksatgmv0123456789B"));
+            size_t e = flags.find_first_not_of(L("-wfhuPRrxqcNDpiLzSksatgmv0123456789B"));
             if (e != string::npos) {
                 abort(true, L("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
@@ -1185,6 +1191,7 @@ void parse_flags(void) {
                      {absolute_path, "a"},
                      {hash_flag, "z"},
                      {build_info_flag, "B"},
+                     {new_flag, "N"},
                      {statistics_flag, "k"},
                  }) {
                 if (regx(flagsS, t.second) != "") {
@@ -2040,6 +2047,15 @@ checksum_t file_meta_ct;
 
 vector<char> dummy(DISK_READ_CHUNK);
 
+
+
+void provide(size_t payload, size_t length, char* where) {
+    std::lock_guard<std::mutex> lg(provide_mutex);
+    auto orig = io.tell(ofile);
+    resolve(payload, length, where, ofile);
+    io.seek(ofile, orig, SEEK_SET);
+}
+
 void empty_q(bool flush, bool entropy) {
     uint64_t pay;
     size_t cc;
@@ -2047,6 +2063,7 @@ void empty_q(bool flush, bool entropy) {
 
     auto write_result = [&]() {
         if (cc > 0) {
+            std::lock_guard<std::mutex> lg(provide_mutex);
             io.write("A", 1, ofile);
             auto p = io.tell(ofile);
             chunk_t c;
@@ -2063,7 +2080,10 @@ void empty_q(bool flush, bool entropy) {
     };
 
     if (payload_queue_size[current_queue] > 0) {
+
         cc = dup_compress(payload_queue[current_queue].data(), out_payload_queue[out_current_queue].data(), payload_queue_size[current_queue], &pay, entropy, out_result);
+       
+
         write_result();
         current_queue = (current_queue + 1) % out_payload_queue.size();
         payload_queue_size[current_queue] = 0;
@@ -2179,6 +2199,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 
             if (!diff_flag) {
                 // todo clear abs_path?
+                std::lock_guard<std::mutex> lg(provide_mutex);
                 io.write("U", 1, ofile);
                 write_contents_item(ofile, file_meta);
             }
@@ -2201,6 +2222,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     checksum_init(&file_meta_ct);
 
     if(!diff_flag) {
+        std::lock_guard<std::mutex> lg(provide_mutex);
         io.write("F", 1, ofile);
         contents_t tmp = file_meta;
         tmp.abs_path.clear(); // todo why is this cleared?
@@ -2242,6 +2264,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 
         if (file_read == file_size && file_size > 0) {
             // No CRC block for 0-sized files
+            std::lock_guard<std::mutex> lg(provide_mutex);
             io.write("C", 1, ofile);
             file_meta.checksum = file_meta_ct.result32();
             io.write_ui<uint32_t>(file_meta_ct.result32(), ofile);
@@ -2397,7 +2420,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // First process files
     std::atomic<size_t> ctr = 0;
-    const int max_threads = 6;
+    const int max_threads = 1;
     std::thread threads[max_threads];
     std::atomic<bool> abort = false;
 
@@ -2605,7 +2628,7 @@ void main_compress() {
         memset(hashtable, 0, memory_usage);
         pay_count = read_chunks(ifile); // read size in bytes of user payload in .full file
 
-        int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
+        int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count, &compression::provide);
         abort(r == 1, retvals::err_memory, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
         abort(r == 2, retvals::err_memory, format("Error creating threads. This differential backup requires {} MB memory. Try -t1 flag", memory_usage >> 20));
 
@@ -2630,7 +2653,7 @@ void main_compress() {
         hash_salt = hash_flag ? rnd64() : 0;
         hashtable = tmalloc(memory_usage);
         abort(!hashtable, retvals::err_memory, "Out of memory. Reduce -m, -g or -t flag");
-        int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
+        int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0, &compression::provide);
         abort(r == 1, retvals::err_memory, "Out of memory. Reduce -m, -g or -t flag");
         abort(r == 2, retvals::err_memory, "Error creating threads. Reduce -m, -g or -t flag");
         write_header(ofile, memory_usage, hash_flag, hash_salt, 0);

@@ -5,8 +5,10 @@
 // Copyrights:
 // 2010 - 2023: Lasse Mikkel Reinhold
 
-#define HASH_SIZE 16
+#define HASH_SIZE 2
 
+#include <tuple>
+#include <vector>
 #include <assert.h>
 #include <immintrin.h>
 #include <smmintrin.h>
@@ -38,6 +40,8 @@
 #include "../error_handling.h"
 
 #include "libexdupe.h"
+
+extern bool new_flag;
 
 // #define EXDUPE_THREADTEST
 
@@ -116,6 +120,10 @@ pthread_mutex_t jobdone_mutex;
 int threads;
 int level;
 
+uint64_t flushed;
+uint64_t global_payload;
+uint64_t count_payload;
+
 // When compressing the hashtable, worst case is that all entries are in use, in which case it ends up
 // growing COMPRESSED_HASHTABLE_OVERHEAD bytes in size.
 #define COMPRESSED_HASHTABLE_OVERHEAD 4096
@@ -177,6 +185,7 @@ char* memory_end;
 
 size_t memsize;
 
+CallbackFn cb;
 
 // statistics
 std::atomic<uint64_t> largehits;
@@ -729,6 +738,10 @@ static bool hashat(const char *src, uint64_t pay, size_t len, bool large, char *
 }
 
 static size_t write_match(size_t length, uint64_t payload, char *dst) {
+    rassert(payload < 1'000'000'000'000ull);
+    rassert(length < 500000000);
+
+
    // wcerr << L"match = " << length << L"," << payload << L"\n";
     if (length > 0) {
         if(length == LARGE_BLOCK) {
@@ -748,6 +761,8 @@ static size_t write_match(size_t length, uint64_t payload, char *dst) {
 
 static size_t write_literals(const char *src, size_t length, char *dst, int thread_id, bool entropy) {
   //  wcerr << L"literal = " << length << L" ";
+
+    rassert(length < 500000000);
 
     if (length > 0) {
         size_t packet_size = 0;
@@ -801,6 +816,115 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length) {
         }
     }
     return;
+}
+
+static size_t process_chunk2(const char *src, uint64_t pay, size_t length, char *dst, int thread_id) {
+    size_t chunk_written = 0;
+    const char *src_orig = src;
+    char *dst_orig = dst;
+    const char *last = src + length - 1;
+    size_t written = 0;
+    const char *best;
+    uint64_t ref1 = 0;
+    uint64_t ref2 = 0;
+    size_t bestlen = 0;
+    uint64_t bestref = 0;
+
+    auto count_payload_orig = count_payload;
+
+    std::vector<char> buf;
+    buf.resize(length);
+
+    while (written < length) {
+        const char *match1 = 0;
+        const char *match2 = 0;
+
+        if (written + LARGE_BLOCK < length) {
+            // fixme, dub() shold limit match pos itself
+            match1 = dub(src + written, pay, length - written - LARGE_BLOCK, LARGE_BLOCK, &ref1);
+            if (match1) {
+                rassert(match1 + LARGE_BLOCK < src + length);
+            }
+        }
+        
+        if (written + SMALL_BLOCK < length) {
+            match2 = dub(src + written, pay, length - written - SMALL_BLOCK, SMALL_BLOCK, &ref2);
+            if (match2) {
+                rassert(match1 + SMALL_BLOCK < src + length);
+            }
+        }
+        
+        if ((match1 && !match2) || (match1 && match1 < match2) || (match1 && match2 && match1 == match2)) {
+            best = match1;
+            bestref = ref1;
+            bestlen = LARGE_BLOCK;
+        } else if ((!match1 && match2) || (match2 && match2 < match1)) {
+            best = match2;
+            bestref = ref2;
+            bestlen = SMALL_BLOCK;
+        } else if (!match1 && !match2) {
+            dst += write_literals(src + written, length - written, dst, thread_id, false);
+            chunk_written += length - written;
+            break;     
+        } else {
+            rassert(false);
+        
+        }
+
+        rassert(length <= 4 * 1024 * 1024);
+        if (bestref + threads * 4 * 1024 * 1024 < pay) {
+            const char *p1 = best;
+            const char *p2 = best;
+            size_t e = 0;
+
+            size_t d = min(bestref, best - src - written);
+
+            if (d == 0) {
+                return dst - dst_orig;
+            }
+
+            cb(bestref - d, length - written, buf.data());
+            
+            while (p2 < src + length && *p2 == buf.at(d + e)) {
+                e++;
+                p2++;
+            }
+            //rassert(e >= bestlen); // hash collision check
+
+            e = 0;
+            
+            while (d > e && p1 > src + written && *(p1 - 1) == buf.at(d - e - 1)) {
+                e++;
+                p1--;
+            }
+
+            if (p1 > src + written) {
+                dst += write_literals(src + written, p1 - (src + written), dst, thread_id, false); 
+                chunk_written += p1 - (src + written);
+            }
+
+            dst += write_match(p2 - p1, bestref - (best - p1), dst);
+            chunk_written += p2 - p1;
+            written = p2 - src;
+
+        } else {
+            size_t gap = best - (src + written);
+            if (gap > 0) {
+                dst += write_literals(src + written, gap, dst, thread_id, false);
+                chunk_written += gap; 
+                written += gap;
+            }
+
+            dst += write_match(bestlen, bestref, dst);
+            chunk_written += bestlen; 
+            written += bestlen;
+        }
+
+    }
+
+    rassert(chunk_written == length);
+    count_payload = count_payload_orig;
+    return dst - dst_orig;
 }
 
 
@@ -871,14 +995,14 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
 }
 
 
+
+
 // Public interface
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-uint64_t flushed;
-uint64_t global_payload;
-uint64_t count_payload;
+
 
 static int get_free(void) {
     int i;
@@ -910,6 +1034,8 @@ static void *compress_thread(void *arg) {
         me->busy = true;
         pthread_mutex_unlock_wrapper(&me->jobmutex);
 
+
+
        // me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
        // hash_chunk(me->source, me->payload, me->size_source, policy);
 
@@ -917,8 +1043,11 @@ static void *compress_thread(void *arg) {
             hash_chunk(me->source, me->payload, me->size_source);
 //            auto t = GetTickCount();
             
-            me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination + 1 + 4, me->id);
-                      
+            if (new_flag) {
+                me->size_destination = process_chunk2(me->source, me->payload, me->size_source, me->destination + 1 + 4, me->id);
+            } else {
+                me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination + 1 + 4, me->id);            
+            }
 
             bool c = level > 0 && is_compressible(me->destination + 1 + 4, me->size_destination);
             if (c) {
@@ -957,13 +1086,14 @@ static void *compress_thread(void *arg) {
 }
 
 
-int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_count, void *space, int compression_level, bool crypto_hash, uint64_t hash_seed, uint64_t basepay) {
+int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_count, void *space, int compression_level, bool crypto_hash, uint64_t hash_seed, uint64_t basepay, CallbackFn fn) {
     // FIXME: The dup() function contains a stack allocated array ("tmp") of 8
     // KB that must be able to fit LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE bytes.
     // Find a better solution. alloca() causes sporadic crash in VC for inlined
     // functions.
     //assert(large_block <= 512 * 1024);
 
+    cb = fn;
     memsize = mem;
 
     count_payload = 0;
