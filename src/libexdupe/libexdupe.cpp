@@ -5,8 +5,10 @@
 // Copyrights:
 // 2010 - 2023: Lasse Mikkel Reinhold
 
-#define HASH_SIZE 16
+#define HASH_SIZE 2
 
+#include <tuple>
+#include <vector>
 #include <assert.h>
 #include <immintrin.h>
 #include <smmintrin.h>
@@ -38,6 +40,8 @@
 #include "../error_handling.h"
 
 #include "libexdupe.h"
+
+extern bool new_flag;
 
 // #define EXDUPE_THREADTEST
 
@@ -116,6 +120,10 @@ pthread_mutex_t jobdone_mutex;
 int threads;
 int level;
 
+uint64_t flushed;
+uint64_t global_payload;
+uint64_t count_payload;
+
 // When compressing the hashtable, worst case is that all entries are in use, in which case it ends up
 // growing COMPRESSED_HASHTABLE_OVERHEAD bytes in size.
 #define COMPRESSED_HASHTABLE_OVERHEAD 4096
@@ -177,6 +185,7 @@ char* memory_end;
 
 size_t memsize;
 
+CallbackFn cb;
 
 // statistics
 std::atomic<uint64_t> largehits;
@@ -389,7 +398,7 @@ int64_t zstd_decompress(char *inbuf, size_t insize, char *outbuf, size_t outsize
     return ZSTD_decompressDCtx(zstd_params->dctx, outbuf, outsize, inbuf, insize);
 }
 
-static void hash(const void *src, size_t len, uint64_t salt, char *dst) {
+static void hash(const void *src, size_t len, uint64_t salt, char *dst, size_t hashlen) {
     if (g_crypto_hash) {
         char s[sizeof(salt)];
         ll2str(salt, (char*)s, sizeof(salt));
@@ -403,14 +412,14 @@ static void hash(const void *src, size_t len, uint64_t salt, char *dst) {
     } else {
         XXH64_hash_t s{ salt };
         XXH128_hash_t hash = XXH128(src, len, s);
-        memcpy(dst, &hash, HASH_SIZE);
+        memcpy(dst, &hash, hashlen);
     }
 }
 
 static uint64_t hash64(const void* src, size_t len) {
-    char h[HASH_SIZE];
-    hash(src, len, 0, h);
-    return str2ll(h, 8);
+    char h[sizeof(uint64_t)];
+    hash(src, len, 0, h, sizeof(uint64_t));
+    return str2ll(h, sizeof(uint64_t));
 }
 
 void print_table() {
@@ -651,11 +660,11 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
                     rassert(sizeof(tmp) >= LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE);
                     uint32_t k;
                     for (k = 0; k < LARGE_BLOCK / SMALL_BLOCK; k++) {
-                        hash(src + k * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + k * HASH_SIZE);
+                        hash(src + k * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + k * HASH_SIZE, HASH_SIZE);
                     }
-                    hash(tmp, LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, g_hash_salt, s);
+                    hash(tmp, LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, g_hash_salt, s, HASH_SIZE);
                 } else {
-                    hash(src, block, g_hash_salt, s);
+                    hash(src, block, g_hash_salt, s, HASH_SIZE);
                 }
 
                 if (e_cpy.offset + block < pay + (src - orig_src) && dd_equal(s, e_cpy.sha, HASH_SIZE)) {
@@ -715,6 +724,10 @@ static bool hashat(const char *src, uint64_t pay, size_t len, bool large, char *
 }
 
 static size_t write_match(size_t length, uint64_t payload, char *dst) {
+    rassert(payload < 1'000'000'000'000ull);
+    rassert(length < 500000000);
+
+
    // wcerr << L"match = " << length << L"," << payload << L"\n";
     if (length > 0) {
         if(length == LARGE_BLOCK) {
@@ -735,6 +748,8 @@ static size_t write_match(size_t length, uint64_t payload, char *dst) {
 static size_t write_literals(const char *src, size_t length, char *dst, int thread_id, bool entropy) {
   //  wcerr << L"literal = " << length << L" ";
     rassert(level >= 0 && level <= 3);
+
+    rassert(length < 500000000);
 
     if (length > 0) {
         size_t packet_size = 0;
@@ -780,7 +795,7 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length) {
     uint32_t j = 0;
 
     for (j = 0; j < small_blocks; j++) {
-        hash(src + j * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + smalls * HASH_SIZE);
+        hash(src + j * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + smalls * HASH_SIZE, HASH_SIZE);
         bool success_small = hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, false, tmp + smalls * HASH_SIZE);
         if(!success_small) {
             anomalies_small += SMALL_BLOCK;
@@ -789,7 +804,7 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length) {
         smalls++;
         if (smalls == LARGE_BLOCK / SMALL_BLOCK) {
             char tmp2[HASH_SIZE];
-            hash(tmp, smalls * HASH_SIZE, g_hash_salt, tmp2);
+            hash(tmp, smalls * HASH_SIZE, g_hash_salt, tmp2, HASH_SIZE);
             bool success_large = hashat(src + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, pay + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, LARGE_BLOCK, true, tmp2);
             if(!success_large) {
                 anomalies_large += SMALL_BLOCK;
@@ -801,8 +816,113 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length) {
     return;
 }
 
+static size_t process_chunk(const char *src, uint64_t pay, size_t length, char *dst, int thread_id) {
+    size_t chunk_written = 0;
+    const char *upto;
+    const char *src_orig = src;
+    char *dst_orig = dst;
+    const char *last = src + length - 1;
+    size_t written = 0;
+    const char *best;
+    uint64_t ref1 = 0;
+    uint64_t ref2 = 0;
+    size_t bestlen = 0;
+    uint64_t bestref = 0;
 
-static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* dst, int thread_id) {
+    auto count_payload_orig = count_payload;
+
+    std::vector<char> buf;
+    buf.resize(length);
+
+    while (written < length) {
+        const char *match1 = 0;
+        const char *match2 = 0;
+
+        if (written + LARGE_BLOCK < length) {
+            // fixme, dub() shold limit match pos itself
+            match1 = dub(src + written, pay, length - written - LARGE_BLOCK, LARGE_BLOCK, &ref1);
+            if (match1) {
+                rassert(match1 + LARGE_BLOCK < src + length);
+            }
+        }
+        
+        if (written + SMALL_BLOCK < length) {
+            match2 = dub(src + written, pay, length - written - SMALL_BLOCK, SMALL_BLOCK, &ref2);
+            if (match2) {
+                rassert(match1 + SMALL_BLOCK < src + length);
+            }
+        }
+        
+        if ((match1 && !match2) || (match1 && match1 < match2) || (match1 && match2 && match1 == match2)) {
+            best = match1;
+            bestref = ref1;
+            bestlen = LARGE_BLOCK;
+        } else if ((!match1 && match2) || (match2 && match2 < match1)) {
+            best = match2;
+            bestref = ref2;
+            bestlen = SMALL_BLOCK;
+        } else if (!match1 && !match2) {
+            dst += write_literals(src + written, length - written, dst, thread_id, false);
+            chunk_written += length - written;
+            break;     
+        } else {
+            rassert(false);
+        
+        }
+
+        rassert(length <= 4 * 1024 * 1024);
+        if (bestref + threads * 2 * 1024 * 1024 < pay) {
+            const char *p1 = best;
+            const char *p2 = best;
+            size_t e = 0;
+
+            size_t d = min(bestref, best - src - written);
+            cb(bestref - d, length - written, buf.data());
+            
+            while (p2 < src + length && *p2 == buf.at(d + e)) {
+                e++;
+                p2++;
+            }
+            //rassert(e >= bestlen); // hash collision check
+
+            e = 0;
+            
+            while (d > e && p1 > src + written && *(p1 - 1) == buf.at(d - e - 1)) {
+                e++;
+                p1--;
+            }
+
+            if (p1 > src + written) {
+                dst += write_literals(src + written, p1 - (src + written), dst, thread_id, false); 
+                chunk_written += p1 - (src + written);
+            }
+
+            dst += write_match(p2 - p1, bestref - (best - p1), dst);
+            chunk_written += p2 - p1;
+            written = p2 - src;
+
+        } else {
+            size_t gap = best - (src + written);
+            if (gap > 0) {
+                dst += write_literals(src + written, gap, dst, thread_id, false);
+                chunk_written += gap; 
+                written += gap;
+            }
+
+            dst += write_match(bestlen, bestref, dst);
+            chunk_written += bestlen; 
+            written += bestlen;
+        }
+
+    }
+
+    rassert(chunk_written == length);
+    count_payload = count_payload_orig;
+    return dst - dst_orig;
+}
+
+
+static size_t process_chunk2(const char* src, uint64_t pay, size_t length, char* dst, int thread_id) {
     const char* upto;
     const char* src_orig = src;
     char* dst_orig = dst;
@@ -868,15 +988,219 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
     return dst - dst_orig;
 }
 
+static size_t process_chunk3(const char *src, uint64_t pay, size_t length, char *dst, int thread_id) {
+
+    if (pay + length > 2032786068) {
+        int gg = 0;
+    }
+
+    const char *upto;
+    const char *src_orig = src;
+    char *dst_orig = dst;
+    const char *last = src + length - 1;
+
+    std::vector<char> buf;
+    buf.resize(length);
+
+    struct packet {
+        uint64_t pay = 0;
+        size_t len = 0;
+        const char *src = 0;
+    };
+
+    std::vector<packet> m;
+
+    while (src <= last) {
+        uint64_t ref = 0;
+        const char *match = 0;
+
+        if (src + LARGE_BLOCK - 1 <= last) {
+            match = dub(src, pay + (src - src_orig), last - src, LARGE_BLOCK, &ref);
+        }
+        upto = (match == 0 ? last : match - 1);
+
+        while (src <= upto) {
+            uint64_t ref_s = 0;
+            const char *match_s = 0;
+            size_t n = 0;
+
+            if (src + SMALL_BLOCK - 1 <= upto) {
+                uint64_t first_ref = pay + (src - src_orig);
+                match_s = dub(src, first_ref, (upto - src), SMALL_BLOCK, &ref_s);
+
+                if (match_s) {
+                    n = 1;
+
+                    while (true && match_s + (n + 1) * SMALL_BLOCK <= upto) {
+                        uint64_t ref_s0 = 0;
+                        auto m = dub(match_s + n * SMALL_BLOCK, pay + ((match_s + n * SMALL_BLOCK) - src_orig), 1, SMALL_BLOCK, &ref_s0);
+                        if (ref_s0 + SMALL_BLOCK < first_ref && m == match_s + n * SMALL_BLOCK && ref_s0 == ref_s + n * SMALL_BLOCK) {
+                            n++;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (n == 0) {
+                m.push_back({0, size_t(upto - src + 1), src});
+                //dst += write_literals(src, upto - src + 1, dst, thread_id, false);
+                break;
+            } else {
+                if (match_s - src > 0) {
+                    //dst += write_literals(src, match_s - src, dst, thread_id, false);
+                    m.push_back({0, size_t(match_s - src), src});
+
+                }
+                auto min = minimum<size_t>(n * SMALL_BLOCK, upto - match_s + 1);
+
+                // dst += write_match(min, ref_s, dst);
+                m.push_back({ref_s, min, 0});
+
+                src = match_s + min;
+            }
+        }
+
+        if (match == 0) {
+            //return dst - dst_orig;
+            break;
+        } else {
+//            dst += write_match(minimum<size_t>(LARGE_BLOCK, last - match + 1), ref, dst);
+            m.push_back({ref, minimum<size_t>(LARGE_BLOCK, last - match + 1), 0});
+
+
+            src = match + LARGE_BLOCK;
+        }
+    }
+
+
+    for (size_t t = 0; t < m.size(); t++) {
+
+        auto mm = m[t];
+        if (mm.pay > pay) {
+            int sdafs = 234;
+        }
+    }
+
+    #if 1
+    if (true) {
+        auto oldp = count_payload;
+
+        uint64_t intopay = 0;
+
+        for (size_t i = 0; i < m.size(); i++) {
+            auto orig_len = m[i].len;
+
+
+            if (!m[i].src && m[i].pay + threads * 4 * 1024 * 1024 < pay) {
+                
+                cb(m[i].pay, m[i].len, buf.data());
+             //   rassert(dd_equal(buf.data(), src_orig + intopay, m[i].len));
+
+
+                if (intopay > 0 && i > 0 && m[i - 1].src) {
+                    // backwards
+                    auto &prev = m[i - 1];
+                    size_t backlen = min(m[i].pay, prev.len);
+                    cb(m[i].pay - backlen, backlen, buf.data());
+                    size_t e = 0;
+                    while (e < backlen) {
+                        char c1 = src_orig[intopay - 1 - e];
+                        char c2 = buf[backlen - 1 - e];
+                        if (c1 == c2) {
+                            e++;
+                        } else {
+                            break;
+                        }
+                    }
+                    if (e) {
+                        m[i].len += e;
+                        rassert(m[i].pay >= e);
+                        m[i].pay -= e;
+                        rassert(m[i - 1].len >= e);
+                        m[i - 1].len -= e;
+                       // std::wcerr << ".";
+                    }
+                }              
+                
+                
+                
+                if (i + 1 < m.size() && m[i + 1].src) {
+                    auto &next = m[i + 1];
+                    size_t frontlen = next.len;
+                    cb(m[i].pay + m[i].len, frontlen, buf.data());
+                    size_t e = 0;
+
+                    while (e < frontlen) {
+                        char c1 = src_orig[intopay + m[i].len + e];
+                        char c2 = buf[e];
+                        if (c1 == c2) {
+                            e++;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if (e) {
+                        rassert(m[i + 1].len >= e);
+                        m[i + 1].len -= e;
+                        m[i + 1].src += e;
+                        m[i].len += e;
+                        intopay += e;
+                       // std::wcerr << "o";
+                    } else {
+                      //  std::wcerr << ".";
+                    
+                    }
+                }
+                
+                               
+                
+
+            }
+
+           intopay += orig_len;
+
+        }
+
+        count_payload = oldp;
+    }
+
+    #endif
+
+
+    uint64_t pa = 0;
+
+    for (size_t t = 0; t < m.size(); t++) {
+
+        auto mm = m[t];
+        if (mm.src) {
+            dst += write_literals(mm.src, mm.len, dst, thread_id, false);
+        } else {
+            if (mm.pay + threads * 4 * 1024 * 1024 < pay) {
+                cb(mm.pay, mm.len, buf.data());
+            //    rassert(dd_equal(buf.data(), src_orig + pa, mm.len));
+            }
+
+            dst += write_match(mm.len, mm.pay, dst);            
+        }
+        pa += mm.len;
+
+    }
+    return dst - dst_orig;
+
+
+
+}
+
 
 // Public interface
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-uint64_t flushed;
-uint64_t global_payload;
-uint64_t count_payload;
+
 
 static int get_free(void) {
     int i;
@@ -903,17 +1227,34 @@ static void *compress_thread(void *arg) {
         me->busy = true;
         pthread_mutex_unlock_wrapper(&me->jobmutex);
 
+
+        if (me->source == 0) {
+            me->size_destination = write_match(me->size_source, me->payload, me->destination);
+        } else {
+        
+
+
        // me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
        // hash_chunk(me->source, me->payload, me->size_source, policy);
 
         if(!me->entropy) {
             hash_chunk(me->source, me->payload, me->size_source);
 //            auto t = GetTickCount();
-            me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
+
+
+//            if (new_flag) {
+                me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
+//            } else {
+//                me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);            
+//            }
+
+
 //            hits1 += GetTickCount() - t;
         }
         else {
             me->size_destination = write_literals(me->source, me->size_source, me->destination, me->id, true);
+        }
+
         }
 
         pthread_mutex_lock_wrapper(&me->jobmutex);
@@ -929,13 +1270,14 @@ static void *compress_thread(void *arg) {
 }
 
 
-int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_count, void *space, int compression_level, bool crypto_hash, uint64_t hash_seed, uint64_t basepay) {
+int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_count, void *space, int compression_level, bool crypto_hash, uint64_t hash_seed, uint64_t basepay, CallbackFn fn) {
     // FIXME: The dup() function contains a stack allocated array ("tmp") of 8
     // KB that must be able to fit LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE bytes.
     // Find a better solution. alloca() causes sporadic crash in VC for inlined
     // functions.
     //assert(large_block <= 512 * 1024);
 
+    cb = fn;
     memsize = mem;
 
     count_payload = 0;
@@ -1143,7 +1485,7 @@ uint64_t dup_get_flushed() { return flushed; }
 // dst: point to where you want the compressed result of this particular packet written to
 // if return value > 0: a compressed packet was finished and written to retval_start, and compressed
 // size equals return value. retval_start will equal one of the 'dst' pointers you passed earlier.
-size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_returned, bool entropy, char*&retval_start) {
+size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_returned, bool entropy, char *&retval_start) {
     size_t ret = 0;
     *payload_returned = 0;
 
