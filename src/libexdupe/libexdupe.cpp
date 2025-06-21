@@ -360,26 +360,49 @@ char *zstd_init() {
 int64_t zstd_compress(char *inbuf, size_t insize, char *outbuf, size_t outsize, int level, char *workmem) {
     zstd_params_s *zstd_params = (zstd_params_s *)workmem;
     size_t ret = ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf, insize, level);
+    hits1 += insize;
+
     return ret;
 }
 
+double shannon(const char *data, size_t size) {
+    uint8_t *data2 = (uint8_t*)data;
+    if (size == 0)
+        return 0.0;
 
-bool is_compressible(char* inbuf, size_t insize, char* outbuf, char* workmem) {
-    zstd_params_s* zstd_params = (zstd_params_s*)workmem;
-    size_t fast = 2048;
-    size_t slow = 4096;
-    if (insize > 128 * 1024) {
-        if (
-            ZSTD_compressCCtx(zstd_params->cctx, outbuf, insize, inbuf + insize / 2, fast, 1) >= fast &&
-            ZSTD_compressCCtx(zstd_params->cctx, outbuf, insize, inbuf + insize / 3 * 0, slow, 1) >= slow &&
-            ZSTD_compressCCtx(zstd_params->cctx, outbuf, insize, inbuf + insize / 3 * 1, slow, 1) >= slow &&
-            ZSTD_compressCCtx(zstd_params->cctx, outbuf, insize, inbuf + insize / 3 * 2, slow, 1) >= slow &&
-            ZSTD_compressCCtx(zstd_params->cctx, outbuf, insize, inbuf + insize - slow, slow, 1) >= slow &&
-            true) {
-            return false;
+    std::array<size_t, 16> freq = {0};
+    for (size_t i = 0; i < size; ++i) {
+        ++freq[data2[i] >> 4];
+    }
+
+    double entropy = 0.0;
+    for (size_t count : freq) {
+        if (count > 0) {
+            double p = double(count) / size;
+            entropy -= p * std::log2(p);
         }
     }
-    return true;
+
+    return entropy;
+}
+
+bool is_compressible(char *inbuf, size_t insize, char *outbuf, char *workmem) {
+    size_t file_header = 1024;
+    int tests = 8;
+    size_t chunk = 1024;
+
+    if (insize < 128 * 1024) {
+        return true;
+    }
+
+    size_t gap = (insize - chunk - file_header) / tests;
+    for (size_t i = 0; i < tests; i++) {
+        double s = shannon(inbuf + file_header  + gap * i, chunk);
+        if (s < 3.92) {
+            return true;
+        }
+    }
+    return false;
 }
 
 
