@@ -739,22 +739,11 @@ static size_t write_literals(const char *src, size_t length, char *dst, int thre
     if (length > 0) {
         size_t packet_size = 0;
         bool compressible = true;
-        
-        if(!entropy) {
-            compressible = is_compressible((char*)src, length, dst, jobs[thread_id].zstd);
-        }
 
-        if (level == 0 || entropy || !compressible) {
-            dst[DUP_HEADER_LEN] = '0';
-            memcpy(dst + DUP_HEADER_LEN + 1, src, length);
-            // DUP_HEADER, '0', raw data
-            packet_size = 1 + length;
-        } else if (level >= 1 && level <= 3) {
-            int zstd_level = level == 1 ? 1 : level == 2 ? 10 : 19;
-            dst[DUP_HEADER_LEN] = char(level + '0');
-            int64_t r = zstd_compress((char *)src, length, dst + DUP_HEADER_LEN + 1, 2 * length + 1000000, zstd_level, jobs[thread_id].zstd);
-            packet_size = 1 + r;
-        }
+        dst[DUP_HEADER_LEN] = '0';
+        memcpy(dst + DUP_HEADER_LEN + 1, src, length);
+        // DUP_HEADER, '0', raw data
+        packet_size = 1 + length;
 
         packet_size += DUP_HEADER_LEN;
 
@@ -813,7 +802,7 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
         const char* match = 0;
 
         if (src + LARGE_BLOCK - 1 <= last) {
-            match = dub(src, pay + (src - src_orig), last - src, LARGE_BLOCK, &ref);
+            match = dub(src, pay, last - src, LARGE_BLOCK, &ref);
         }
         upto = (match == 0 ? last : match - 1);
 
@@ -824,14 +813,14 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
 
             if (src + SMALL_BLOCK - 1 <= upto) {
                 uint64_t first_ref = pay + (src - src_orig);
-                match_s = dub(src, first_ref, (upto - src), SMALL_BLOCK, &ref_s);
+                match_s = dub(src, pay, (upto - src), SMALL_BLOCK, &ref_s);
 
                 if (match_s) {
                     n = 1;
 
                     while (true && match_s + (n + 1) * SMALL_BLOCK <= upto) {
                         uint64_t ref_s0 = 0;
-                        auto m = dub(match_s + n * SMALL_BLOCK, pay + ((match_s + n * SMALL_BLOCK) - src_orig), 1, SMALL_BLOCK, &ref_s0);
+                        auto m = dub(match_s + n * SMALL_BLOCK, pay, 1, SMALL_BLOCK, &ref_s0);
                         if (ref_s0 + SMALL_BLOCK < first_ref && m == match_s + n * SMALL_BLOCK && ref_s0 == ref_s + n * SMALL_BLOCK) {
                             n++;
                         }
