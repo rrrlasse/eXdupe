@@ -128,6 +128,7 @@ static void ll2str(uint64_t l, char* dst, int bytes) {
         l = l >> 8;
         bytes--;
     }
+    rassert(l == 0);
 }
 
 static uint64_t str2ll(const void* src, int bytes) {
@@ -333,8 +334,6 @@ typedef struct {
 
 job_t *jobs;
 
-char *zstd_decompress_state;
-
 typedef struct {
     ZSTD_CCtx *cctx;
     ZSTD_DCtx *dctx;
@@ -358,18 +357,19 @@ char *zstd_init() {
 
 
 int64_t zstd_compress(char *inbuf, size_t insize, char *outbuf, size_t outsize, int level, char *workmem) {
+    int zstd_level = level == 1 ? 1 : level == 2 ? 10 : 19;
     zstd_params_s *zstd_params = (zstd_params_s *)workmem;
-    size_t ret = ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf, insize, level);
+    size_t ret = ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf, insize, zstd_level);
     hits1 += insize;
 
     return ret;
 }
 
 double shannon(const char *data, size_t size) {
-    uint8_t *data2 = (uint8_t*)data;
-    if (size == 0)
+    uint8_t *data2 = (uint8_t *)data;
+    if (size == 0) {
         return 0.0;
-
+    }
     std::array<size_t, 16> freq = {0};
     for (size_t i = 0; i < size; ++i) {
         ++freq[data2[i] >> 4];
@@ -382,11 +382,10 @@ double shannon(const char *data, size_t size) {
             entropy -= p * std::log2(p);
         }
     }
-
     return entropy;
 }
 
-bool is_compressible(char *inbuf, size_t insize, char *outbuf, char *workmem) {
+bool is_compressible(char *inbuf, size_t insize) {
     size_t file_header = 1024;
     int tests = 8;
     size_t chunk = 1024;
@@ -397,7 +396,7 @@ bool is_compressible(char *inbuf, size_t insize, char *outbuf, char *workmem) {
 
     size_t gap = (insize - chunk - file_header) / tests;
     for (size_t i = 0; i < tests; i++) {
-        double s = shannon(inbuf + file_header  + gap * i, chunk);
+        double s = shannon(inbuf + file_header + gap * i, chunk);
         if (s < 3.92) {
             return true;
         }
@@ -756,27 +755,15 @@ static size_t write_match(size_t length, uint64_t payload, char *dst) {
 
 static size_t write_literals(const char *src, size_t length, char *dst, int thread_id, bool entropy) {
   //  wcerr << L"literal = " << length << L" ";
-    rassert(level >= 0 && level <= 3);
 
     if (length > 0) {
         size_t packet_size = 0;
         bool compressible = true;
-        
-        if(!entropy) {
-            compressible = is_compressible((char*)src, length, dst, jobs[thread_id].zstd);
-        }
 
-        if (level == 0 || entropy || !compressible) {
-            dst[DUP_HEADER_LEN] = '0';
-            memcpy(dst + DUP_HEADER_LEN + 1, src, length);
-            // DUP_HEADER, '0', raw data
-            packet_size = 1 + length;
-        } else if (level >= 1 && level <= 3) {
-            int zstd_level = level == 1 ? 1 : level == 2 ? 10 : 19;
-            dst[DUP_HEADER_LEN] = char(level + '0');
-            int64_t r = zstd_compress((char *)src, length, dst + DUP_HEADER_LEN + 1, 2 * length + 1000000, zstd_level, jobs[thread_id].zstd);
-            packet_size = 1 + r;
-        }
+        dst[DUP_HEADER_LEN] = '0';
+        memcpy(dst + DUP_HEADER_LEN + 1, src, length);
+        // DUP_HEADER, '0', raw data
+        packet_size = 1 + length;
 
         packet_size += DUP_HEADER_LEN;
 
@@ -835,7 +822,7 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
         const char* match = 0;
 
         if (src + LARGE_BLOCK - 1 <= last) {
-            match = dub(src, pay + (src - src_orig), last - src, LARGE_BLOCK, &ref);
+            match = dub(src, pay, last - src, LARGE_BLOCK, &ref);
         }
         upto = (match == 0 ? last : match - 1);
 
@@ -846,14 +833,14 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
 
             if (src + SMALL_BLOCK - 1 <= upto) {
                 uint64_t first_ref = pay + (src - src_orig);
-                match_s = dub(src, first_ref, (upto - src), SMALL_BLOCK, &ref_s);
+                match_s = dub(src, pay, (upto - src), SMALL_BLOCK, &ref_s);
 
                 if (match_s) {
                     n = 1;
 
                     while (true && match_s + (n + 1) * SMALL_BLOCK <= upto) {
                         uint64_t ref_s0 = 0;
-                        auto m = dub(match_s + n * SMALL_BLOCK, pay + ((match_s + n * SMALL_BLOCK) - src_orig), 1, SMALL_BLOCK, &ref_s0);
+                        auto m = dub(match_s + n * SMALL_BLOCK, pay, 1, SMALL_BLOCK, &ref_s0);
                         if (ref_s0 + SMALL_BLOCK < first_ref && m == match_s + n * SMALL_BLOCK && ref_s0 == ref_s + n * SMALL_BLOCK) {
                             n++;
                         }
@@ -912,6 +899,11 @@ static int get_free(void) {
     return -1;
 }
 
+size_t dup_chunk_size_compressed(char *src) {
+    rassert(src[0] == '0' || src[0] == '1');
+    return str2ll(src + 1, 4);
+}
+
 static void *compress_thread(void *arg) {
     job_t *me = (job_t *)arg;
 
@@ -931,12 +923,33 @@ static void *compress_thread(void *arg) {
         if(!me->entropy) {
             hash_chunk(me->source, me->payload, me->size_source);
 //            auto t = GetTickCount();
-            me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
+            
+            me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination + 1 + 4, me->id);
+                      
+
+            bool c = is_compressible(me->destination + 1 + 4, me->size_destination);
+            if (c) {
+                auto siz = zstd_compress(me->destination + 1 + 4, me->size_destination, me->source, me->size_destination + 10000, level, me->zstd);
+                //std::wcerr << L"\nsiz=" << siz << L"\n";
+                memcpy(me->destination + 1 + 4, me->source, siz);
+                me->size_destination = siz;
+                me->destination[0] = '1';
+
+            } else {
+                me->destination[0] = '0';
+            }
+
 //            hits1 += GetTickCount() - t;
         }
         else {
-            me->size_destination = write_literals(me->source, me->size_source, me->destination, me->id, true);
+            me->size_destination = write_literals(me->source, me->size_source, me->destination + 1 + 4, me->id, true);
+            me->destination[0] = '0';
+
         }
+        me->size_destination += 4 + 1;
+        ll2str(me->size_destination, me->destination + 1, 4);
+
+
 
         pthread_mutex_lock_wrapper(&me->jobmutex);
         me->busy = false;
@@ -1076,30 +1089,44 @@ static uint64_t packet_payload(const char *src) {
     return t;
 }
 
-int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload) {
-    if (zstd_decompress_state == 0) {
-        // todo
-        zstd_decompress_state = zstd_init();
+size_t dup_chunk_size_decompressed(char *src) {
+    size_t len = dup_chunk_size_compressed((char *)src);
+    if (src[0] == '0') {
+        return len - DUP_CHUNK_HEADER_LEN;
+    } else if (src[0] == '1') {
+        size_t decompressed_size = ZSTD_getFrameContentSize(src + DUP_CHUNK_HEADER_LEN, len - DUP_CHUNK_HEADER_LEN);
+        return decompressed_size;
     }
+    rassert(false);
+}
 
+size_t dup_decompress_chunk(char *src, char *dst) {
+    size_t len = dup_chunk_size_compressed(src);
+    if (src[0] == '0') {
+        memmove(dst, src + DUP_CHUNK_HEADER_LEN, len - DUP_CHUNK_HEADER_LEN);
+        return len - DUP_CHUNK_HEADER_LEN;
+    } else if (src[0] == '1') {
+        char *zstd_decompress_state = zstd_init();
+        size_t decompressed_size = dup_chunk_size_decompressed(src);
+        char *buf = (char *)malloc(decompressed_size); // fixme err handling
+        size_t s = zstd_decompress(src + DUP_CHUNK_HEADER_LEN, len - DUP_CHUNK_HEADER_LEN, buf, decompressed_size, 0, 0, zstd_decompress_state);
+        rassert(s == decompressed_size);
+        memmove(dst, buf, s);
+        free(buf);
+        return s;
+    }
+    rassert(false);
+}
+
+int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload) {
     if (src[0] == DUP_LITERAL) {
         size_t t;
-        char level = src[DUP_HEADER_LEN];
-
-        if (level == '0') {
-            t = dup_size_decompressed(src);
-            memcpy(dst, src + 1 + DUP_HEADER_LEN, t);
-        } else if (level == '1' || level == '2' || level == '3') {
-            size_t len_de = dup_size_decompressed(src);
-            size_t len = dup_size_compressed(src) - DUP_HEADER_LEN - 1;
-            t = zstd_decompress((char *)src + DUP_HEADER_LEN + 1, len, dst, len_de, 0, 0, zstd_decompress_state);
-            t = len_de;
-        } else {
-            return -1;
+        t = dup_size_decompressed(src);
+        memcpy(dst, src + 1 + DUP_HEADER_LEN, t);
+        if (length) {
+            *length = t;
         }
-
-        *length = t;
-        count_payload += *length;
+        count_payload += t;
         return 0;
     }
     else if (src[0] == DUP_REFERENCE) {
@@ -1115,13 +1142,14 @@ int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload
 }
 
 
-int dup_packet_info(const char *src, size_t *length, uint64_t *payload) {
+int dup_packet_info(const char *src, size_t *length, uint64_t *payload, const char** literal) {
     if (src[0] == DUP_LITERAL) {
         size_t len = dup_size_decompressed(src);
         if (len == 0) {
             return -1;
         }
         *length = len;
+        *literal = src + 1 + DUP_HEADER_LEN;
         return DUP_LITERAL;
     }
     else if (src[0] == DUP_REFERENCE) {
@@ -1165,7 +1193,8 @@ uint64_t dup_get_flushed() { return flushed; }
 // dst: point to where you want the compressed result of this particular packet written to
 // if return value > 0: a compressed packet was finished and written to retval_start, and compressed
 // size equals return value. retval_start will equal one of the 'dst' pointers you passed earlier.
-size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_returned, bool entropy, char*&retval_start) {
+// fixme: source data will be overwritten! maybe create internal buffer
+size_t dup_compress(void *src, char *dst, size_t size, uint64_t *payload_returned, bool entropy, char*&retval_start) {
     size_t ret = 0;
     *payload_returned = 0;
 
