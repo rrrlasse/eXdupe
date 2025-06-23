@@ -505,59 +505,6 @@ vector<packet_t> add_small_packets(const char *src, size_t len, size_t basepy) {
 }
 
 
-void add_packets(const char *src, size_t len, uint64_t archive_offset) {
-
-    auto pa = add_small_packets(src, len, 0);
-    auto de = pa[pa.size() - 1].payload + pa[pa.size() - 1].decompressed_length;
-
-
-
-    // len = compressed length
-    packet_t p;
-
-    p.decompressed_length = de;
-    p.compressed_length = len;
-    p.archive_offset = archive_offset;
-    p.payload = pay_count;
-    pay_count += de;
-    
-    packets.push_back(p); // fixme still needed?
-    packets_added.push_back(p);
-
-    return;
-
-    size_t pos = 0;
-
-    while (pos < len) {
-        packet_t ref;
-        uint64_t payload;
-        size_t len2;
-
-        int r = dup_packet_info(src + pos, &len2, &payload);
-        rassert(r == DUP_REFERENCE || r == DUP_LITERAL);
-
-        ref.decompressed_length = len2;
-        ref.payload = pay_count;
-        pay_count += len2;
-
-        if (r == DUP_REFERENCE) {
-            // reference
-            ref.is_reference = true;
-            ref.payload_reference = payload;
-        } else if (r == DUP_LITERAL) {
-            // raw data chunk
-            ref.is_reference = false;
-            ref.archive_offset = archive_offset + pos;
-
-     //       rassert(ref.archive_offset > 0 && ref.archive_offset < 20000 * G);
-        } 
-        packets.push_back(ref); // fixme still needed?
-        packets_added.push_back(ref);
-
-        pos += dup_size_compressed(src + pos);
-    }
-}
-
 uint64_t read_header(FILE *file, uint64_t *lastgood) {
     string header = io.read_bin_string(8, file);
 
@@ -681,6 +628,38 @@ uint64_t find_packet(uint64_t payload) {
     }
 }
 
+
+
+std::vector<char> decompressZstd(const char *compressedData, size_t compressedSize) {
+    rassert(compressedData[0] == 'C');
+    compressedData++;
+    compressedSize--;
+
+    unsigned long long decompressedSize = ZSTD_getFrameContentSize(compressedData, compressedSize);
+
+    if (decompressedSize == ZSTD_CONTENTSIZE_ERROR) {
+        throw std::runtime_error("Invalid zstd compressed stream");
+    }
+    if (decompressedSize == ZSTD_CONTENTSIZE_UNKNOWN) {
+        throw std::runtime_error("Unknown decompressed size");
+    }
+
+    std::vector<char> decompressed(decompressedSize);
+
+    size_t actualSize = ZSTD_decompress(decompressed.data(), decompressedSize, compressedData, compressedSize);
+
+    if (ZSTD_isError(actualSize)) {
+        throw std::runtime_error(ZSTD_getErrorName(actualSize));
+    }
+
+    if (actualSize != decompressedSize) {
+        throw std::runtime_error("Decompressed size mismatch");
+    }
+
+    return decompressed;
+}
+
+
 bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
     size_t bytes_resolved = 0;
 
@@ -696,7 +675,16 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
         vector<char> packet;
         io.seek(ifile, refMain.archive_offset.value(), SEEK_SET);
         io.read_vector(packet, refMain.compressed_length , 0, ifile, true);
-  
+
+
+        if (packet[0] == 'C') {
+            auto d = decompressZstd(packet.data(), packet.size());
+            packet.resize(d.size());
+            memcpy(packet.data(), d.data(), d.size());
+        } else {
+            rassert(packet[0] == 'U');
+            packet.erase(packet.begin());
+        }
 
 
         auto p = add_small_packets(packet.data(), packet.size(), refMain.payload);
@@ -2053,25 +2041,7 @@ checksum_t file_meta_ct;
 
 vector<char> dummy(DISK_READ_CHUNK);
 
-std::vector<char> compressZstd(char* in, size_t siz) {
-    // Estimate max compressed size
-    size_t maxCompressedSize = ZSTD_compressBound(siz);
 
-    // Allocate output buffer
-    std::vector<char> compressed(maxCompressedSize);
-
-    // Compress
-    size_t compressedSize = ZSTD_compress(compressed.data(), maxCompressedSize, in, siz, 1);
-
-    // Check for compression error
-    if (ZSTD_isError(compressedSize)) {
-        throw std::runtime_error(ZSTD_getErrorName(compressedSize));
-    }
-
-    // Resize to actual compressed size
-    compressed.resize(compressedSize);
-    return compressed;
-}
 
 
 
@@ -2086,13 +2056,18 @@ void empty_q(bool flush, bool entropy) {
             auto p = io.tell(ofile);
            // io.write("A", 1, ofile);
 
+            packet_t pp;
 
-            add_packets(out_result, cc, p);
+            pp.decompressed_length = pay;
+            pp.compressed_length = cc;
+            pp.archive_offset = p;
+            pp.payload = pay_count;
+            pay_count += pay;
+
+            packets.push_back(pp); // fixme still needed?
+            packets_added.push_back(pp);
+
             io.write(out_result, cc, ofile);
-
-            //auto r = compressZstd(out_result, cc);
-            //io.write(r.data(), r.size(), ofile);
-
 
           //  io.write("B", 1, ofile);
         }
@@ -2830,7 +2805,7 @@ int main(int argc2, char *argv2[])
             s << "Stored as duplicated blocks: " << suffix(largehits + smallhits) << "B (" << suffix(largehits) << "B large, " << suffix(smallhits) << "B small)\n";
             s << "Stored as literals:          " << suffix(stored_as_literals) << "B (" << suffix(literals_compressed_size) << "B compressed)\n";
             uint64_t total = literals_compressed_size + contents_size + references_size + hashtable_size;
-            s << "Overheads:                   " << suffix(contents_size) << "B meta, " << suffix(references_size) << "B refs, " << suffix(hashtable_size) << "B hashtable, " << suffix(io.write_count - total) << "B misc\n";    
+           // s << "Overheads:                   " << suffix(contents_size) << "B meta, " << suffix(references_size) << "B refs, " << suffix(hashtable_size) << "B hashtable, " << suffix(io.write_count - total) << "B misc\n";    
             s << "Unhashed due to congestion:  " << suffix(congested_large) << "B large, " << suffix(congested_small) << "B small\n";
             s << "Unhashed anomalies:          " << suffix(anomalies_large) << "B large, " << suffix(anomalies_small) << "B small\n";
             s << "High entropy files:          " << suffix(high_entropy) << "B in " << w2s(del(high_entropy_files)) << " files";
