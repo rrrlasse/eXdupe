@@ -1852,6 +1852,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     }
 
     if (input_file != L("-stdin")) {
+        update_statusbar_backup(input_file);
         // Initial read is slow, so we read DISK_READ_CHUNK concurrently (outside compress_file_mutex)
         size_t prefetch = DISK_READ_CHUNK;
         size_t r = io.read(dummy.data(), prefetch, handle, false);
@@ -2101,7 +2102,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // First process files
     std::atomic<size_t> ctr = 0;
-    const int max_threads = 6;
+    const int max_threads = 1;
     std::thread threads[max_threads];
 
     auto compress_file_function = [&]() {
