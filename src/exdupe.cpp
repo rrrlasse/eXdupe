@@ -1717,9 +1717,9 @@ void compress_symlink(const STRING &link, const STRING &target) {
     STRING tmp;
 
     time_ms_t file_modified = get_date(link).second;
-    int t = symlink_target(link.c_str(), tmp, is_dir) ? 0 : -1;
+    bool ok = symlink_target(link.c_str(), tmp, is_dir);
 
-    if (t == -1) {
+    if (!ok) {
         if (continue_flag) {
             statusbar.print(2, L("Skipped, error by readlink(): %s"), link.c_str());
         } else {
@@ -1728,7 +1728,7 @@ void compress_symlink(const STRING &link, const STRING &target) {
         return;
     }
 
-    update_statusbar_backup(link + L(" -> ") + STRING(abs_path(tmp)));
+    update_statusbar_backup(link + L(" -> ") + STRING(tmp));
     io.write("L", 1, ofile);
 
     files++;
