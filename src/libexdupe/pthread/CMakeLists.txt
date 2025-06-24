@@ -44,7 +44,7 @@ include_directories("${CMAKE_BINARY_DIR}/" "${CMAKE_SOURCE_DIR}/")
 # Target Arch                   #
 #################################
 include (target_arch)
-
+ 
 get_target_arch(TARGET_ARCH)
 set(build_defines "")
 if(${TARGET_ARCH} STREQUAL "ARM")
@@ -188,7 +188,7 @@ function(static_lib type def)
 
     if(${type} STREQUAL "VCE")
         add_library(${targ} STATIC pthread.cxx)
-        target_compile_options(${targ} PRIVATE "/EHs /wd5033")
+        target_compile_options(${targ} PRIVATE "/wd5033")
     elseif (${CMAKE_C_COMPILER_ID} STREQUAL "GNU")
 	if (${type} STREQUAL "GCE")
             add_library(${targ} STATIC pthread.cxx)

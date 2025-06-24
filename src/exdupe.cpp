@@ -114,7 +114,7 @@ const size_t G = 1024 * M;
 // Increase values to improve compression ratio for large data sets; decrease to
 // improve for small data sets (also increase memory_usage to improve for any
 // size).
-uint32_t DEDUPE_SMALL = 4 * K;
+size_t DEDUPE_SMALL = 4 * K;
 size_t DEDUPE_LARGE = 128 * K;
 
 // Data is read from disk and deduplicated in DISK_READ_CHUNK bytes at a time

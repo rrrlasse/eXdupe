@@ -68,12 +68,22 @@ template<typename... Args> std::string conc(const Args&... args) {
 
 template<typename... Args> std::string sys(const Args&... args) {
 #ifdef _WIN32
-    auto utf8w = [](std::string utf8str) {
-        std::locale utf8_locale(std::locale(), new std::codecvt_utf8<wchar_t>);
-        std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
-        return converter.from_bytes(utf8str);
+    auto utf8w = [](const std::string &utf8str) -> std::wstring {
+        if (utf8str.empty())
+            return {};
+        int requiredSize = MultiByteToWideChar(CP_UTF8, 0, utf8str.data(), static_cast<int>(utf8str.size()), nullptr, 0);
+        if (requiredSize <= 0) {
+            throw std::runtime_error("Failed to convert UTF-8 to wide string (size calc)");
+        }
+        std::wstring wideStr(requiredSize, 0);
+        int converted = MultiByteToWideChar(CP_UTF8, 0, utf8str.data(), static_cast<int>(utf8str.size()), &wideStr[0], requiredSize);
+        if (converted != requiredSize) {
+            throw std::runtime_error("Failed to convert UTF-8 to wide string (conversion)");
+        }
+        return wideStr;
     };
-    std::array<char, 2048> buffer;
+    std::vector<char> buffer;
+    buffer.resize(1000000);
     std::string result;
     string cmd2 = conc(args...);
     wstring cmd = utf8w(cmd2);
@@ -81,7 +91,7 @@ template<typename... Args> std::string sys(const Args&... args) {
     if (!pipe) {
         throw std::runtime_error("popen() failed!");
     }
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr) {
         result += buffer.data();
     }
     return result;

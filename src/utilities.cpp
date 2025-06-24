@@ -570,7 +570,7 @@ int get_attributes(STRING path, bool follow) {
 #endif
 }
 
-bool set_attributes(const STRING& path, int attributes) {
+bool set_attributes([[maybe_unused]] const STRING& path, [[maybe_unused]] int attributes) {
 #ifdef _WIN32
     attributes = attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM);
     BOOL b = SetFileAttributesW(path.c_str(), attributes);
