@@ -214,12 +214,12 @@ function(static_lib type def)
 endfunction()
 
 if (MSVC)
-  shared_lib ( VCE __PTW32_CLEANUP_CXX )
-  shared_lib ( VSE __PTW32_CLEANUP_SEH )
-  shared_lib ( VC  __PTW32_CLEANUP_C )
+  #shared_lib ( VCE __PTW32_CLEANUP_CXX )
+  #shared_lib ( VSE __PTW32_CLEANUP_SEH )
+  #shared_lib ( VC  __PTW32_CLEANUP_C )
 
-  static_lib ( VCE __PTW32_CLEANUP_CXX )
-  static_lib ( VSE __PTW32_CLEANUP_SEH )
+  #static_lib ( VCE __PTW32_CLEANUP_CXX )
+  #static_lib ( VSE __PTW32_CLEANUP_SEH )
   static_lib ( VC  __PTW32_CLEANUP_C )
 elseif (${CMAKE_C_COMPILER_ID} STREQUAL "GNU" OR ${CMAKE_C_COMPILER_ID} STREQUAL "Clang")
   ## NOTE: MinGW64 does support SEH exception handling, BUT it does not yet
