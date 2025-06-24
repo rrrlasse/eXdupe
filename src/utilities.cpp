@@ -232,8 +232,12 @@ bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_di
 #else
 #if 1
     // std does not work on Windows if the symlink points to a non-existant directory
-    targetPath = std::filesystem::read_symlink(symbolicLinkPath);
-    is_dir = std::filesystem::is_directory(symbolicLinkPath);
+    try {
+        targetPath = std::filesystem::read_symlink(symbolicLinkPath);
+        is_dir = std::filesystem::is_directory(symbolicLinkPath);
+    } catch (...) {
+        return false;
+    }
     return true;
 #else
     // posix way
