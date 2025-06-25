@@ -21,6 +21,7 @@ public:
     bool symlink = false;
     checksum_t ct{};
     STRING extra;
+    STRING extra2;
     STRING abs_path;
     uint64_t file_id = 0; // diff files refer to this for unchanged files
     bool in_diff = false;
@@ -30,4 +31,10 @@ public:
     std::string hash;
     uint64_t first = 0;
     uint64_t last = 0;
+#ifdef _WIN32
+    bool windows = true;
+#else
+    bool windows = false;
+#endif
+
 };

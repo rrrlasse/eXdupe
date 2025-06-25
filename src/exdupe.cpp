@@ -327,6 +327,7 @@ void read_content_item(FILE* file, contents_t& c) {
     c.is_duplicate_of_full = ((type >> 3) & 1) == 1;
     c.is_duplicate_of_diff = ((type >> 4) & 1) == 1;
     c.in_diff = ((type >> 5) & 1) == 1;
+    c.windows = ((type >> 6) & 1) == 1;
 
     c.file_id = io.read_compact<uint64_t>(file);
     if (c.unchanged) {
@@ -361,7 +362,8 @@ void write_contents_item(FILE *file, const contents_t &c) {
         | ((c.unchanged ? 1 : 0) << 2)
         | ((c.is_duplicate_of_full ? 1 : 0) << 3) 
         | ((c.is_duplicate_of_diff ? 1 : 0) << 4) 
-        | ((c.in_diff ? 1 : 0) << 5);
+        | ((c.in_diff ? 1 : 0) << 5)
+        | ((c.windows ? 1 : 0) << 6);
 
     io.write_ui<uint8_t>(type, file);
     io.write_compact<uint64_t>(c.file_id, file);
@@ -637,6 +639,7 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
 #endif
     if (full != last_full || first_time) {
         contents_t c;
+        c.attributes = get_attributes(full, false);
         c.directory = true;
         c.symlink = false;
 
@@ -1390,6 +1393,13 @@ void ensure_relative(const STRING &path) {
 // todo, namespace is a temporary fix to separate things
 namespace restore {
 
+void set_meta(STRING item, contents_t c) {
+    set_date(item, c.file_modified);
+    if (c.windows == WIN) {
+        set_attributes(item, c.attributes);
+    }
+}
+
 void restore_from_file(FILE *ffull, FILE *fdiff) {
     FILE *archive_file;
     bool pipe_out = directory == L("-stdout");
@@ -1412,6 +1422,7 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
     STRING base_dir = abs_path(directory);
     statusbar.m_base_dir = base_dir;
 
+    vector<contents_t> dir_meta;
     vector<contents_t> content;
 
     for (uint32_t i = 0; i < restorelist.size(); i++) {
@@ -1466,6 +1477,11 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
                 save_directory(L(""), abs_path(dstdir));
             }
 
+            if (c.directory && !c.symlink) {
+                c.extra2 = abs_path(dstdir);
+                dir_meta.push_back(c);
+            }
+
             if (c.symlink) {
                 files++;
                 update_statusbar_restore(c.name + L(" -> ") + c.link);
@@ -1493,12 +1509,14 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
                 }
                 if (!pipe_out) {
                     fclose(ofile);
-                    set_date(dstdir + DELIM_STR + c.name, c.file_modified);
-                    set_attributes(dstdir + DELIM_STR + c.name, c.attributes);
+                    set_meta(dstdir + DELIM_STR + c.name, c);
                 }
                 abort(c.checksum != t.result32(), err_other, format(L("File checksum error {}"), c.name));
             }
         }
+    }
+    for (auto &c : dir_meta) {
+        set_meta(c.extra2, c);
     }
 }
 
@@ -1601,6 +1619,7 @@ void data_block_from_stdin(vector<contents_t> &c) {
 
             if (curfile_written == c.at(0).size) {
                 io.close(ofile);
+                set_meta(c.at(0).extra, c.at(0));
                 ofile = 0;
                 curfile_written = 0;
                 abort(c.at(0).checksum != decompress_checksum.result32(), err_other, format(L("File checksum error {}"), c.at(0).extra));
@@ -1623,6 +1642,7 @@ void restore_from_stdin(const STRING& extract_dir) {
 
     vector<contents_t> identicals_queue;
     std::map<uint64_t, STRING> written;
+    std::vector<contents_t> dir_meta;
 
     for (;;) {
         char w;
@@ -1637,6 +1657,8 @@ void restore_from_stdin(const STRING& extract_dir) {
             curdir = extract_dir + DELIM_STR + c.name;
             save_directory(L(""), curdir);
             create_directories(curdir, c.file_modified);
+            c.extra2 = abs_path(curdir);
+            dir_meta.push_back(c);
         }
         else if (w == 'U') {
             contents_t c;
@@ -1657,6 +1679,7 @@ void restore_from_stdin(const STRING& extract_dir) {
                 FILE* h = create_file(buf2);
                 files++;
                 io.close(h);
+                set_meta(buf2, c);
             }
             else {
                 c.extra = buf2;
@@ -1707,6 +1730,11 @@ void restore_from_stdin(const STRING& extract_dir) {
         }
         io.close(ifile);
         io.close(ofile);
+        set_meta(dst, i);
+    }
+
+    for (auto &c : dir_meta) {
+        set_meta(c.extra2, c);
     }
 }
 
