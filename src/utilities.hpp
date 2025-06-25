@@ -69,7 +69,7 @@ time_ms_t cur_date();
 bool is_symlink(const STRING& file);
 bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir);
 bool is_named_pipe(const STRING& file);
-void set_date(const STRING& file, time_ms_t date);
+bool set_date(const STRING& file, time_ms_t date);
 std::pair<time_ms_t, time_ms_t> get_date(const STRING& file);
 STRING slashify(STRING path);
 std::vector<STRING> split_string(STRING str, STRING delim);

@@ -165,7 +165,7 @@ void replace_stdstr(std::string &str, const std::string &oldStr, const std::stri
     }
 }
 
-void set_date(const STRING& file, time_ms_t date) {
+bool set_date(const STRING &file, time_ms_t date) {
     time_t t = date / 1000;
     tm *timeInfo = gmtime(&t);
 #ifdef _WIN32
@@ -183,24 +183,37 @@ void set_date(const STRING& file, time_ms_t date) {
     systemTime.wMilliseconds = 0;
 
     bool b = (bool)SystemTimeToFileTime(&systemTime, &ft);
+    if (!b) {
+        return false;
+    }
+
     HANDLE hFile;
     auto abspath = abs_path(file);
     hFile = CreateFileW(abspath.c_str(), FILE_GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
     b = (bool)SetFileTime(hFile, &ft, &ft, &ft);
     CloseHandle(hFile);
+    return b;
+
 #else
     if(fs::is_symlink(file)) {
         struct timespec times[2];
         times[0].tv_sec = times[1].tv_sec = t;
         times[0].tv_nsec = times[1].tv_nsec = 0;
-        utimensat(AT_FDCWD, file.c_str(), times, AT_SYMLINK_NOFOLLOW);
+        int r = utimensat(AT_FDCWD, file.c_str(), times, AT_SYMLINK_NOFOLLOW);
+        return r == 0;
     }
     else {
         struct utimbuf Time;
         timeInfo->tm_year -= 1900;
         Time.actime = t;
         Time.modtime = t;
-        utime(file.c_str(), &Time);
+        int r = utime(file.c_str(), &Time);
+        return r == 0;
     }
 
 #endif

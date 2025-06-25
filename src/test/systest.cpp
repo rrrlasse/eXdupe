@@ -28,6 +28,7 @@
 #include <string>
 
 #include "catch.hpp"
+#include "../utilities.hpp"
 
 using namespace std;
 
@@ -45,9 +46,10 @@ string nul = "2>/dev/null";
 #endif
 
 // Please customize, use "/" for path delimitors on Windows
+// Do NOT use the ~ character in any path
 string root = win ? "e:/exdupe" : "/mnt/hgfs/E/exdupe"; // the dir that contains README.md
-string work = win ? "e:/exdupe/tmp" : "~/out/tmp"; // tests will read and write here, it must support symlinks
-string bin = win ? "e:/exdupe/exdupe.exe" : "~/out/exdupe";
+string work = win ? "e:/exdupe/tmp" : "/home/me/out/tmp"; // tests will read and write here, it must support symlinks
+string bin = win ? "e:/exdupe/exdupe.exe" : "/home/me/out/exdupe";
 
 // No need to edit
 string tmp = work + "/tmp";
@@ -57,6 +59,40 @@ string full = tmp + "/full";
 string diff = tmp + "/diff";
 string testfiles = root + "/test/testfiles";
 string diff_tool = win ? root + "/test/diffexe/diff.exe" : "diff";
+
+#ifdef _WIN32
+
+std::string w2utf8(const std::wstring &wstr) {
+    if (wstr.empty())
+        return {};
+    int requiredSize = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), nullptr, 0, nullptr, nullptr);
+    if (requiredSize <= 0) {
+        throw std::runtime_error("Failed to calculate UTF-8 buffer size");
+    }
+    std::string utf8str(requiredSize, '\0');
+    int result = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), &utf8str[0], requiredSize, nullptr, nullptr);
+    if (result != requiredSize) {
+        throw std::runtime_error("UTF-8 conversion failed");
+    }
+    return utf8str;
+}
+
+std::wstring utf8w(const std::string& utf8str) {
+    if (utf8str.empty())
+        return {};
+    int requiredSize = MultiByteToWideChar(CP_UTF8, 0, utf8str.data(), static_cast<int>(utf8str.size()), nullptr, 0);
+    if (requiredSize <= 0) {
+        throw std::runtime_error("Failed to convert UTF-8 to wide string (size calc)");
+    }
+    std::wstring wideStr(requiredSize, 0);
+    int converted = MultiByteToWideChar(CP_UTF8, 0, utf8str.data(), static_cast<int>(utf8str.size()), &wideStr[0], requiredSize);
+    if (converted != requiredSize) {
+        throw std::runtime_error("Failed to convert UTF-8 to wide string (conversion)");
+    }
+    return wideStr;
+};
+
+#endif
 
 template<typename... Args> std::string conc(const Args&... args) {
     std::ostringstream oss;
@@ -68,33 +104,20 @@ template<typename... Args> std::string conc(const Args&... args) {
 
 template<typename... Args> std::string sys(const Args&... args) {
 #ifdef _WIN32
-    auto utf8w = [](const std::string &utf8str) -> std::wstring {
-        if (utf8str.empty())
-            return {};
-        int requiredSize = MultiByteToWideChar(CP_UTF8, 0, utf8str.data(), static_cast<int>(utf8str.size()), nullptr, 0);
-        if (requiredSize <= 0) {
-            throw std::runtime_error("Failed to convert UTF-8 to wide string (size calc)");
-        }
-        std::wstring wideStr(requiredSize, 0);
-        int converted = MultiByteToWideChar(CP_UTF8, 0, utf8str.data(), static_cast<int>(utf8str.size()), &wideStr[0], requiredSize);
-        if (converted != requiredSize) {
-            throw std::runtime_error("Failed to convert UTF-8 to wide string (conversion)");
-        }
-        return wideStr;
-    };
-    std::vector<char> buffer;
+    std::vector<wchar_t> buffer;
     buffer.resize(1000000);
-    std::string result;
+    STRING result;
     string cmd2 = conc(args...);
     wstring cmd = utf8w(cmd2);
     std::unique_ptr<FILE, decltype(&_pclose)> pipe(_wpopen(wstring(cmd.begin(), cmd.end()).c_str(), L"r"), _pclose);
     if (!pipe) {
         throw std::runtime_error("popen() failed!");
     }
-    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr) {
+    while (fgetws(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr) {
         result += buffer.data();
     }
-    return result;
+
+    return w2utf8(result);
 #else
     std::string result;
     char buffer[128];
@@ -114,7 +137,7 @@ template<typename... Args> std::string sys(const Args&... args) {
 }
 
 string p(string path) {
-    if(win) {
+    if (win) {
         std::ranges::replace(path, '/', '\\');
     }
 #ifndef _WIN32
@@ -131,9 +154,9 @@ string p(string path) {
 void rm(string path) {
     path = p(path);
     REQUIRE((path.find("/tmp/") != string::npos || path.find("\\tmp\\") != string::npos));
-    if(win) {
+    if (win) {
         // fs::is_link() doesn't work for broken link to directory
-        sys("rmdir /q/s", path, nul); 
+        sys("rmdir /q/s", path, nul);
         sys("del", path, nul);
     }
     else {
@@ -143,6 +166,10 @@ void rm(string path) {
 
 void cp(string src, string dst) {
     sys(win ? "copy" : "cp", p(src), p(dst));
+}
+
+void mv(string src, string dst) {
+    sys(win ? "rename" : "vm", p(src), p(dst));
 }
 
 void clean() {
@@ -204,13 +231,16 @@ template<typename... Args> void ex(const Args&... args) {
     sys(p(bin), conc(args...));
 }
 
-bool cmp_diff() {
+bool cmp_diff(bool check = true) {
     auto ret = sys(diff_tool, "--no-dereference -r", in, out, nul);
+    if (check) {
+        CHECK(ret.empty());
+    }
     return ret.empty();
 }
 
 // On Windows: Tells <SYMLINK> vs <SYMLINKD> and timestamp, which "diff" does not look at
-bool cmp_ls() {
+bool cmp_meta() {
     string ls_in = sys(win ? "dir /s" : "ls -l", p(in));
     string ls_out = sys(win ? "dir /s" : "ls -l", p(out));
 
@@ -219,24 +249,30 @@ bool cmp_ls() {
         std::regex filesRegex(R"(.* bytes free.*)");
 
         for(auto s : vector<string*>{&ls_in, &ls_out}) {
-            *s = std::regex_replace(ls_in, freeRegex, "");
-            *s = std::regex_replace(ls_in, filesRegex, "");
+            *s = std::regex_replace(*s, freeRegex, "");
+            *s = std::regex_replace(*s, filesRegex, "");
         }
+        return ls_in == ls_out;
+    } else {
+        string d = sys("rsync -aHcn --itemize-changes ", p(in) + "/", " ", p(out) + "/");
+        if (d == ".d..t...... ./\n") {
+            d = "";
+        }
+        return d.empty();
     }
-
-    CHECK(ls_in == ls_out);
-    return ls_in == ls_out;
 }
 
-bool cmp() {
+bool cmp(bool check = true) {
     bool ret;
     if(win) {
-        ret = cmp_diff() && cmp_ls();
+        ret = cmp_diff() && cmp_meta();
     }
     else {
-        ret = cmp_diff();
+        ret = cmp_diff() && cmp_meta();
     }
-    CHECK(ret);
+    if (check) {
+        CHECK(ret);
+    }
     return ret;
 }
 
@@ -257,7 +293,21 @@ void modify(string file) {
     file = p(file);
     sys("echo a>>", file);        
 }
+}
 
+TEST_CASE("compress from stdin and restore to stdout") {
+    clean();
+    pick("a");
+    ex("-m1", "-stdin", "-stdout", "<", in + "/a", ">", full);
+    ex("-R", full, "-stdout", "<", full, ">", out + "/a");
+    cmp_diff(); // timestamp cannot match
+}
+
+TEST_CASE("no ~ in paths") {
+    // abs_path() and possibly other functions cannot handle the ~ character
+    for (auto &p : vector<string>{root, work, bin, tmp, in, out, full, diff, testfiles}) {
+        CHECK(p.find('~') == std::string::npos);
+    }
 }
 
 TEST_CASE("no source files") {
@@ -393,13 +443,8 @@ TEST_CASE("skip item prefixed with -- in different case") {
 TEST_CASE("case rename") {
     clean();
     pick("a");
-    ex("-m1", in, full);
-
-#ifdef _WIN32
-    sys("ren", p(in + "/a"), "A");
-#else  
-    sys("mv", p(in + "/a"), p(in + "/A"));
-#endif
+    ex("-m1", in, full);    
+    mv(in + "/a", in + "/A");
     ex("-D", in, full, diff);
     rm(out);
     ex("-RD", full, diff, out);
@@ -508,8 +553,10 @@ TEST_CASE("lua all or none") {
     }
     SECTION("none") {
         // no full file created, so we expect restore to fail
+        md(out); // create dir manually because restore will fail
         ex("-m1 -u\"return false\"", in, full);
         rm(in);
+        md(in); // empty in dir
     }
 
     ex("-R", full, out); 
@@ -631,6 +678,17 @@ TEST_CASE("broken symlink to file") {
     cmp();
 }
 
+TEST_CASE("follow symlinks") {
+    clean();
+    pick("a");
+    lf(in + "/link_to_a", in + "/a");
+    ex("-m1h", in, full);
+    ex("-R", full, out);
+    rm(in + "/link_to_a");
+    cp(in + "/a", in + "/link_to_a");
+    cmp_diff();
+}
+
 TEST_CASE("timestamps") {
     clean();
     all_types();
@@ -659,7 +717,7 @@ TEST_CASE("compress from stdin by redirection") {
     cp(testfiles + "/a", in + "/stdin");   
     ex("-m1", "-stdin", full, "<", p(in + "/stdin"));
     ex("-R", full, out);
-    cmp();
+    cmp_diff();
 }
 
 TEST_CASE("compress from stdin by pipe") {
@@ -667,16 +725,33 @@ TEST_CASE("compress from stdin by pipe") {
     cp(testfiles + "/a", in + "/stdin");
     sys(win ? "type" : "cat", p(in + "/stdin"), "|", p(bin), "-m1", "-stdin", full);
     ex("-R", full, out);
+    cmp_diff();
+}
+
+
+
+TEST_CASE("test of tests") {
+    clean();
+    pick("a");
+    ex("-m1", in, full);
+    ex("-R", full, out);
+    CHECK(set_date(s2w(in + "/a"), 946684800'000));
+    time_ms_t modified = get_date(s2w(in + "/a")).second;
+    CHECK(modified == 946684800'000);
+    CHECK(!cmp(false));
+}
+
+
+TEST_CASE("preserve dates") { 
+    clean();
+    pick("a");
+    md(in + "/d");
+    CHECK(set_date(s2w(in + "/a"), 946684800'000));
+    CHECK(set_date(s2w(in + "/d"), 946684800'000));
+    ex("-m1", in, full);
+    ex("-R", full, out);
     cmp();
 }
-
-TEST_CASE("compress from stdin and restore to stdout") {
-    clean();
-    cp(testfiles + "/a", in + "/stdin");
-    ex("-m1", "-stdin", "-stdout", "<", p(in + "/stdin"), ">", p(out + "/stdin"));
-    cmp_diff(); // timestamp cannot match
-}
-
 
 #ifndef _WIN32
 TEST_CASE("lua unix filenames") {
