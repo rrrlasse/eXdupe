@@ -127,6 +127,10 @@ STRING del(int64_t l, size_t width = 0);
 void *tmalloc(size_t size);
 void set_bold(bool bold);
 
+#ifdef _WIN32
+bool is_symlink_consistent(const std::wstring &symlinkPath);
+#endif
+
 typedef struct {
     short int tm_year;      /* years since 1970 */
     unsigned char tm_sec;   /* seconds after the minute - [0,59] */

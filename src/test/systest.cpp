@@ -168,8 +168,8 @@ void cp(string src, string dst) {
     sys(win ? "copy" : "cp", p(src), p(dst));
 }
 
-void mv(string src, string dst) {
-    sys(win ? "rename" : "vm", p(src), p(dst));
+void rename(string dir, string old_name, string new_name) { 
+    sys(win ? "rename" : "mv", p(dir + "/") + old_name, win ? new_name : (p(dir + "/") + new_name));
 }
 
 void clean() {
@@ -197,12 +197,12 @@ bool can_create_links() {
 #endif
 }
 
-void lf(string from, string to) {
+void lf(string from, string to, [[maybe_unused]] bool is_dir = false) {
     can_create_links();
     from = p(from);
     to = p(to);
     if(win) {
-        sys("mklink", from, to);        
+        sys("mklink", is_dir ? "/D" : "", from, to);        
     }
     else {
         sys("ln -s", to, from);        
@@ -444,7 +444,7 @@ TEST_CASE("case rename") {
     clean();
     pick("a");
     ex("-m1", in, full);    
-    mv(in + "/a", in + "/A");
+    rename(in, "a","A");
     ex("-D", in, full, diff);
     rm(out);
     ex("-RD", full, diff, out);
@@ -681,13 +681,43 @@ TEST_CASE("broken symlink to file") {
 TEST_CASE("follow symlinks") {
     clean();
     pick("a");
+    md(in + "/d");
     lf(in + "/link_to_a", in + "/a");
+    lf(in + "/link_to_d", in + "/d", true);
     ex("-m1h", in, full);
     ex("-R", full, out);
     rm(in + "/link_to_a");
+    rm(in + "/link_to_d");
     cp(in + "/a", in + "/link_to_a");
+    md(in + "/link_to_d");
     cmp_diff();
 }
+
+#ifdef _WIN32
+TEST_CASE("follow mismatching symlink to directory") {
+    // symlink to file points at directory, so skip due to -c flag
+    clean();
+    pick("a");
+    md(in + "/d");
+    lf(in + "/link_to_d", in + "/d");
+    ex("-m1hc", in, full);
+    ex("-R", full, out);
+    rm(in + "/link_to_d");
+    cmp_diff();
+}
+
+TEST_CASE("follow mismatching symlink to file") {
+    // symlink to directory points at file, so skip due to -c flag
+    clean();
+    pick("a");
+    md(in + "/d");
+    lf(in + "/link_to_a", in + "/a", true);
+    ex("-m1hc", in, full);
+    ex("-R", full, out);
+    rm(in + "/link_to_a");
+    cmp_diff();
+}
+#endif
 
 TEST_CASE("timestamps") {
     clean();

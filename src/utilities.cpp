@@ -794,3 +794,35 @@ string regx(std::string input, std::string pattern) {
     }
     return {};
 }
+
+#ifdef _WIN32
+bool is_symlink_consistent(const std::wstring &symlinkPath) {
+    // Step 1: Check if it's a reparse point (i.e., symlink or junction)
+    DWORD linkAttr = GetFileAttributesW(symlinkPath.c_str());
+    if (linkAttr == INVALID_FILE_ATTRIBUTES)
+        return false;
+
+    if (!(linkAttr & FILE_ATTRIBUTE_REPARSE_POINT))
+        return false; // Not a symlink
+
+    bool linkSaysDirectory = (linkAttr & FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+    // Step 2: Try to open the target normally (follow the link)
+    HANDLE h = CreateFileW(symlinkPath.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+
+    if (h == INVALID_HANDLE_VALUE)
+        return false; // Could be broken link or access denied
+
+    // Step 3: Check the target type using GetFileInformationByHandle
+    BY_HANDLE_FILE_INFORMATION info;
+    bool ok = GetFileInformationByHandle(h, &info);
+    CloseHandle(h);
+    if (!ok)
+        return false;
+
+    bool targetIsDirectory = (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+    // Step 4: Compare what the link claims vs what the target really is
+    return linkSaysDirectory == targetIsDirectory;
+}
+#endif

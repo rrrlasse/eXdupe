@@ -2112,6 +2112,16 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
                 abort(true, L("Aborted, access error: %s"), sub.c_str());
             }
         } else {
+#ifdef _WIN32
+            if (follow_symlinks && ISLINK(type) && !is_symlink_consistent(sub)) {
+                if (continue_flag) {
+                    statusbar.print(2, L("Skipped, symlink has SYMLINK/SYMLINKD mismatch: %s"), sub.c_str());
+                } else {
+                    abort(true, L("Aborted, symlink has SYMLINK/SYMLINKD mismatch: %s"), sub.c_str());
+                }
+                continue;
+            }
+#endif
             // avoid including full and diff file when compressing
             if ((output_file == L("-stdout") || ((diff.empty() || (!same_path(sub, diff))) && !same_path(sub, full))) && include(sub, top_level)) {
                 if ((!ISDIR(type) && !ISSOCK(type)) && !(ISLINK(type) && !follow_symlinks)) {
@@ -2177,10 +2187,6 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
         if (!no_recursion_flag || top_level) {
             vector<STRING> newdirs;
 #ifdef _WIN32
-            if (ISLINK(dir.second)) {
-                continue;
-            }
-
             HANDLE hFind;
             BOOL bContinue = TRUE;
             WIN32_FIND_DATAW data;
