@@ -10,6 +10,14 @@
 #include "../ui.hpp"
 #include "../bytebuffer.h"
 
+struct PrintTestNameListener : Catch::TestEventListenerBase {
+    using TestEventListenerBase::TestEventListenerBase;
+
+    void testCaseStarting(const Catch::TestCaseInfo &testInfo) override { std::cout << ">>> Running test: " << testInfo.name << std::endl; }
+};
+
+CATCH_REGISTER_LISTENER(PrintTestNameListener)
+
 void unshadow() {};
 
 using std::wstring;

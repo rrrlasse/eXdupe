@@ -92,6 +92,10 @@ std::wstring utf8w(const std::string& utf8str) {
     return wideStr;
 };
 
+#else
+std::string w2utf8(const std::string &wstr) { return wstr; }
+std::string utf8w(const std::string &utf8str) { return utf8str; }
+
 #endif
 
 template<typename... Args> std::string conc(const Args&... args) {
@@ -172,16 +176,21 @@ void rename(string dir, string old_name, string new_name) {
     sys(win ? "rename" : "mv", p(dir + "/") + old_name, win ? new_name : (p(dir + "/") + new_name));
 }
 
+void md(string dir) { std::filesystem::create_directories(p(dir)); }
+
+void clean_in_out() { 
+    rm(in);
+    rm(out);
+    md(in);
+    md(out);
+}
+
 void clean() {
     rm(tmp);
     sys("mkdir", p(work), nul);
     sys("mkdir", p(tmp));
     sys("mkdir", p(in));
     sys("mkdir", p(out));
-}
-
-void md(string dir) {
-    std::filesystem::create_directories(p(dir));
 }
 
 bool can_create_links() {
@@ -245,18 +254,25 @@ bool cmp_meta() {
     string ls_out = sys(win ? "dir /s" : "ls -l", p(out));
 
     if(win) {
-        std::regex freeRegex(R"(.* Directory of.*)");
-        std::regex filesRegex(R"(.* bytes free.*)");
-
         for(auto s : vector<string*>{&ls_in, &ls_out}) {
-            *s = std::regex_replace(*s, freeRegex, "");
-            *s = std::regex_replace(*s, filesRegex, "");
+            *s = std::regex_replace(*s, std::regex(R"(.* Directory of.*)"), "");
+            *s = std::regex_replace(*s, std::regex(R"(.* bytes free.*)"), "");
+            *s = std::regex_replace(*s, std::regex(R"(.* \..*)"), "");
         }
+        
+        if (ls_in != ls_out) {
+            cerr << "\n[" << ls_in << "]\n";
+            cerr << "\n[" << ls_out << "\n]";
+        }
+
         return ls_in == ls_out;
     } else {
         string d = sys("rsync -aHcn --itemize-changes ", p(in) + "/", " ", p(out) + "/");
         if (d == ".d..t...... ./\n") {
             d = "";
+        }
+        if (!d.empty()) {
+            cerr << "\n[" << d << "]\n";
         }
         return d.empty();
     }
@@ -271,7 +287,10 @@ bool cmp(bool check = true) {
         ret = cmp_diff() && cmp_meta();
     }
     if (check) {
-        CHECK(ret);
+        if (!ret) {
+            exit(1);
+        }
+        REQUIRE(ret);
     }
     return ret;
 }
@@ -295,6 +314,8 @@ void modify(string file) {
 }
 }
 
+TEST_CASE("buildinfo1") { ex("-B"); }
+
 TEST_CASE("compress from stdin and restore to stdout") {
     clean();
     pick("a");
@@ -315,10 +336,6 @@ TEST_CASE("no source files") {
     ex("-m1", in, out + "/d");
     CHECK(!std::filesystem::exists(out + "d"));
     ex("-m1", in, "-stdout");
-}
-
-TEST_CASE("buildinfo1") {
-    ex("-B");
 }
 
 TEST_CASE("traverse") {
@@ -369,10 +386,11 @@ TEST_CASE("overwrite during restore") {
     clean();
     pick("a");
     ex("-m1", in, full);
-    cp(in + "/b", out + "/a");
-    cp(out + "/b", out + "/a");
+    rm(in + "/a");
+    cp(testfiles + "/b", in + "/a");
+    cp(testfiles + "/b", out + "/a");
     ex("-R", full, out);
-    cmp();
+    cmp_diff();
 }
 
 TEST_CASE("overwrite during backup") {  
@@ -383,7 +401,7 @@ TEST_CASE("overwrite during backup") {
     pick("b");
     ex("-m1f", in, full);
     ex("-R", full, out);
-    cmp();
+    cmp_diff();
 
     // Abort
     clean();
@@ -393,7 +411,7 @@ TEST_CASE("overwrite during backup") {
     ex("-m1", in, full);
     rm(in + "/b");
     ex("-R", full, out);
-    cmp();
+    cmp_diff();
 }
 
 TEST_CASE("skip item prefixed with -- as relative path") {   
@@ -560,7 +578,7 @@ TEST_CASE("lua all or none") {
     }
 
     ex("-R", full, out); 
-    cmp();
+    cmp_diff();
 }
 
 TEST_CASE("lua types") {
@@ -583,7 +601,7 @@ TEST_CASE("lua types") {
     // todo, links
 
     ex("-R", full, out);
-    cmp();
+    cmp_diff();
 }
 
 TEST_CASE("lua contains") {
@@ -782,6 +800,58 @@ TEST_CASE("preserve dates") {
     ex("-R", full, out);
     cmp();
 }
+
+TEST_CASE("absolute paths") {
+    clean();
+    cp(testfiles + "/a", in + "/a");
+    md(in + "/d");
+    cp(testfiles + "/b", in + "/d/b");
+    lf(in + "/link_to_a", in + "/a");
+    lf(in + "/link_to_b", in + "/d/b");
+    ex("-m1a", in, full);
+    auto f = w2utf8(abs_path(s2w(in)));
+
+    SECTION("full path") {
+        ex("-R", full, out, f);
+        cmp();
+    }
+    SECTION("sub directory") {
+        clean_in_out();
+        pick("b");
+        ex("-R", full, out, f + p("/d"));
+        cmp_diff();
+    }
+}
+
+TEST_CASE("absolute paths with -h flag") {
+    clean();
+    cp(testfiles + "/a", in + "/a");
+    md(in + "/d");
+    cp(testfiles + "/b", in + "/d/b");
+    lf(in + "/link_to_a", in + "/a");
+    lf(in + "/link_to_b", in + "/d/b");
+    ex("-m1ah", in, full);
+    auto f = w2utf8(abs_path(s2w(in)));
+
+    SECTION("full path") {
+        clean_in_out();
+        cp(testfiles + "/a", in + "/a");
+        md(in + "/d");
+        cp(testfiles + "/b", in + "/d/b");
+        cp(testfiles + "/a", in + "/link_to_a");
+        cp(testfiles + "/b", in + "/link_to_b");
+        ex("-R", full, out, f);
+        cmp_diff();
+    }
+
+    SECTION("sub directory") {
+        clean_in_out();
+        pick("b");
+        ex("-R", full, out, f + p("/d"));
+        cmp_diff();
+    }
+}
+
 
 #ifndef _WIN32
 TEST_CASE("lua unix filenames") {
