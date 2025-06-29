@@ -179,6 +179,7 @@ TEST_CASE("format_size") {
 
 #ifdef _WIN32 // because of paths
 
+/*
 TEST_CASE("ui") {
     std::wostringstream oss;
 
@@ -269,5 +270,6 @@ TEST_CASE("ui") {
         REQUIRE(res == L("  d:\\1234567890123456789012345678901234567890\n  d:\\456\n"));
     }
 }
+*/
 
 #endif

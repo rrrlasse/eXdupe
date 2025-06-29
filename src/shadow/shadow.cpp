@@ -25,6 +25,8 @@
 
 #include "shadow.h"
 
+#include "../abort.h"
+
 using namespace std;
 
 #ifdef _WIN32

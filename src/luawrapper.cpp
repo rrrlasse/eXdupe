@@ -16,6 +16,8 @@ extern "C" {
 
 #include "luawrapper.h"
 #include "utilities.hpp"
+#include "abort.h"
+
 #include <algorithm>
 #include <stdint.h>
 #include <string.h>

@@ -31,7 +31,7 @@ using std::string;
 #define PATHDELIMS "/\\"
 #else
 #define SPRINTF sprintf
-#define VSPRINTF vsnprintf
+#define VSPRINTF vsprintf
 #define VFPRINTF vfprintf
 #define FPRINTF fprintf
 #define L(s) s

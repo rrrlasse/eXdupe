@@ -14,6 +14,7 @@
 #include "io.hpp"
 #include "unicode.h"
 #include "utilities.hpp"
+#include "abort.h"
 
 #ifdef _WIN32
 #include <io.h>

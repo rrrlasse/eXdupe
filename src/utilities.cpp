@@ -18,6 +18,7 @@
 
 #include "unicode.h"
 #include "utilities.hpp"
+//#include "abort.h"
 
 #include "libexdupe/xxHash/xxh3.h"
 #include "libexdupe/xxHash/xxhash.h"
@@ -438,7 +439,7 @@ void checksum_init(checksum_t *t) {
 
 void checksum(char *data, size_t len, checksum_t *t) {
     if (XXH3_128bits_update(&t->state, data, len) == XXH_ERROR) {
-        abort(false, L("xxHash error"));
+        rassert(false);
     }
     return;
 }
@@ -450,7 +451,7 @@ uint64_t filesize(const STRING& file, bool followlinks = false) {
     // If the user has set followlinks then the directory-traversal, which happens *early*,
     // will resolve links and treat them as files from that point. So a requirement to have
     // knowlege about the flag should not propagate down to here
-    abort(followlinks != false, L("Internal error, followlinks == true in filesize()"));
+    rassert(followlinks != false);
 
     try {
         if (fs::is_symlink(file)) {
@@ -606,7 +607,6 @@ bool is_dir(const STRING& path) { return ISDIR(get_attributes(path, false)); }
 
 void *tmalloc(size_t size) {
     void *p = malloc(size);
-    abort(p == 0, L("Error at malloc() of %d MB. System out of memory."), (int)(size >> 20));
     return p;
 }
 

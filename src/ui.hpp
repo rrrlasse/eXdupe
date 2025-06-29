@@ -10,6 +10,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <mutex>
 
 #include "utilities.hpp"
 
@@ -19,6 +20,7 @@ class Statusbar {
     void print(int verbosity, const CHR *fmt, ...);
     void print_no_lf(int verbosity, const CHR *fmt, ...);
     void update(status_t status, uint64_t read, uint64_t written, STRING path, bool no_delay = false, bool is_message = false);
+    void print_abort_message(const CHR *fmt, ...);
     void clear_line();
 
     int m_verbose_level{};
@@ -30,4 +32,5 @@ private:
     uint64_t m_last_file_print{};
     OSTREAM& m_os;
     std::vector<CHR> m_tmp;
+    std::recursive_mutex screen_mutex;
 };

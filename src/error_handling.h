@@ -59,32 +59,3 @@ template<typename... Args> [[noreturn]] inline void rassert_function(const char*
         rassert_function(#condition, nullptr, std::source_location::current(), ##__VA_ARGS__); \
     }
 
-
-#ifdef _WIN32
-inline void abort(bool b, int ret, const std::wstring& s) {
-    if (b) {
-        CERR << std::endl << s << std::endl;
-        cleanup_and_exit(ret);
-    }
-}
-#endif
-
-inline void abort(bool b, int ret, const std::string& s) {
-    if (b) {
-        CERR << std::endl << STRING(s.begin(), s.end()) << std::endl;
-        cleanup_and_exit(ret);
-    }
-}
-
-// todo, legacy
-inline void abort(bool b, const CHR* fmt, ...) {
-    if (b) {
-        CERR << std::endl;
-        va_list argv;
-        va_start(argv, fmt);
-        VFPRINTF(stderr, fmt, argv);
-        va_end(argv);
-        CERR << std::endl;
-        cleanup_and_exit(err_other);
-    }
-}

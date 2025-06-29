@@ -95,6 +95,9 @@ const bool WIN = false;
 #include "identical_files.cppm"
 #include "untouched_files.cppm"
 
+#include "abort.h" // hack. Error handling is rewritten in eXdupe 4.x
+
+// Modules reverted. Not well supported yet.
 //import FileTypes;
 //import IdenticalFiles;
 //import UntouchedFiles;
@@ -231,6 +234,8 @@ struct file_offset_t {
 vector<file_offset_t> infiles;
 vector<contents_t> contents;
 
+std::mutex abort_mutex; // todo, new error handling in exdupe 4
+
 // only used when restoring from file, not when restoring from stdin
 struct packet_t {
     bool is_reference = false;
@@ -244,6 +249,42 @@ struct packet_t {
     std::optional<uint64_t> archive_offset;
 };
 vector<packet_t> packets;
+
+#ifdef _WIN32
+void abort(bool b, int ret, const std::wstring &s) {
+    if (b) {
+        abort_mutex.lock();
+        statusbar.print_abort_message(L("%s"), s.c_str());
+        CERR << std::endl << s << std::endl;
+        cleanup_and_exit(ret); // todo, kill threads first
+    }
+}
+#endif
+
+void abort(bool b, int ret, const std::string &s) {
+    if (b) {
+        abort_mutex.lock();
+        STRING w = STRING(s.begin(), s.end());
+        statusbar.print_abort_message(L("%s"), s.c_str());
+        cleanup_and_exit(ret); // todo, kill threads first
+    }
+}
+
+// todo, legacy
+void abort(bool b, const CHR *fmt, ...) {
+    if (b) {
+        abort_mutex.lock();
+        vector<CHR> buf;
+        buf.resize(1 * M);
+        va_list argv;
+        va_start(argv, fmt);
+        VSPRINTF(buf.data(), fmt, argv);
+        va_end(argv);
+        STRING s(buf.data());
+        statusbar.print_abort_message(L("%s"), s.c_str());
+        cleanup_and_exit(err_other); // todo, kill threads first
+    }
+}
 
 uint64_t backup_set_size() {
     // unchanged and identical are not sent to libexdupe
@@ -2385,6 +2426,7 @@ int main(int argc2, char *argv2[])
         // todo, remove these which are now for decompression only. todo, create constants for mem usage
         in = static_cast<char*>(tmalloc(DISK_READ_CHUNK + M));
         out = static_cast<char*>(tmalloc((threads + 1) * DISK_READ_CHUNK + M));
+        abort(!in || !out, L("Out of memory"));
         for (uint32_t i = 0; i < threads + 1; i++) {
             compression::payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
             compression::payload_queue_size.push_back(0);

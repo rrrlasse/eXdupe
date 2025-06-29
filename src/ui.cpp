@@ -8,7 +8,6 @@
 #include <assert.h>
 #include "ui.hpp"
 
-
 #include <iostream>
 
 #ifdef _WIN32
@@ -42,6 +41,7 @@ int GetHorizontalCursorPosition() {
 Statusbar::Statusbar(OSTREAM &os) : m_os(os), m_tmp(10000, CHR('c')) {}
 
 void Statusbar::clear_line() {
+    std::lock_guard<std::recursive_mutex> lg(screen_mutex);
     int cursor = GetHorizontalCursorPosition();
     if(cursor < m_term_width) {
         cursor = m_term_width;
@@ -52,6 +52,8 @@ void Statusbar::clear_line() {
 
 // If is_message, then treat path as a status message and don't prepend a path to it
 void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING path, bool no_delay, bool is_message) {
+    std::lock_guard<std::recursive_mutex> lg(screen_mutex);
+
     bool v3 = m_verbose_level == 3;
 
     if (m_verbose_level < 1 || path.size() == 0) {
@@ -115,10 +117,11 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
 
 // FIXME rewrite to just taking std::string as parameter
 void Statusbar::print(int verbosity, const CHR *fmt, ...) {
+    std::lock_guard<std::recursive_mutex> lg(screen_mutex);
     if (verbosity <= m_verbose_level) {
         va_list argv;
         va_start(argv, fmt);
-        size_t printed = VSPRINTF(m_tmp.data(), m_tmp.size(), fmt, argv);
+        size_t printed = VSPRINTF(m_tmp.data(), fmt, argv);
         rassert(printed < m_tmp.size() - 1);
         STRING s = STRING(m_tmp.data());
         va_end(argv);
@@ -128,13 +131,26 @@ void Statusbar::print(int verbosity, const CHR *fmt, ...) {
 }
 
 void Statusbar::print_no_lf(int verbosity, const CHR *fmt, ...) {
+    std::lock_guard<std::recursive_mutex> lg(screen_mutex);
     if (verbosity <= m_verbose_level) {
         va_list argv;
         va_start(argv, fmt);
-        size_t printed = VSPRINTF(m_tmp.data(), m_tmp.size(), fmt, argv);
+        size_t printed = VSPRINTF(m_tmp.data(), fmt, argv);
         rassert(printed < m_tmp.size() - 1);
         STRING s = STRING(m_tmp.data());
         va_end(argv);
         m_os << s;
     }
+}
+
+void Statusbar::print_abort_message(const CHR *fmt, ...) {
+    screen_mutex.lock();
+    va_list argv;
+    va_start(argv, fmt);
+    size_t printed = VSPRINTF(m_tmp.data(), fmt, argv);
+    rassert(printed < m_tmp.size() - 1);
+    STRING s = STRING(m_tmp.data());
+    va_end(argv);
+    clear_line();
+    m_os << s << L("\n");
 }
