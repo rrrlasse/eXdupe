@@ -265,7 +265,7 @@ void abort(bool b, int ret, const std::string &s) {
     if (b) {
         abort_mutex.lock();
         STRING w = STRING(s.begin(), s.end());
-        statusbar.print_abort_message(L("%s"), s.c_str());
+        statusbar.print_abort_message(L("%s"), w.c_str());
         cleanup_and_exit(ret); // todo, kill threads first
     }
 }
