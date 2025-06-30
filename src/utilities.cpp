@@ -451,7 +451,7 @@ uint64_t filesize(const STRING& file, bool followlinks = false) {
     // If the user has set followlinks then the directory-traversal, which happens *early*,
     // will resolve links and treat them as files from that point. So a requirement to have
     // knowlege about the flag should not propagate down to here
-    rassert(followlinks != false);
+    rassert(!followlinks);
 
     try {
         if (fs::is_symlink(file)) {
