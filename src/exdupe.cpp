@@ -330,9 +330,16 @@ void move_cursor_up() {
 #endif
 }
 
+void update_statusbar_backupv3(STRING file, bool message = false) {
+    if (verbose_level == 3) {
+        statusbar.update(BACKUP, backup_set_size(), io.write_count, file, false, message);
+    }
+}
 
 void update_statusbar_backup(STRING file, bool message = false) {
-    statusbar.update(BACKUP, backup_set_size(), io.write_count, file, false, message);
+    if (verbose_level < 3) {
+        statusbar.update(BACKUP, backup_set_size(), io.write_count, file, false, message);
+    }
 }
 
 void update_statusbar_restore(STRING file) {
@@ -1872,6 +1879,7 @@ void compress_file_finalize() {
 }
 
 void compress_file(const STRING& input_file, const STRING& filename, int attributes) {
+    update_statusbar_backupv3(input_file);
 
     if (input_file != L("-stdin") && ISNAMEDPIPE(attributes) && !named_pipes) {
         auto _ = std::lock_guard(compress_file_mutex);
