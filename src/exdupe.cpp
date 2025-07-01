@@ -168,6 +168,9 @@ bool hash_flag = false;
 bool build_info_flag = false;
 bool statistics_flag = false;
 bool no_timestamp_flag = false;
+bool lua_help_flag = false;
+bool e_help_flag = false;
+bool usage_flag = false;
 
 uint32_t verbose_level = 1;
 uint32_t megabyte_flag = 0;
@@ -206,7 +209,6 @@ FILE *ifile = 0;
 Cio io = Cio();
 Statusbar statusbar;
 
-char *in, *out;
 uint64_t bits;
 
 // various
@@ -272,6 +274,44 @@ const string packets_header = "PACKETSS";
 const string payload_header = "PAYLOADD";
 
 const STRING corrupted_msg = L("\nArchive is corrupted, you can only list contents (-L flag) or restore (-R flag)");
+
+std::mutex abort_mutex;
+
+#ifdef _WIN32
+void abort(bool b, retvals ret, const std::wstring &s) {
+    if (b) {
+        abort_mutex.lock();
+        statusbar.print_abort_message(L("%s"), s.c_str());
+        CERR << std::endl << s << std::endl;
+        cleanup_and_exit(ret); // todo, kill threads first
+    }
+}
+#endif
+
+void abort(bool b, retvals ret, const std::string &s) {
+    if (b) {
+        abort_mutex.lock();
+        STRING w = STRING(s.begin(), s.end());
+        statusbar.print_abort_message(L("%s"), w.c_str());
+        cleanup_and_exit(ret); // todo, kill threads first
+    }
+}
+
+// todo, legacy
+void abort(bool b, const CHR *fmt, ...) {
+    if (b) {
+        abort_mutex.lock();
+        vector<CHR> buf;
+        buf.resize(1 * M);
+        va_list argv;
+        va_start(argv, fmt);
+        VSPRINTF(buf.data(), fmt, argv);
+        va_end(argv);
+        STRING s(buf.data());
+        statusbar.print_abort_message(L("%s"), s.c_str());
+        cleanup_and_exit(retvals::err_other); // todo, kill threads first
+    }
+}
 
 uint64_t backup_set_size() {
     // unchanged and identical are not sent to libexdupe
@@ -514,8 +554,8 @@ uint64_t read_header(FILE *file, uint64_t *lastgood) {
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-    abort(major != VER_MAJOR, err_other, format("This file was created with eXdupe version {}.{}.{}. Please use %d.x.x on it", major, minor, revision, major));
-    abort(dev != VER_DEV, err_other, format("This file was created with eXdupe version {}.{}.{}.dev-{}. Please use the exact same version on it", major, minor, revision, dev));
+    abort(major != VER_MAJOR, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}. Please use %d.x.x on it", major, minor, revision, major));
+    abort(dev != VER_DEV, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}.dev-{}. Please use the exact same version on it", major, minor, revision, dev));
 
     hash_flag = io.read_ui<uint8_t>(file) == 1;
     hash_salt = io.read_ui<uint64_t>(file);
@@ -1079,6 +1119,24 @@ void tidy_args(int argc2, CHR *argv2[]) {
 }
 
 void parse_flags(void) {
+    if (argc == 1) {
+        usage_flag = true;
+        return;
+    }
+    if (argc == 2 && argv.at(1) == L("-u?")) {
+        lua_help_flag = true;
+        return;
+    }
+    if (argc == 2 && argv.at(1) == L("-e?")) {
+        e_help_flag = true;
+        return;
+    }
+
+    if (argc == 2 && argv.at(1) == L("-?")) {
+        usage_flag = true;
+        return;
+    }
+
     int i = 1;
 
     while (argc > i && argv.at(i).substr(0, 1) == L("-") && argv.at(i).substr(0, 2) != L("--") && argv.at(i) != L("-stdin") && argv.at(i) != L("-stdout")) {
@@ -1704,7 +1762,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
                     fclose(ofile);
                     set_meta(dstdir + DELIM_STR + c.name, c);
                 }
-                abort(c.checksum != t.result32(), err_other, format(L("File checksum error {}"), c.name));
+                abort(c.checksum != t.result32(), retvals::err_other, format(L("File checksum error {}"), c.name));
             }
         }
     }
@@ -1718,6 +1776,8 @@ uint64_t add_file_payload = 0;
 uint64_t curfile_written = 0;
 checksum_t decompress_checksum;
 vector<contents_t> file_queue;
+char *in;
+char *out;
 
 void data_block_from_stdin(vector<contents_t> &c) {
     STRING destfile;
@@ -1815,7 +1875,7 @@ void data_block_from_stdin(vector<contents_t> &c) {
                 set_meta(c.at(0).extra, c.at(0));
                 ofile = 0;
                 curfile_written = 0;
-                abort(c.at(0).checksum != decompress_checksum.result32(), err_other, format(L("File checksum error {}"), c.at(0).extra));
+                abort(c.at(0).checksum != decompress_checksum.result32(), retvals::err_other, format(L("File checksum error {}"), c.at(0).extra));
                 c.erase(c.begin());
             }
         }
@@ -1824,6 +1884,10 @@ void data_block_from_stdin(vector<contents_t> &c) {
 
 
 void restore_from_stdin(const STRING& extract_dir) {
+    restore::in = static_cast<char *>(tmalloc(DISK_READ_CHUNK + M));
+    restore::out = static_cast<char *>(tmalloc((threads + 1) * DISK_READ_CHUNK + M));
+    abort(!restore::in || !restore::out, L("Out of memory"));
+
     STRING curdir;
     size_t r = 0;
     STRING base_dir = abs_path(extract_dir);
@@ -2533,76 +2597,141 @@ void create_shadows(void) {
 #endif
 }
 
-#ifdef _WIN32
-int wmain(int argc2, CHR *argv2[])
-#else
-int main(int argc2, char *argv2[])
-#endif
-{
-    // fixme, not ideal
-    std::set_terminate([]() -> void {
-#ifdef _WIN32
-        unshadow();
-#endif
-        std::exit(1);
-    });
-
-    tidy_args(argc2, argv2);
-
-    if (argc2 == 1) {
-        print_usage(false);
-        return 2;
-    }
-    if (argc2 == 2 && argv.at(1) == L("-u?")) {
-        print_lua_help();
-        return 0;
-    }
-    if (argc2 == 2 && argv.at(1) == L("-e?")) {
-        print_e_help();
-        return 0;
-    }
-
-    if (argc2 == 2 && argv.at(1) == L("-?")) {
-        print_usage(true);
-        return 0;
-    }
-
-    parse_flags();
-
-    if (build_info_flag) {
-        print_build_info();
-        return 0;
-    }
-
-    create_shadows();
-    parse_files(); // sets "directory"
-
+void main_compress() {
+    uint64_t lastgood = 0;
+    scope_actions([]() { create_shadows(); }, []() { unshadow(); });
     file_types.add(entropy_ext);
 
-#ifdef _WIN32
-    _setmode(_fileno(stdin), _O_BINARY);
-    _setmode(_fileno(stdout), _O_BINARY);
-    _setmode(_fileno(stderr), _O_U16TEXT);
-#endif
-    statusbar.m_verbose_level = verbose_level;
+    for (uint32_t i = 0; i < threads + 1; i++) {
+        compression::payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
+        compression::payload_queue_size.push_back(0);
+        compression::out_payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
+        compression::out_payload_queue_size.push_back(0);
+    }
 
-    if (restore_flag || compress_flag || list_flag) {
-        // todo, remove these which are now for decompression only. todo, create constants for mem usage
-        in = static_cast<char*>(tmalloc(DISK_READ_CHUNK + M));
-        out = static_cast<char*>(tmalloc((threads + 1) * DISK_READ_CHUNK + M));
-        abort(!in || !out, L("Out of memory"));
-        for (uint32_t i = 0; i < threads + 1; i++) {
-            compression::payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
-            compression::payload_queue_size.push_back(0);
-            compression::out_payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
-            compression::out_payload_queue_size.push_back(0);
+    if (diff_flag) {
+        output_file = full;
+        ifile = try_open(full.c_str(), 'a', true);
+        io.seek(ifile, 0, SEEK_END);
+        original_file_size = io.tell(ifile);
+        io.seek(ifile, 0, SEEK_SET);
+        ofile = ifile;
+
+        memory_usage = read_header(ifile, &lastgood); // also inits hash_salt and sets
+        abort(!read_headers(ifile), corrupted_msg.c_str());
+        hashtable = malloc(memory_usage);
+        abort(!hashtable, retvals::err_memory, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
+        memset(hashtable, 0, memory_usage);
+        pay_count = read_packets(ifile); // read size in bytes of user payload in .full file
+
+        int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
+        abort(r == 1, retvals::err_memory, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
+        abort(r == 2, retvals::err_memory, format("Error creating threads. This differential backup requires {} MB memory. Try -t1 flag", memory_usage >> 20));
+
+        read_hashtable(ifile);
+
+        basepay = pay_count;
+
+        contents = read_contents(ifile);
+        for (auto c : contents) {
+            c.abs_path = CASESENSE(c.abs_path);
+            untouched_files2.add_during_backup(c);
+            identical_files.add(c);
         }
+
+        seek_to_header(ifile, hashtable_header);
+        io.seek(ifile, -8, SEEK_CUR);
+        io.truncate(ifile);
+
+    } else {
+        output_file = full;
+        ofile = create_file(output_file);
+        hash_salt = hash_flag ? rnd64() : 0;
+        hashtable = tmalloc(memory_usage);
+        abort(!hashtable, retvals::err_memory, "Out of memory. Reduce -m, -g or -t flag");
+        int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
+        abort(r == 1, retvals::err_memory, "Out of memory. Reduce -m, -g or -t flag");
+        abort(r == 2, retvals::err_memory, "Error creating threads. Reduce -m, -g or -t flag");
+        write_header(ofile, memory_usage, hash_flag, hash_salt, 0);
     }
 
-    if (list_flag) {
-        list_contents();
+    auto commit = [&]() {
+        if (output_file != L("-stdout")) {
+            lastgood = io.tell(ofile);
+            io.seek(ofile, 0, SEEK_SET);
+            write_header(ofile, memory_usage, hash_flag, hash_salt, lastgood);
+            io.seek(ofile, lastgood, SEEK_SET);
+        }
+    };
+
+    io.write(payload_header.data(), payload_header.size(), ofile);
+    uint64_t w = io.write_count;
+
+    start_time_without_overhead = GetTickCount64();
+    bool backup_aborted = false;
+
+    try {
+        if (inputfiles.size() > 0 && inputfiles.at(0) != L("-stdin")) {
+            compress_args(inputfiles);
+        } else if (inputfiles.size() > 0 && inputfiles.at(0) == L("-stdin")) {
+            name = L("stdin");
+            compression::compress_file(L("-stdin"), name, 0);
+            compression::compress_file_finalize();
+        }
+    } catch (std::exception &) {
+        backup_aborted = true;
     }
-    else if (restore_flag && full != L("-stdin")) {
+
+    io.write("X", 1, ofile);
+
+    // PAYLOADD header end length
+    io.write_ui<uint64_t>(io.write_count - w, ofile);
+
+    uint64_t end_time_without_overhead = GetTickCount64();
+    size_t references_size = write_packets_added(ofile);
+    write_contents_added(ofile);
+
+    commit();
+
+    if (!backup_aborted) {
+        time_ms_t d = cur_date();
+        uint64_t s = backup_set_size();
+        uint64_t f = files;
+        write_backup_set(ofile, d, s, f);
+        commit();
+    }
+
+    size_t hashtable_size = write_hashtable(ofile);
+
+    io.write(file_footer.data(), file_footer.size(), ofile);
+
+    if (verbose_level > 0 && verbose_level < 3) {
+        statusbar.clear_line();
+    }
+
+    uint64_t added = 0;
+    if (ofile != stdout) {
+        io.seek(ofile, 0, SEEK_END);
+        added = io.tell(ofile) - original_file_size;
+
+        io.close(ofile);
+
+    } else {
+        added = io.write_count;
+    }
+
+    if (statistics_flag) {
+        uint64_t end_time = GetTickCount64();
+
+        print_statistics(start_time, end_time, end_time_without_overhead, references_size, hashtable_size);
+    } else {
+        statusbar.print_no_lf(1, L("Added %s B in %s files using %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(suffix(added)).c_str());
+    }
+}
+
+
+void main_restore() {
+    if (full != L("-stdin")) {
         // Restore from file.
         // =================================================================================================
         if (diff_flag) {
@@ -2611,19 +2740,19 @@ int main(int argc2, char *argv2[])
             init_content_maps(ffull);
         } else {
             ifile = try_open(full, 'r', true);
-            read_header(ifile, nullptr); //initializes sets
+            read_header(ifile, nullptr); // initializes sets
             read_headers(ifile);
             restore::restore_from_file(ifile, set_flag == static_cast<uint32_t>(-1) ? 0 : set_flag);
         }
         wrote_message(io.write_count, files);
-    } else if ((restore_flag && (full == L("-stdin"))) && restorelist.size() == 0) {
+    } else if ((full == L("-stdin")) && restorelist.size() == 0) {
         // fixme, only archives containing 1 set can be restored this way; add detection+error handling
         // Restore from stdin. Only entire archive can be restored this way
         STRING s = remove_delimitor(directory);
         ifile = try_open(full, 'r', true);
         read_header(ifile, nullptr);
 
-        //seek_to_header(ifile, "PAYLOADD");
+        // seek_to_header(ifile, "PAYLOADD");
         char tmp2[8];
         io.read(tmp2, 8, ifile, true);
 
@@ -2636,133 +2765,61 @@ int main(int argc2, char *argv2[])
         while (ifile == stdin && io.read(tmp.data(), 32 * 1024, stdin, false)) {
         }
     }
+}
 
-    // Compress
-    // =================================================================================================
-    else if (compress_flag) {
-        uint64_t lastgood = 0;
 
-        if (diff_flag) {
-            output_file = full;
-            ifile = try_open(full.c_str(), 'a', true);
-            io.seek(ifile, 0, SEEK_END);
-            original_file_size = io.tell(ifile);
-            io.seek(ifile, 0, SEEK_SET);
-            ofile = ifile;
+#ifdef _WIN32
+int wmain(int argc2, CHR *argv2[])
+#else
+int main(int argc2, char *argv2[])
+#endif
+{
+#ifdef _WIN32
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_U16TEXT);
+#endif
 
-            memory_usage = read_header(ifile, &lastgood); // also inits hash_salt and sets
-            abort(!read_headers(ifile), corrupted_msg.c_str());
-            hashtable = malloc(memory_usage);
-            abort(!hashtable, err_resources, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
-            memset(hashtable, 0, memory_usage);
-            pay_count = read_packets(ifile); // read size in bytes of user payload in .full file
+    tidy_args(argc2, argv2);
+    parse_flags();
+    statusbar.m_verbose_level = verbose_level;
 
-            int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
-            abort(r == 1, err_resources, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
-            abort(r == 2, err_resources, format("Error creating threads. This differential backup requires {} MB memory. Try -t1 flag", memory_usage >> 20));
-
-            read_hashtable(ifile);
-            
-            basepay = pay_count;
-
-            contents = read_contents(ifile);
-            for (auto c : contents) {
-                c.abs_path = CASESENSE(c.abs_path);
-                untouched_files2.add_during_backup(c);
-                identical_files.add(c);
-            }
-
-            seek_to_header(ifile, hashtable_header);
-            io.seek(ifile, -8, SEEK_CUR);
-            io.truncate(ifile);
-
-        } else {
-            output_file = full;
-            ofile = create_file(output_file);
-            hash_salt = hash_flag ? rnd64() : 0;
-            hashtable = tmalloc(memory_usage);
-            abort(!hashtable, err_resources, "Out of memory. Reduce -m, -g or -t flag");
-            int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
-            abort(r == 1, err_resources, "Out of memory. Reduce -m, -g or -t flag");
-            abort(r == 2, err_resources, "Error creating threads. Reduce -m, -g or -t flag");
-            write_header(ofile, memory_usage, hash_flag, hash_salt, 0);
-        }
-
-        auto commit = [&]() {
-            if (output_file != L("-stdout")) {
-                lastgood = io.tell(ofile);
-                io.seek(ofile, 0, SEEK_SET);
-                write_header(ofile, memory_usage, hash_flag, hash_salt, lastgood);
-                io.seek(ofile, lastgood, SEEK_SET);
-            }
-        };
-
-        io.write(payload_header.data(), payload_header.size(), ofile);
-        uint64_t w = io.write_count;
-
-        start_time_without_overhead = GetTickCount64();
-        bool backup_aborted = false;
-
-        try {
-            if (inputfiles.size() > 0 && inputfiles.at(0) != L("-stdin")) {
-                compress_args(inputfiles);
-            } else if (inputfiles.size() > 0 && inputfiles.at(0) == L("-stdin")) {
-                name = L("stdin");
-                compression::compress_file(L("-stdin"), name, 0);
-                compression::compress_file_finalize();
-            }
-        } catch (std::exception &) {
-            backup_aborted = true;
-        }
-         
-        io.write("X", 1, ofile);
-
-        // PAYLOADD header end length
-        io.write_ui<uint64_t>(io.write_count - w, ofile);
-
-        uint64_t end_time_without_overhead = GetTickCount64();
-        size_t references_size = write_packets_added(ofile);
-        write_contents_added(ofile);
-
-        commit();
-
-        if (!backup_aborted) {
-            time_ms_t d = cur_date();
-            uint64_t s = backup_set_size();
-            uint64_t f = files;
-            write_backup_set(ofile, d, s, f);
-            commit();
-        }
-                
-        size_t hashtable_size = write_hashtable(ofile);
-
-        io.write(file_footer.data(), file_footer.size(), ofile);
-
-        if(verbose_level > 0 && verbose_level < 3) {
-            statusbar.clear_line();
-        }
-
-        uint64_t added = 0;
-        if (ofile != stdout) {
-            io.seek(ofile, 0, SEEK_END);
-            added = io.tell(ofile) - original_file_size;
-
-            io.close(ofile);
-
-        } else {
-            added = io.write_count;
-        }
-
-        if (statistics_flag) {
-            uint64_t end_time = GetTickCount64();
-
-            print_statistics(start_time, end_time, end_time_without_overhead, references_size, hashtable_size);
-        }
-        else {
-           statusbar.print_no_lf(1, L("Added %s B in %s files using %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(suffix(added)).c_str());
-        }
-    } else {
+    if (usage_flag) {
         print_usage(false);
+        return 0;
     }
+    if (lua_help_flag) {
+        print_lua_help();
+        return 0;
+    }
+    if (e_help_flag) {
+        print_e_help();
+        return 0;
+    }
+    if (build_info_flag) {
+        print_build_info();
+        return 0;
+    }
+
+    try {
+        parse_files();
+
+        if (list_flag) {
+            list_contents();
+        } else if (restore_flag) {
+            main_restore();
+        } else if (compress_flag) {
+            main_compress();
+        } else {
+            print_usage(false);
+        }
+    } 
+    catch (retvals r) {
+        return static_cast<int>(r);
+    }
+    catch (...) {
+        return static_cast<int>(retvals::err_std_etc);
+    }
+
     return 0;
 }

@@ -14,14 +14,10 @@
 #endif
 
 
-enum retvals {err_other = 1, err_parameters = 2, err_resources = 3, err_nofiles = 4, err_assert = 5};
+enum class retvals {err_other = 1, err_parameters = 2, err_memory = 3, err_write = 4, err_assert = 5, err_permission = 6, err_std_etc = 7};
 
-inline void cleanup_and_exit([[maybe_unused]] int ret) {
-#ifdef _WIN32
-    unshadow();
-#endif
-    //exit(ret);
-    throw std::exception();
+inline void cleanup_and_exit([[maybe_unused]] retvals ret) {
+    throw ret;
 }
 
 template<typename T> inline void print_argument(const T& arg) {
@@ -47,7 +43,7 @@ template<typename... Args> inline void rassert_function(const char* condition, c
         CERR << "Extra information:" << std::endl;
         (print_argument(args), ...);
     }
-    cleanup_and_exit(err_assert);
+    cleanup_and_exit(retvals::err_assert);
 }
 
 #define massert(condition, message, ...) \
@@ -59,39 +55,3 @@ template<typename... Args> inline void rassert_function(const char* condition, c
     if (!(condition)) { \
         rassert_function(#condition, nullptr, std::source_location::current(), ##__VA_ARGS__); \
     }
-
-
-#ifdef _WIN32
-inline void abort(bool b, int ret, const std::wstring& s) {
-    if (b) {
-        CERR << std::endl << s << std::endl;
-        cleanup_and_exit(ret);
-    }
-}
-#endif
-
-inline void abort(bool b, int ret, const std::string& s) {
-    if (b) {
-        CERR << std::endl << STRING(s.begin(), s.end()) << std::endl;
-        cleanup_and_exit(ret);
-    }
-}
-
-inline void abort(bool b, const CHR* fmt, ...) {
-    // multiple threads from compress_recursive() usually enter simultaneously due to
-    // file system access errors, so just allow one. Todo, maybe check atomic abort flag
-    // instead of this
-    static std::mutex abort_mutex;
-    if (b) {
-        bool success = abort_mutex.try_lock();
-        if (success) {
-            CERR << std::endl;
-            va_list argv;
-            va_start(argv, fmt);
-            VFPRINTF(stderr, fmt, argv);
-            va_end(argv);
-            CERR << std::endl;
-        }
-        cleanup_and_exit(err_other);
-    }
-}

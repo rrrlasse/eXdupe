@@ -147,3 +147,25 @@ void tm_to_short(short_tm *s, tm *l);
 void tm_to_long(short_tm *s, tm *l);
 
 std::string regx(std::string str, std::string pat);
+
+template <class A, class B> class scope_actions {
+  public:
+    explicit scope_actions(const A &aa, const B &bb) noexcept : b{bb} { aa(); }
+    explicit scope_actions(const A aa, const B &bb) noexcept : b{bb} { aa(); }
+    explicit scope_actions(A &&aa, B &&bb) noexcept : b{std::move(bb)} { aa(); }
+
+    ~scope_actions() noexcept {
+        if (invoke)
+            b();
+    }
+
+    scope_actions(scope_actions &&other) noexcept : b(std::move(other.b)), invoke(std::exchange(other.invoke, false)) {}
+
+    scope_actions(const scope_actions &) = delete;
+    void operator=(const scope_actions &) = delete;
+    void operator=(scope_actions &&) = delete;
+
+  private:
+    B b;
+    bool invoke = true;
+};
