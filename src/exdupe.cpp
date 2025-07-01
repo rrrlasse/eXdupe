@@ -2482,7 +2482,41 @@ void compress_args(vector<STRING> args) {
     compress(base_dir, args);
 }
 
+void print_statistics(uint64_t start_time, uint64_t end_time, uint64_t end_time_without_overhead, uint64_t references_size, uint64_t hashtable_size) {
+    std::ostringstream s;
+    int sratio = int((double(io.write_count) / double(backup_set_size() + 1)) * 100.);
+    sratio = sratio > 999 ? 999 : sratio == 0 ? 1 : sratio;
 
+    s << "Input:                       " << w2s(del(backup_set_size())) << " B in " << w2s(del(files)) << " files\n";
+    s << "Output:                      " << w2s(del(io.write_count)) << " B (" << sratio << "%)\n";
+    s << "Speed:                       " << w2s(del(backup_set_size() / ((end_time - start_time) + 1) * 1000 / 1024 / 1024)) << " MB/s\n";
+    s << "Speed w/o init overhead:     " << w2s(del(backup_set_size() / ((end_time_without_overhead - start_time_without_overhead) + 1) * 1000 / 1024 / 1024)) << " MB/s\n";
+
+    if (diff_flag) {
+        s << "Stored as untouched files:   " << suffix(unchanged) << "B in " << w2s(del(unchanged_files)) << " files\n";
+    }
+    s << "Stored as duplicated files:  " << suffix(identical) << "B in " << w2s(del(identical_files_count)) << " files\n";
+    s << "Stored as duplicated blocks: " << suffix(largehits + smallhits) << "B (" << suffix(largehits) << "B large, " << suffix(smallhits) << "B small)\n";
+    s << "Stored as literals:          " << suffix(stored_as_literals) << "B (" << suffix(literals_compressed_size) << "B compressed)\n";
+    uint64_t total = literals_compressed_size + contents_size + references_size + hashtable_size;
+    s << "Overheads:                   " << suffix(contents_size) << "B meta, " << suffix(references_size) << "B refs, " << suffix(hashtable_size) << "B hashtable, " << suffix(io.write_count - total) << "B misc\n";
+    s << "Unhashed due to congestion:  " << suffix(congested_large) << "B large, " << suffix(congested_small) << "B small\n";
+    s << "Unhashed anomalies:          " << suffix(anomalies_large) << "B large, " << suffix(anomalies_small) << "B small\n";
+    s << "High entropy files:          " << suffix(high_entropy) << "B in " << w2s(del(high_entropy_files)) << " files";
+    STRING str = s2w(s.str());
+    statusbar.print(0, L("%s"), str.c_str());
+    CERR << "Hashtable fillratio:         ";
+    double la = 0.;
+    double sm = 0.;
+    fillratio(&la, &sm);
+    CERR << int(sm * 100.) << "% small, " << int(la * 100.) << "% large\n";
+    if (VER_DEV != 0) {
+        CERR << "\nhits1 = " << hits1 << "";
+        CERR << "\nhits2 = " << hits2 << "\n";
+        CERR << "hits3 = " << hits3 << "\n";
+        CERR << "hits4 = " << hits4 << "\n";
+    }
+}
 
 
 void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, L("Wrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
@@ -2703,11 +2737,8 @@ int main(int argc2, char *argv2[])
             // fixme delete the partial (invalid) destination file created
         }
 
-        size_t contents_size = 0;
-        size_t references_size = 0;
-
-        references_size = write_packets_added(ofile);
-        contents_size = write_contents_added(ofile);
+        size_t references_size = write_packets_added(ofile);
+        write_contents_added(ofile);
 
         commit();
 
@@ -2740,39 +2771,8 @@ int main(int argc2, char *argv2[])
 
         if (statistics_flag) {
             uint64_t end_time = GetTickCount64();
-            std::ostringstream s;
-            int sratio = int((double(io.write_count) / double(backup_set_size() + 1)) * 100.);
-            sratio = sratio > 999 ? 999 : sratio == 0 ? 1 : sratio;
 
-            s << "Input:                       " << w2s(del(backup_set_size())) << " B in " << w2s(del(files)) << " files\n";
-            s << "Output:                      " << w2s(del(io.write_count)) << " B (" << sratio << "%)\n";
-            s << "Speed:                       " << w2s(del(backup_set_size() / ((end_time - start_time) + 1) * 1000  / 1024 / 1024  )) << " MB/s\n";
-            s << "Speed w/o init overhead:     " << w2s(del(backup_set_size() / ((end_time_without_overhead - start_time_without_overhead ) + 1) * 1000 / 1024 / 1024)) << " MB/s\n";
-
-            if(diff_flag) {
-                s << "Stored as untouched files:   " << suffix(unchanged) << "B in " << w2s(del(unchanged_files)) << " files\n";
-            }
-            s << "Stored as duplicated files:  " << suffix(identical) << "B in " << w2s(del(identical_files_count)) << " files\n";
-            s << "Stored as duplicated blocks: " << suffix(largehits + smallhits) << "B (" << suffix(largehits) << "B large, " << suffix(smallhits) << "B small)\n";
-            s << "Stored as literals:          " << suffix(stored_as_literals) << "B (" << suffix(literals_compressed_size) << "B compressed)\n";
-            uint64_t total = literals_compressed_size + contents_size + references_size + hashtable_size;
-            s << "Overheads:                   " << suffix(contents_size) << "B meta, " << suffix(references_size) << "B refs, " << suffix(hashtable_size) << "B hashtable, " << suffix(io.write_count - total) << "B misc\n";    
-            s << "Unhashed due to congestion:  " << suffix(congested_large) << "B large, " << suffix(congested_small) << "B small\n";
-            s << "Unhashed anomalies:          " << suffix(anomalies_large) << "B large, " << suffix(anomalies_small) << "B small\n";
-            s << "High entropy files:          " << suffix(high_entropy) << "B in " << w2s(del(high_entropy_files)) << " files";
-            STRING str = s2w(s.str());
-            statusbar.print(0, L("%s"), str.c_str());
-            CERR << "Hashtable fillratio:         ";
-            double la = 0.;
-            double sm = 0.;
-            fillratio(&la, &sm);
-            CERR << int(sm * 100.) << "% small, " << int(la * 100.) << "% large\n";
-            if (VER_DEV != 0) {
-                CERR << "\nhits1 = " << hits1 << "";
-                CERR << "\nhits2 = " << hits2 << "\n";
-                CERR << "hits3 = " << hits3 << "\n";
-                CERR << "hits4 = " << hits4 << "\n";
-            }
+            print_statistics(start_time, end_time, end_time_without_overhead, references_size, hashtable_size);
         }
         else {
            statusbar.print_no_lf(1, L("Added %s B in %s files using %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(suffix(added)).c_str());
