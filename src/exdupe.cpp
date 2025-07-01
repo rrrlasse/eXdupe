@@ -2721,22 +2721,6 @@ int main(int argc2, char *argv2[])
         io.write_ui<uint64_t>(io.write_count - w, ofile);
 
         uint64_t end_time_without_overhead = GetTickCount64();
-
-        if (files + dirs == 0) {
-            if (output_file != L("-stdout") && !diff_flag) {
-                fclose(ofile);
-                std::filesystem::remove(output_file);
-            }
-            if (no_recursion_flag) {
-                // todo, delete, wildcard no longer needed
-                // fixme, set "ok" here too
-                abort(true, err_nofiles, "0 source files or directories. Missing '*' wildcard with -r flag?");
-            } else {
-                abort(true, err_nofiles, "0 source files or directories");
-            }
-            // fixme delete the partial (invalid) destination file created
-        }
-
         size_t references_size = write_packets_added(ofile);
         write_contents_added(ofile);
 
