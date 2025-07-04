@@ -28,7 +28,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
 	     int max_threadcount, void *memory, int compression_level,
 	     bool crypto_hash, uint64_t hash_seed, uint64_t basepay);
 
-size_t dup_compress(const void *src, char *dst, size_t size,
+size_t dup_compress(void *src, char *dst, size_t size,
 		    uint64_t *payloadreturned, bool entropy, char*& retval_start);
 int dup_decompress(const char *src, char *dst, size_t *length,
 		   uint64_t *payload);

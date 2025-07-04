@@ -918,7 +918,7 @@ static void *compress_thread(void *arg) {
        // me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
        // hash_chunk(me->source, me->payload, me->size_source, policy);
 
-        if(!me->entropy) {
+        if(true) {
             hash_chunk(me->source, me->payload, me->size_source);
 //            auto t = GetTickCount();
             
@@ -1175,7 +1175,8 @@ uint64_t dup_get_flushed() { return flushed; }
 // dst: point to where you want the compressed result of this particular packet written to
 // if return value > 0: a compressed packet was finished and written to retval_start, and compressed
 // size equals return value. retval_start will equal one of the 'dst' pointers you passed earlier.
-size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_returned, bool entropy, char*&retval_start) {
+// fixme: source data will be overwritten! maybe create internal buffer
+size_t dup_compress(void *src, char *dst, size_t size, uint64_t *payload_returned, bool entropy, char*&retval_start) {
     size_t ret = 0;
     *payload_returned = 0;
 
