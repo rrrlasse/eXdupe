@@ -18,10 +18,16 @@ L cccc dddd pppppppp <data compressed with some traditional data compression>
  c = 32-bit, size of this packet, including data (i.e. 17 + data)
  d = Size in bytes of the *decompressed* data that follows this header
  p = Offset into the user payload that this package represents
+
 */
 
 #define DUP_REFERENCE 'R'
 #define DUP_LITERAL 'L'
+
+#define DUP_UNCOMPRESSED_CHUNK '0'
+#define DUP_COMPRESSED_CHUNK '1'
+#define DUP_CHUNK_HEADER_LEN 5
+
 
 uint64_t dup_memory(uint64_t bits);
 int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
@@ -30,25 +36,21 @@ int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
 
 size_t dup_compress(void *src, char *dst, size_t size,
 		    uint64_t *payloadreturned, bool entropy, char*& retval_start);
-int dup_decompress(const char *src, char *dst, size_t *length,
-		   uint64_t *payload);
+int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload);
+size_t dup_decompress_chunk(char *src, char *dst);
 int dup_packet_info(const char *src, size_t *length,
 			    uint64_t *payload);
 
 size_t dup_size_compressed(const char *src);
 size_t dup_size_decompressed(const char *src);
+size_t chunk_size_compressed(char *src);
 
 void dup_counters_reset(void);
 uint64_t dup_counter_payload(void);
-uint64_t dup_counter_compressed(void);
 size_t dup_compress_hashtable(char*);
 int dup_decompress_hashtable(char* src);
 void dup_deinit(void);
-
 void fillratio(double* l, double* s);
-
-void reset_profiling(void);
-void print_profiling(void);
 uint64_t dup_get_flushed(void);
 size_t flush_pend(uint64_t *payloadreturned, char*&retval_start);
 void print_table();

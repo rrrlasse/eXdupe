@@ -244,8 +244,8 @@ struct file_offset_t {
 
 vector<file_offset_t> infiles;
 
-// only used when restoring from file, not when restoring from stdin
-struct packet_t {
+// contains multiple packets
+struct chunk_t {
     uint64_t payload = 0;
     size_t compressed_length = 0;
     size_t decompressed_length = 0;
@@ -254,7 +254,7 @@ struct packet_t {
     uint64_t archive_offset;
 };
 
-struct sub_packet_t {
+struct packet_t {
     bool is_reference = false;
     uint64_t payload = 0;
    // size_t compressed_length = 0;
@@ -272,8 +272,8 @@ struct sub_packet_t {
 vector<contents_t> contents; 
 vector<contents_t> contents_added;
 
-vector<packet_t> packets;
-vector<packet_t> packets_added;
+vector<chunk_t> packets;
+vector<chunk_t> packets_added;
 
 vector<uint64_t> backup_set; // file_id;
 uint64_t original_file_size = 0;
@@ -526,12 +526,12 @@ uint64_t belongs_to(uint64_t offset) {
     return lower;
 }
 
-vector<sub_packet_t> add_small_packets(const char *src, size_t len, size_t basepy) {
-    vector<sub_packet_t> ret;
+vector<packet_t> add_small_packets(const char *src, size_t len, size_t basepy) {
+    vector<packet_t> ret;
     size_t pos = 0;
 
     while (pos < len) {
-        sub_packet_t ref;
+        packet_t ref;
         uint64_t payload;
         size_t len2;
 
@@ -608,7 +608,7 @@ uint64_t read_packets(FILE *file) {
             uint64_t n = io.read_ui<uint64_t>(file);
 
             for (uint64_t i = 0; i < n; i++) {
-                packet_t ref;
+                chunk_t ref;
                 uint8_t r = io.read_ui<uint8_t>(file);
                 massert(r == DUP_REFERENCE || r == DUP_LITERAL, "Internal error or archive corrupted", "");
 
@@ -678,31 +678,21 @@ uint64_t find_packet(uint64_t payload) {
 
 
 std::vector<char> decompressZstd(const char *compressedData, size_t compressedSize) {
-    rassert(compressedData[0] == 'C');
-    compressedData++;
-    compressedSize--;
-
     unsigned long long decompressedSize = ZSTD_getFrameContentSize(compressedData, compressedSize);
-
     if (decompressedSize == ZSTD_CONTENTSIZE_ERROR) {
         throw std::runtime_error("Invalid zstd compressed stream");
     }
     if (decompressedSize == ZSTD_CONTENTSIZE_UNKNOWN) {
         throw std::runtime_error("Unknown decompressed size");
     }
-
     std::vector<char> decompressed(decompressedSize);
-
     size_t actualSize = ZSTD_decompress(decompressed.data(), decompressedSize, compressedData, compressedSize);
-
     if (ZSTD_isError(actualSize)) {
         throw std::runtime_error(ZSTD_getErrorName(actualSize));
     }
-
     if (actualSize != decompressedSize) {
         throw std::runtime_error("Decompressed size mismatch");
     }
-
     return decompressed;
 }
 
@@ -717,7 +707,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
     while (bytes_resolved < size) {
         uint64_t rr = find_packet(payload + bytes_resolved);
         rassert(rr != std::numeric_limits<uint64_t>::max());
-        packet_t refMain = packets.at(rr);
+        chunk_t refMain = packets.at(rr);
         uint64_t prior = payload + bytes_resolved - refMain.payload;
         size_t needed = size - bytes_resolved;
         size_t ref_has = refMain.decompressed_length - prior >= needed ? needed : refMain.decompressed_length - prior;
@@ -726,22 +716,31 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
         io.seek(ifile, refMain.archive_offset, SEEK_SET);
         io.read_vector(packet, refMain.compressed_length , 0, ifile, true);
 
-        if (packet[0] == 'C') {
-            auto d = decompressZstd(packet.data(), packet.size());
+        /*
+        if (packet[0] == '1') {
+            auto d = decompressZstd(packet.data() + 1 + 4, packet.size() - 1 - 4);
             packet.resize(d.size());
             memcpy(packet.data(), d.data(), d.size());
         } else {
-            rassert(packet[0] == 'U');
+            rassert(packet[0] == '0');
+            packet.erase(packet.begin());
+            packet.erase(packet.begin());
+            packet.erase(packet.begin());
+            packet.erase(packet.begin());
             packet.erase(packet.begin());
         }
-
+        */
+        vector<char> d(2'000'000);
+        size_t s = dup_decompress_chunk(packet.data(), d.data());
+        packet.resize(s);
+        memcpy(packet.data(), d.data(), packet.size());
 
         auto p = add_small_packets(packet.data(), packet.size(), refMain.payload);
         char* payl = (char*)malloc(refMain.decompressed_length);
 
         size_t local_resolved = 0;
         for (int i = 0; i < p.size(); i++) {
-            sub_packet_t ref = p[i];
+            packet_t ref = p[i];
 
             if (local_resolved + ref.payload_length + refMain.payload < payload + bytes_resolved) {
                 local_resolved += ref.payload_length;
@@ -1857,57 +1856,28 @@ vector<contents_t> file_queue;
 char *in;
 char *out;
 
-void data_block_from_stdin(vector<contents_t> &c) {
+void data_chunk_from_stdin(vector<contents_t> &c) {
     char *in2 = in;
 
     STRING destfile;
     STRING last_file = L("");
     uint64_t payload_orig = payload_written;
-
-    //rassert(false);
-
-        char *last; 
+    char *last; 
     size_t len;
     size_t len2;
     uint64_t payload;
-    // 'A' has been read
-    uint64_t packet_len = io.read_ui<uint64_t>(ifile);
 
-    io.read(in2, 1, ifile);
+    io.read(in2, DUP_CHUNK_HEADER_LEN, ifile);
+    size_t r = chunk_size_compressed(in2);
+    io.read(in2 + DUP_CHUNK_HEADER_LEN, r - DUP_CHUNK_HEADER_LEN, ifile);
 
-    if (in2[0] == 'U') {
-        io.read(in2, packet_len, ifile, true);
-        rassert(in2[packet_len - 1] == 'B');
-        last = in2 + packet_len - 1;
-    } else if (in2[0] == 'C') {
-        io.read(in2 + 1, packet_len, ifile, true);
-        rassert(in2[packet_len] == 'B');
-        vector<char> packet;
-        packet.resize(10'000'000);
-        auto d = decompressZstd(in2, packet_len);
-        memcpy(in2, d.data(), d.size());
-        last = in2 + d.size();
-    }
-    else {
-        rassert(false);
-    }
-
-
+    size_t s = dup_decompress_chunk(in2, in2);
+    last = in2 + s;
 
     while (in2 < last) {
-
         rassert(in2[0] == DUP_REFERENCE || in2[0] == DUP_LITERAL, "Source file error");
-
-//        io.read(in + 1, DUP_HEADER_LEN - 1, ifile);
-        //in += DUP_HEADER_LEN - 1;
-
         len = dup_size_compressed(in2);
-
-        //io.read(in + DUP_HEADER_LEN, len - DUP_HEADER_LEN, ifile);
-        // in += len - DUP_HEADER_LEN
-
         int r = dup_decompress(in2, out, &len, &payload);
-        rassert(!(r == -1 || r == -2), r);
         rassert(c.size() > 0);
         payload_orig = c.at(0).payload;
 
@@ -2043,7 +2013,7 @@ void restore_from_stdin(const STRING& extract_dir) {
             STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
 
             if (c.size == 0) {
-                // May not have a corresponding data block ('A' block) to trigger decompress_files()
+                // May not have a corresponding data chunk ('A' block) to trigger decompress_files()
                 FILE* h = create_file(buf2);
                 files++;
                 io.close(h);
@@ -2059,9 +2029,8 @@ void restore_from_stdin(const STRING& extract_dir) {
                 update_statusbar_restore(buf2);
                 name = c.name;
             }
-        }
-        else if (w == 'A') {
-            data_block_from_stdin(file_queue);
+        } else if (w == 'A') {
+            data_chunk_from_stdin(file_queue);
         }
         else if (w == 'C') { // crc
             uint32_t crc = io.read_ui<uint32_t>(ifile);
@@ -2171,11 +2140,6 @@ checksum_t file_meta_ct;
 
 vector<char> dummy(DISK_READ_CHUNK);
 
-
-
-
-
-
 void empty_q(bool flush, bool entropy) {
     uint64_t pay;
     size_t cc;
@@ -2183,22 +2147,24 @@ void empty_q(bool flush, bool entropy) {
 
     auto write_result = [&]() {
         if (cc > 0) {
-            io.write("A", 1, ofile);
-            io.write_ui<uint64_t>(cc, ofile);
-            auto p = io.tell(ofile);
-            packet_t pp;
 
-            pp.decompressed_length = pay;
-            pp.compressed_length = cc;
-            pp.archive_offset = p;
-            pp.payload = pay_count;
+            io.write("A", 1, ofile);
+
+            auto p = io.tell(ofile);
+            chunk_t c;
+
+            c.decompressed_length = pay;
+            c.compressed_length = cc;
+            c.archive_offset = p;
+            c.payload = pay_count;
             pay_count += pay;
 
-            packets.push_back(pp); // fixme still needed?
-            packets_added.push_back(pp);
+            packets.push_back(c);
+            packets_added.push_back(c);
 
-            io.write(out_result, cc, ofile);
-            io.write("B", 1, ofile);
+
+            io.write(out_result, cc, ofile); 
+
         }
         payload_compressed += pay;
     };
@@ -2539,7 +2505,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // First process files
     std::atomic<size_t> ctr = 0;
-    const int max_threads = 6;
+    const int max_threads = 1;
     std::thread threads[max_threads];
     std::atomic<bool> abort = false;
 
@@ -2937,9 +2903,11 @@ int main(int argc2, char *argv2[])
         }
     } 
     catch (retvals r) {
+        std::wcerr << L"EXDUPE ERROR";
         return static_cast<int>(r);
     }
     catch (...) {
+        std::wcerr << L"EXDUPE ERROR";
         return static_cast<int>(retvals::err_std_etc);
     }
 
