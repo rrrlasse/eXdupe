@@ -293,12 +293,12 @@ const string payload_header = "PAYLOADD";
 const STRING corrupted_msg = L("\nArchive is corrupted, you can only list contents (-L flag) or restore (-R flag)");
 
 std::mutex abort_mutex;
-std::atomic<bool> aborted = false;
+std::atomic<int> aborted = 0;
 
 #ifdef _WIN32
 void abort(bool b, retvals ret, const std::wstring &s) {
     if (!aborted && b) {
-        aborted = true;
+        aborted = static_cast<int>(ret);
         statusbar.print(0, L("%s"), s.c_str());
         CERR << std::endl << s << std::endl;
         cleanup_and_exit(ret); // todo, kill threads first
@@ -308,7 +308,7 @@ void abort(bool b, retvals ret, const std::wstring &s) {
 
 void abort(bool b, retvals ret, const std::string &s) {
     if (!aborted && b) {
-        aborted = true;
+        aborted = static_cast<int>(ret);
         STRING w = STRING(s.begin(), s.end());
         statusbar.print(0, L("%s"), w.c_str());
         cleanup_and_exit(ret); // todo, kill threads first
@@ -318,7 +318,7 @@ void abort(bool b, retvals ret, const std::string &s) {
 // todo, legacy
 void abort(bool b, const CHR *fmt, ...) {
     if (!aborted && b) {
-        aborted = true;
+        aborted = 1;
         vector<CHR> buf;
         buf.resize(1 * M);
         va_list argv;
@@ -2870,5 +2870,5 @@ int main(int argc2, char *argv2[])
         return static_cast<int>(retvals::err_std_etc);
     }
 
-    return 0;
+    return aborted.load() ? aborted.load() : 0;
 }
