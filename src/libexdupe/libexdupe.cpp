@@ -1113,8 +1113,10 @@ int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload
         size_t t;
         t = dup_size_decompressed(src);
         memcpy(dst, src + 1 + DUP_HEADER_LEN, t);
-        *length = t;
-        count_payload += *length;
+        if (length) {
+            *length = t;
+        }
+        count_payload += t;
         return 0;
     }
     else if (src[0] == DUP_REFERENCE) {

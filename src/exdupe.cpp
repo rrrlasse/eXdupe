@@ -293,12 +293,13 @@ const string payload_header = "PAYLOADD";
 const STRING corrupted_msg = L("\nArchive is corrupted, you can only list contents (-L flag) or restore (-R flag)");
 
 std::mutex abort_mutex;
+std::atomic<bool> aborted = false;
 
 #ifdef _WIN32
 void abort(bool b, retvals ret, const std::wstring &s) {
-    if (b) {
-        abort_mutex.lock();
-        statusbar.print_abort_message(L("%s"), s.c_str());
+    if (!aborted && b) {
+        aborted = true;
+        statusbar.print(0, L("%s"), s.c_str());
         CERR << std::endl << s << std::endl;
         cleanup_and_exit(ret); // todo, kill threads first
     }
@@ -306,18 +307,18 @@ void abort(bool b, retvals ret, const std::wstring &s) {
 #endif
 
 void abort(bool b, retvals ret, const std::string &s) {
-    if (b) {
-        abort_mutex.lock();
+    if (!aborted && b) {
+        aborted = true;
         STRING w = STRING(s.begin(), s.end());
-        statusbar.print_abort_message(L("%s"), w.c_str());
+        statusbar.print(0, L("%s"), w.c_str());
         cleanup_and_exit(ret); // todo, kill threads first
     }
 }
 
 // todo, legacy
 void abort(bool b, const CHR *fmt, ...) {
-    if (b) {
-        abort_mutex.lock();
+    if (!aborted && b) {
+        aborted = true;
         vector<CHR> buf;
         buf.resize(1 * M);
         va_list argv;
@@ -325,7 +326,7 @@ void abort(bool b, const CHR *fmt, ...) {
         VSPRINTF(buf.data(), fmt, argv);
         va_end(argv);
         STRING s(buf.data());
-        statusbar.print_abort_message(L("%s"), s.c_str());
+        statusbar.print(0, L("%s"), s.c_str());
         cleanup_and_exit(retvals::err_other); // todo, kill threads first
     }
 }
@@ -676,27 +677,6 @@ uint64_t find_packet(uint64_t payload) {
 }
 
 
-
-std::vector<char> decompressZstd(const char *compressedData, size_t compressedSize) {
-    unsigned long long decompressedSize = ZSTD_getFrameContentSize(compressedData, compressedSize);
-    if (decompressedSize == ZSTD_CONTENTSIZE_ERROR) {
-        throw std::runtime_error("Invalid zstd compressed stream");
-    }
-    if (decompressedSize == ZSTD_CONTENTSIZE_UNKNOWN) {
-        throw std::runtime_error("Unknown decompressed size");
-    }
-    std::vector<char> decompressed(decompressedSize);
-    size_t actualSize = ZSTD_decompress(decompressed.data(), decompressedSize, compressedData, compressedSize);
-    if (ZSTD_isError(actualSize)) {
-        throw std::runtime_error(ZSTD_getErrorName(actualSize));
-    }
-    if (actualSize != decompressedSize) {
-        throw std::runtime_error("Decompressed size mismatch");
-    }
-    return decompressed;
-}
-
-
 bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
     char *b = bytebuffer.buffer_find(payload, size);
     if (b) {
@@ -715,21 +695,6 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
         vector<char> packet;
         io.seek(ifile, refMain.archive_offset, SEEK_SET);
         io.read_vector(packet, refMain.compressed_length , 0, ifile, true);
-
-        /*
-        if (packet[0] == '1') {
-            auto d = decompressZstd(packet.data() + 1 + 4, packet.size() - 1 - 4);
-            packet.resize(d.size());
-            memcpy(packet.data(), d.data(), d.size());
-        } else {
-            rassert(packet[0] == '0');
-            packet.erase(packet.begin());
-            packet.erase(packet.begin());
-            packet.erase(packet.begin());
-            packet.erase(packet.begin());
-            packet.erase(packet.begin());
-        }
-        */
         vector<char> d(2'000'000);
         size_t s = dup_decompress_chunk(packet.data(), d.data());
         packet.resize(s);
@@ -756,13 +721,9 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
             } else {
 
                 // seek and read and decompress literal packet
-                uint64_t pp;
-               // restore_buffer_in.resize(2'000'000);
-               // memcpy(restore_buffer_in.data(), packet.data() + p[i].mainpacketpos, p[i].compressed_length);
-                size_t lenc = dup_size_compressed(packet.data() + p[i].mainpacketpos);
                 size_t lend = dup_size_decompressed(packet.data() + p[i].mainpacketpos);
                 ensure_size(restore_buffer_out, lend + M);
-                int r = dup_decompress(packet.data() + p[i].mainpacketpos, restore_buffer_out.data(), &lenc, &pp);
+                int r = dup_decompress(packet.data() + p[i].mainpacketpos, restore_buffer_out.data(), nullptr, nullptr);
                 massert(!(r != 0 && r != 1), "Internal error or archive corrupted", r);
                 memcpy(payl + local_resolved, restore_buffer_out.data(), ref.payload_length);
                 local_resolved += ref.payload_length;
@@ -2519,7 +2480,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
             try {
                 compression::compress_file(sub, s, files.at(j).second);
-            } catch (std::exception &) {
+            } catch (...) {
                 abort = true;
                 return;
             }
@@ -2757,7 +2718,6 @@ void main_compress() {
     uint64_t w = io.write_count;
 
     start_time_without_overhead = GetTickCount64();
-    bool backup_aborted = false;
 
     try {
         if (inputfiles.size() > 0 && inputfiles.at(0) != L("-stdin")) {
@@ -2767,8 +2727,7 @@ void main_compress() {
             compression::compress_file(L("-stdin"), name, 0);
             compression::compress_file_finalize();
         }
-    } catch (std::exception &) {
-        backup_aborted = true;
+    } catch (...) {
     }
 
     io.write("X", 1, ofile);
@@ -2782,7 +2741,7 @@ void main_compress() {
 
     commit();
 
-    if (!backup_aborted) {
+    if (!aborted) {
         time_ms_t d = cur_date();
         uint64_t s = backup_set_size();
         uint64_t f = files;
@@ -2812,7 +2771,7 @@ void main_compress() {
     if (statistics_flag) {
         uint64_t end_time = GetTickCount64();
         print_statistics(start_time, end_time, end_time_without_overhead, references_size, hashtable_size);
-    } else {
+    } else if (!aborted) {
         statusbar.print_no_lf(1, L("Added %s B in %s files using %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(suffix(added)).c_str());
     }
 }

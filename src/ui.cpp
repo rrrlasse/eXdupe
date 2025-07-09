@@ -142,15 +142,3 @@ void Statusbar::print_no_lf(int verbosity, const CHR *fmt, ...) {
         m_os << s;
     }
 }
-
-void Statusbar::print_abort_message(const CHR *fmt, ...) {
-    screen_mutex.lock();
-    va_list argv;
-    va_start(argv, fmt);
-    size_t printed = VSPRINTF(m_tmp.data(), fmt, argv);
-    rassert(printed < m_tmp.size() - 1);
-    STRING s = STRING(m_tmp.data());
-    va_end(argv);
-    clear_line();
-    m_os << s << L("\n");
-}
