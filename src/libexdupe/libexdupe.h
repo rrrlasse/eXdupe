@@ -38,12 +38,12 @@ size_t dup_compress(void *src, char *dst, size_t size,
 		    uint64_t *payloadreturned, bool entropy, char*& retval_start);
 int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload);
 size_t dup_decompress_chunk(char *src, char *dst);
-int dup_packet_info(const char *src, size_t *length,
-			    uint64_t *payload);
+int dup_packet_info(const char *src, size_t *length, uint64_t *payload, const char **literal);
 
 size_t dup_size_compressed(const char *src);
 size_t dup_size_decompressed(const char *src);
 size_t chunk_size_compressed(char *src);
+size_t chunk_size_decompressed(char *src);
 
 void dup_counters_reset(void);
 uint64_t dup_counter_payload(void);

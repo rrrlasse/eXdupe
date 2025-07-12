@@ -122,12 +122,12 @@ const size_t G = 1024 * M;
 // Increase values to improve compression ratio for large data sets; decrease to
 // improve for small data sets (also increase memory_usage to improve for any
 // size).
-size_t DEDUPE_SMALL = 4 * K;
-size_t DEDUPE_LARGE = 128 * K;
+size_t DEDUPE_SMALL = 1 * K;
+size_t DEDUPE_LARGE = 32 * K;
 
 // Data is read from disk and deduplicated in DISK_READ_CHUNK bytes at a time
 // during backup.
-const size_t DISK_READ_CHUNK = 1 * M;
+const size_t DISK_READ_CHUNK = 4 * M;
 
 // Restore takes part by resolving a tree structure of backwards references in
 // past data. Resolve RESTORE_CHUNKSIZE bytes of payload at a time (too large
@@ -227,9 +227,6 @@ uint64_t basepay = 0;
 
 const uint64_t max_payload = 20;
 
-std::vector<char> restore_buffer_in;
-std::vector<char> restore_buffer_out;
-
 Bytebuffer bytebuffer(RESTORE_BUFFER);
 
 FileTypes file_types;
@@ -248,7 +245,7 @@ vector<file_offset_t> infiles;
 struct chunk_t {
     uint64_t payload = 0;
     size_t compressed_length = 0;
-    size_t decompressed_length = 0;
+    size_t payload_length = 0;
 
     // position of this packet in the file
     uint64_t archive_offset;
@@ -257,22 +254,18 @@ struct chunk_t {
 struct packet_t {
     bool is_reference = false;
     uint64_t payload = 0;
-   // size_t compressed_length = 0;
     size_t payload_length = 0;
 
     // if is_reference, then this points into the stream of restored data.
     std::optional<uint64_t> payload_reference;
-
-    // if !is_reference, then this points at a literal packet into the full or diff file
-    std::optional<uint64_t> archive_offset;
-
     size_t mainpacketpos = 0;
+    std::string literals; // only used if !is_reference
 };
 
 vector<contents_t> contents; 
 vector<contents_t> contents_added;
 
-vector<chunk_t> packets;
+vector<chunk_t> chunks;
 vector<chunk_t> packets_added;
 
 vector<uint64_t> backup_set; // file_id;
@@ -527,37 +520,6 @@ uint64_t belongs_to(uint64_t offset) {
     return lower;
 }
 
-vector<packet_t> add_small_packets(const char *src, size_t len, size_t basepy) {
-    vector<packet_t> ret;
-    size_t pos = 0;
-
-    while (pos < len) {
-        packet_t ref;
-        uint64_t payload;
-        size_t len2;
-
-        int r = dup_packet_info(src + pos, &len2, &payload);
-        rassert(r == DUP_REFERENCE || r == DUP_LITERAL);
-        ref.mainpacketpos = pos;
-        ref.payload_length = len2;
-        ref.payload = basepy;
-        basepy += len2;
-
-        if (r == DUP_REFERENCE) {
-            // reference
-            ref.is_reference = true;
-            ref.payload_reference = payload;
-        } else if (r == DUP_LITERAL) {
-            // raw data chunk
-            ref.is_reference = false;
-        }
-        ret.push_back(ref);
-
-        pos += dup_size_compressed(src + pos);
-    }
-    return ret;
-}
-
 
 uint64_t read_header(FILE *file, uint64_t *lastgood) {
     string header = io.read_bin_string(8, file);
@@ -616,11 +578,11 @@ uint64_t read_packets(FILE *file) {
                     ref.archive_offset = io.read_ui<uint64_t>(file);
                 
                 ref.payload = io.read_ui<uint64_t>(file);
-                ref.decompressed_length = io.read_ui<uint32_t>(file);
+                ref.payload_length = io.read_ui<uint32_t>(file);
                 ref.compressed_length = io.read_ui<uint32_t>(file);
 
-                added_payload += ref.decompressed_length;
-                packets.push_back(ref);
+                added_payload += ref.payload_length;
+                chunks.push_back(ref);
             }
         }
     }
@@ -628,54 +590,90 @@ uint64_t read_packets(FILE *file) {
 }
 
 size_t write_packets_added(FILE* file) {
-
     io.write(packets_header.c_str(), packets_header.size(), file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(packets_added.size(), file);
 
     for (size_t i = 0; i < packets_added.size(); i++) {
         io.write_ui<uint8_t>(DUP_LITERAL, file);
-
-            io.write_ui<uint64_t>(packets_added.at(i).archive_offset, file);
-        
-
+        io.write_ui<uint64_t>(packets_added.at(i).archive_offset, file);
         io.write_ui<uint64_t>(packets_added.at(i).payload, file);
-        io.write_ui<uint32_t>(static_cast<uint32_t>(packets_added.at(i).decompressed_length), file);
+        io.write_ui<uint32_t>(static_cast<uint32_t>(packets_added.at(i).payload_length), file);
         io.write_ui<uint32_t>(static_cast<uint32_t>(packets_added.at(i).compressed_length), file);
     }
-
     io.write_ui<uint32_t>(0, file);
     io.write_ui<uint64_t>(io.write_count - w, file);
-
     return io.write_count - w;
 }
 
 
-uint64_t find_packet(uint64_t payload) {
+uint64_t find_chunk(uint64_t payload) {
     uint64_t lower = 0;
-    uint64_t upper = packets.size() - 1;
+    uint64_t upper = chunks.size() - 1;
 
-    if (packets.size() == 0) {
+    if (chunks.size() == 0) {
         return std::numeric_limits<uint64_t>::max();
     }
 
     while (upper != lower) {
         uint64_t middle = lower + (upper - lower) / 2;
 
-        if (packets.at(middle).payload + packets.at(middle).decompressed_length - 1 < payload) {
+        if (chunks.at(middle).payload + chunks.at(middle).payload_length - 1 < payload) {
             lower = middle + 1;
         } else {
             upper = middle;
         }
     }
 
-    if (packets.at(lower).payload <= payload && packets.at(lower).payload + packets.at(lower).decompressed_length - 1 >= payload) {
+    if (chunks.at(lower).payload <= payload && chunks.at(lower).payload + chunks.at(lower).payload_length - 1 >= payload) {
         return lower;
     } else {
         return std::numeric_limits<uint64_t>::max();
     }
 }
 
+vector<packet_t> parse_packets(const char *src, size_t len, size_t basepy) {
+    vector<packet_t> ret;
+    size_t pos = 0;
+    while (pos < len) {
+        packet_t ref;
+        uint64_t payload;
+        size_t len2;
+        const char *literal;
+        int r = dup_packet_info(src + pos, &len2, &payload, &literal);
+        rassert(r == DUP_REFERENCE || r == DUP_LITERAL);
+        ref.mainpacketpos = pos;
+        ref.payload_length = len2;
+        ref.payload = basepy;
+        basepy += len2;
+        if (r == DUP_REFERENCE) {
+            // reference
+            ref.is_reference = true;
+            ref.payload_reference = payload;
+        } else if (r == DUP_LITERAL) {
+            // raw data chunk
+            ref.literals = std::string(literal, len2);
+            ref.is_reference = false;
+        }
+        ret.push_back(ref);
+        pos += dup_size_compressed(src + pos);
+    }
+    return ret;
+}
+
+vector<packet_t> get_packets(FILE* f, uint64_t base_payload) {
+    vector<char> buf;
+    buf.resize(DUP_CHUNK_HEADER_LEN);
+    io.read(buf.data(), DUP_CHUNK_HEADER_LEN, f);
+    size_t r = chunk_size_compressed(buf.data());
+    buf.resize(r);
+    io.read(buf.data() + DUP_CHUNK_HEADER_LEN, r - DUP_CHUNK_HEADER_LEN, f);
+    size_t d = chunk_size_decompressed(buf.data());
+    buf.resize(d);
+    size_t s = dup_decompress_chunk(buf.data(), buf.data());
+    auto packets = parse_packets(buf.data(), s, base_payload);
+    return packets;
+}
 
 bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
     char *b = bytebuffer.buffer_find(payload, size);
@@ -683,61 +681,45 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
         memcpy(dst, b, size);
         return true;
     }
+
     size_t bytes_resolved = 0;
     while (bytes_resolved < size) {
-        uint64_t rr = find_packet(payload + bytes_resolved);
+        uint64_t rr = find_chunk(payload + bytes_resolved);
         rassert(rr != std::numeric_limits<uint64_t>::max());
-        chunk_t refMain = packets.at(rr);
-        uint64_t prior = payload + bytes_resolved - refMain.payload;
+        chunk_t chunk = chunks.at(rr);
+        uint64_t prior = payload + bytes_resolved - chunk.payload;
         size_t needed = size - bytes_resolved;
-        size_t ref_has = refMain.decompressed_length - prior >= needed ? needed : refMain.decompressed_length - prior;
+        size_t ref_has = chunk.payload_length - prior >= needed ? needed : chunk.payload_length - prior;
+        
+        io.seek(ifile, chunk.archive_offset, SEEK_SET);
 
-        vector<char> packet;
-        io.seek(ifile, refMain.archive_offset, SEEK_SET);
-        io.read_vector(packet, refMain.compressed_length , 0, ifile, true);
-        vector<char> d(2'000'000);
-        size_t s = dup_decompress_chunk(packet.data(), d.data());
-        packet.resize(s);
-        memcpy(packet.data(), d.data(), packet.size());
+        auto packets = get_packets(ifile, chunk.payload);
 
-        auto p = add_small_packets(packet.data(), packet.size(), refMain.payload);
-        char* payl = (char*)malloc(refMain.decompressed_length);
+        vector<char> payl(chunk.payload_length);
 
         size_t local_resolved = 0;
-        for (int i = 0; i < p.size(); i++) {
-            packet_t ref = p[i];
-
-            if (local_resolved + ref.payload_length + refMain.payload < payload + bytes_resolved) {
-                local_resolved += ref.payload_length;
+        for (auto p : packets) {
+            if (local_resolved + p.payload_length + chunk.payload < payload + bytes_resolved) {
+                local_resolved += p.payload_length;
                continue;
             }
 
-            if (ref.is_reference) {
-                char *vdata = (char*)malloc(2'000'000);
-                resolve(ref.payload_reference.value(), ref.payload_length, vdata, ifile);
-                memcpy(payl + local_resolved, vdata, ref.payload_length);
-                free(vdata);
-                local_resolved += ref.payload_length;
+            if (p.is_reference) {
+                vector<char> vdata(p.payload_length);
+                resolve(p.payload_reference.value(), p.payload_length, vdata.data(), ifile);
+                memcpy(payl.data() + local_resolved, vdata.data(), p.payload_length);
             } else {
-
-                // seek and read and decompress literal packet
-                size_t lend = dup_size_decompressed(packet.data() + p[i].mainpacketpos);
-                ensure_size(restore_buffer_out, lend + M);
-                int r = dup_decompress(packet.data() + p[i].mainpacketpos, restore_buffer_out.data(), nullptr, nullptr);
-                massert(!(r != 0 && r != 1), "Internal error or archive corrupted", r);
-                memcpy(payl + local_resolved, restore_buffer_out.data(), ref.payload_length);
-                local_resolved += ref.payload_length;
+                //ensure_size(restore_buffer_out, p.payload_length);
+                memcpy(payl.data() + local_resolved, p.literals.data(), p.payload_length);
             }
+            local_resolved += p.payload_length;
 
             if (local_resolved >= size + prior) {
                 break;
             }
-
-
         }
 
-        memcpy(dst + bytes_resolved, payl + prior, ref_has);
-        free(payl);
+        memcpy(dst + bytes_resolved, payl.data() + prior, ref_has);
         bytes_resolved += ref_has;
     }
     bytebuffer.buffer_add(dst, payload, size);
@@ -1814,38 +1796,26 @@ uint64_t add_file_payload = 0;
 uint64_t curfile_written = 0;
 checksum_t decompress_checksum;
 vector<contents_t> file_queue;
-char *in;
+//char *in;
 char *out;
 
 void data_chunk_from_stdin(vector<contents_t> &c) {
-    char *in2 = in;
-
     STRING destfile;
     STRING last_file = L("");
     uint64_t payload_orig = payload_written;
-    char *last; 
-    size_t len;
     size_t len2;
-    uint64_t payload;
 
-    io.read(in2, DUP_CHUNK_HEADER_LEN, ifile);
-    size_t r = chunk_size_compressed(in2);
-    io.read(in2 + DUP_CHUNK_HEADER_LEN, r - DUP_CHUNK_HEADER_LEN, ifile);
+    auto packets = get_packets(ifile, c.at(0).payload);
 
-    size_t s = dup_decompress_chunk(in2, in2);
-    last = in2 + s;
-
-    while (in2 < last) {
-        rassert(in2[0] == DUP_REFERENCE || in2[0] == DUP_LITERAL, "Source file error");
-        len = dup_size_compressed(in2);
-        int r = dup_decompress(in2, out, &len, &payload);
-        rassert(c.size() > 0);
+    for(auto p: packets) {
+        size_t len = p.payload_length;
         payload_orig = c.at(0).payload;
 
-        if (r == 0) {
-            // dup_decompress() wrote literal at the destination, nothing we need to do
-        } else if (r == 1) {
-            // dup_decompress() returned a reference into a past written file
+        if (!p.is_reference) {
+            memcpy(out, p.literals.data(), len);
+        } else if (p.is_reference) {
+            uint64_t payload = p.payload_reference.value();
+            // reference into a past written file
             size_t resolved = 0;
             while (resolved < len) {
                 if (payload + resolved >= payload_orig) {
@@ -1871,8 +1841,6 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
                     fclose(ifile2);
                 }
             }
-        } else {
-            massert(false, "Internal error or source file corrupted", r);
         }
 
         uint64_t src_consumed = 0;
@@ -1899,9 +1867,9 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
                 // level 3 doesn't show progress
                 update_statusbar_restore(destfile);
             }
+
             io.write(out + src_consumed, has, ofile);
             checksum(out + src_consumed, has, &decompress_checksum);
-
             payload_written += has;
             src_consumed += has;
 
@@ -1914,17 +1882,14 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
                 c.erase(c.begin());
             }
         }
-
-        in2 += dup_size_compressed(in2);
     }
-    
 }
 
 
 void restore_from_stdin(const STRING& extract_dir) {
-    restore::in = static_cast<char *>(tmalloc(DISK_READ_CHUNK + M));
+   // restore::in = static_cast<char *>(tmalloc(DISK_READ_CHUNK + M));
     restore::out = static_cast<char *>(tmalloc((threads + 1) * DISK_READ_CHUNK + M));
-    abort(!restore::in || !restore::out, L("Out of memory"));
+    //abort(!restore::in || !restore::out, L("Out of memory"));
 
     STRING curdir;
     size_t r = 0;
@@ -2108,24 +2073,17 @@ void empty_q(bool flush, bool entropy) {
 
     auto write_result = [&]() {
         if (cc > 0) {
-
             io.write("A", 1, ofile);
-
             auto p = io.tell(ofile);
             chunk_t c;
-
-            c.decompressed_length = pay;
+            c.payload_length = pay;
             c.compressed_length = cc;
             c.archive_offset = p;
             c.payload = pay_count;
             pay_count += pay;
-
-            packets.push_back(c);
+            chunks.push_back(c);
             packets_added.push_back(c);
-
-
             io.write(out_result, cc, ofile); 
-
         }
         payload_compressed += pay;
     };
@@ -2226,7 +2184,6 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     file_meta.attributes = attributes;
     file_meta.directory = false;
     file_meta.symlink = false;
-     //diff_flag;
 
     // compress_file() now synchronized
     auto _ = std::lock_guard(compress_file_mutex);
@@ -2256,7 +2213,6 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 
             contents.push_back(file_meta);
             contents_added.push_back(file_meta);
-
             backup_set.push_back(file_meta.file_id);
 
             io.close(handle);
@@ -2363,6 +2319,7 @@ bool lua_test(STRING path, const STRING &script, bool top_level) {
     int type;
 
 #ifdef _WIN32
+    // todo reuse utilities attrib function
     HANDLE hFind;
     WIN32_FIND_DATAW data;
     hFind = FindFirstFileW(path.c_str(), &data);
@@ -2749,7 +2706,8 @@ void main_compress() {
         commit();
     }
 
-    size_t hashtable_size = write_hashtable(ofile);
+    size_t hashtable_size = 0;
+    write_hashtable(ofile);
 
     io.write(file_footer.data(), file_footer.size(), ofile);
 
