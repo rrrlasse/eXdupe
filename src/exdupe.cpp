@@ -259,7 +259,7 @@ struct packet_t {
     // if is_reference, then this points into the stream of restored data.
     std::optional<uint64_t> payload_reference;
     size_t mainpacketpos = 0;
-    std::string literals; // only used if !is_reference
+    std::vector<char> literals; // only used if !is_reference
 };
 
 vector<contents_t> contents; 
@@ -652,7 +652,7 @@ vector<packet_t> parse_packets(const char *src, size_t len, size_t basepy) {
             ref.payload_reference = payload;
         } else if (r == DUP_LITERAL) {
             // raw data chunk
-            ref.literals = std::string(literal, len2);
+            ref.literals = std::vector<char>(literal, literal + len2);
             ref.is_reference = false;
         }
         ret.push_back(ref);
@@ -663,11 +663,9 @@ vector<packet_t> parse_packets(const char *src, size_t len, size_t basepy) {
 
 vector<packet_t> get_packets(FILE* f, uint64_t base_payload) {
     vector<char> buf;
-    buf.resize(DUP_CHUNK_HEADER_LEN);
-    io.read(buf.data(), DUP_CHUNK_HEADER_LEN, f);
+    io.read_vector(buf, DUP_CHUNK_HEADER_LEN, 0, f, true);
     size_t r = chunk_size_compressed(buf.data());
-    buf.resize(r);
-    io.read(buf.data() + DUP_CHUNK_HEADER_LEN, r - DUP_CHUNK_HEADER_LEN, f);
+    io.read_vector(buf, r - DUP_CHUNK_HEADER_LEN , DUP_CHUNK_HEADER_LEN, f, true);
     size_t d = chunk_size_decompressed(buf.data());
     buf.resize(d);
     size_t s = dup_decompress_chunk(buf.data(), buf.data());
@@ -1796,15 +1794,13 @@ uint64_t add_file_payload = 0;
 uint64_t curfile_written = 0;
 checksum_t decompress_checksum;
 vector<contents_t> file_queue;
-//char *in;
-char *out;
 
 void data_chunk_from_stdin(vector<contents_t> &c) {
     STRING destfile;
     STRING last_file = L("");
     uint64_t payload_orig = payload_written;
     size_t len2;
-
+    vector<char> out;
     auto packets = get_packets(ifile, c.at(0).payload);
 
     for(auto p: packets) {
@@ -1812,7 +1808,7 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
         payload_orig = c.at(0).payload;
 
         if (!p.is_reference) {
-            memcpy(out, p.literals.data(), len);
+            out = p.literals;
         } else if (p.is_reference) {
             uint64_t payload = p.payload_reference.value();
             // reference into a past written file
@@ -1822,7 +1818,7 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
                     size_t fo = belongs_to(payload + resolved);
                     int j = io.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
                     massert(j == 0, "Internal error or destination drive is not seekable", infiles.at(fo).filename, payload, payload_orig);
-                    len2 = io.read(out + resolved, len - resolved, ofile, false);
+                    len2 = io.read_vector(out, len - resolved , resolved, ofile, false);
                     massert(!(len2 != len - resolved), "Internal error: Reference points past current output file", infiles.at(fo).filename, len, len2);
                     resolved += len2;
                     io.seek(ofile, 0, SEEK_END);
@@ -1836,7 +1832,7 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
                         massert(j == 0, "Internal error or destination drive is not seekable", infiles.at(fo).filename, payload, infiles.at(fo).offset);
                     }
                     // FIXME only request to read exact amount, so that we can call with read_exact = true
-                    len2 = io.read(out + resolved, len - resolved, ifile2, false);
+                    len2 = io.read_vector(out, len - resolved, resolved, ifile2, false);
                     resolved += len2;
                     fclose(ifile2);
                 }
@@ -1868,8 +1864,8 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
                 update_statusbar_restore(destfile);
             }
 
-            io.write(out + src_consumed, has, ofile);
-            checksum(out + src_consumed, has, &decompress_checksum);
+            io.write(&out[src_consumed], has, ofile);
+            checksum(&out[src_consumed], has, &decompress_checksum);
             payload_written += has;
             src_consumed += has;
 
@@ -1887,10 +1883,6 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
 
 
 void restore_from_stdin(const STRING& extract_dir) {
-   // restore::in = static_cast<char *>(tmalloc(DISK_READ_CHUNK + M));
-    restore::out = static_cast<char *>(tmalloc((threads + 1) * DISK_READ_CHUNK + M));
-    //abort(!restore::in || !restore::out, L("Out of memory"));
-
     STRING curdir;
     size_t r = 0;
     STRING base_dir = abs_path(extract_dir);
