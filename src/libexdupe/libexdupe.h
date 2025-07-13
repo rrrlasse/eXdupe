@@ -42,8 +42,8 @@ int dup_packet_info(const char *src, size_t *length, uint64_t *payload, const ch
 
 size_t dup_size_compressed(const char *src);
 size_t dup_size_decompressed(const char *src);
-size_t chunk_size_compressed(char *src);
-size_t chunk_size_decompressed(char *src);
+size_t dup_chunk_size_compressed(char *src);
+size_t dup_chunk_size_decompressed(char *src);
 
 void dup_counters_reset(void);
 uint64_t dup_counter_payload(void);

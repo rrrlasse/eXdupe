@@ -899,7 +899,7 @@ static int get_free(void) {
     return -1;
 }
 
-size_t chunk_size_compressed(char *src) {
+size_t dup_chunk_size_compressed(char *src) {
     rassert(src[0] == '0' || src[0] == '1');
     return str2ll(src + 1, 4);
 }
@@ -1089,8 +1089,8 @@ static uint64_t packet_payload(const char *src) {
     return t;
 }
 
-size_t chunk_size_decompressed(char *src) {
-    size_t len = chunk_size_compressed((char *)src);
+size_t dup_chunk_size_decompressed(char *src) {
+    size_t len = dup_chunk_size_compressed((char *)src);
     if (src[0] == '0') {
         return len - DUP_CHUNK_HEADER_LEN;
     } else if (src[0] == '1') {
@@ -1101,13 +1101,13 @@ size_t chunk_size_decompressed(char *src) {
 }
 
 size_t dup_decompress_chunk(char *src, char *dst) {
-    size_t len = chunk_size_compressed(src);
+    size_t len = dup_chunk_size_compressed(src);
     if (src[0] == '0') {
         memmove(dst, src + DUP_CHUNK_HEADER_LEN, len - DUP_CHUNK_HEADER_LEN);
         return len - DUP_CHUNK_HEADER_LEN;
     } else if (src[0] == '1') {
         char *zstd_decompress_state = zstd_init();
-        size_t decompressed_size = chunk_size_decompressed(src);
+        size_t decompressed_size = dup_chunk_size_decompressed(src);
         char *buf = (char *)malloc(decompressed_size); // fixme err handling
         size_t s = zstd_decompress(src + DUP_CHUNK_HEADER_LEN, len - DUP_CHUNK_HEADER_LEN, buf, decompressed_size, 0, 0, zstd_decompress_state);
         rassert(s == decompressed_size);

@@ -246,8 +246,6 @@ struct chunk_t {
     uint64_t payload = 0;
     size_t compressed_length = 0;
     size_t payload_length = 0;
-
-    // position of this packet in the file
     uint64_t archive_offset;
 };
 
@@ -255,8 +253,6 @@ struct packet_t {
     bool is_reference = false;
     uint64_t payload = 0;
     size_t payload_length = 0;
-
-    // if is_reference, then this points into the stream of restored data.
     std::optional<uint64_t> payload_reference;
     size_t mainpacketpos = 0;
     std::vector<char> literals; // only used if !is_reference
@@ -266,7 +262,7 @@ vector<contents_t> contents;
 vector<contents_t> contents_added;
 
 vector<chunk_t> chunks;
-vector<chunk_t> packets_added;
+vector<chunk_t> chunks_added;
 
 vector<uint64_t> backup_set; // file_id;
 uint64_t original_file_size = 0;
@@ -280,8 +276,8 @@ const string file_footer = "END";
 const string backup_set_header = "BCKUPSET";
 const string all_contents_header = "CONTENTS";
 const string hashtable_header = "HASHTBLE";
-const string packets_header = "PACKETSS";
-const string payload_header = "PAYLOADD";
+const string chunks_header = "CHUNKSCH";
+const string payload_header = "PAYLOADP";
 
 const STRING corrupted_msg = L("\nArchive is corrupted, you can only list contents (-L flag) or restore (-R flag)");
 
@@ -563,20 +559,16 @@ uint64_t seek_to_header(FILE *file, const string &header) {
     return orig;
 }
 
-uint64_t read_packets(FILE *file) {
+uint64_t read_chunks(FILE *file) {
     uint64_t added_payload = 0;
     for (auto &h : headers) {
-        if (h.first == packets_header) {
+        if (h.first == chunks_header) {
             io.seek(file, h.second, SEEK_SET);
             uint64_t n = io.read_ui<uint64_t>(file);
 
             for (uint64_t i = 0; i < n; i++) {
                 chunk_t ref;
-                uint8_t r = io.read_ui<uint8_t>(file);
-                massert(r == DUP_REFERENCE || r == DUP_LITERAL, "Internal error or archive corrupted", "");
-
-                    ref.archive_offset = io.read_ui<uint64_t>(file);
-                
+                ref.archive_offset = io.read_ui<uint64_t>(file);
                 ref.payload = io.read_ui<uint64_t>(file);
                 ref.payload_length = io.read_ui<uint32_t>(file);
                 ref.compressed_length = io.read_ui<uint32_t>(file);
@@ -589,17 +581,16 @@ uint64_t read_packets(FILE *file) {
     return added_payload;
 }
 
-size_t write_packets_added(FILE* file) {
-    io.write(packets_header.c_str(), packets_header.size(), file);
+size_t write_chunks_added(FILE* file) {
+    io.write(chunks_header.c_str(), chunks_header.size(), file);
     uint64_t w = io.write_count;
-    io.write_ui<uint64_t>(packets_added.size(), file);
+    io.write_ui<uint64_t>(chunks_added.size(), file);
 
-    for (size_t i = 0; i < packets_added.size(); i++) {
-        io.write_ui<uint8_t>(DUP_LITERAL, file);
-        io.write_ui<uint64_t>(packets_added.at(i).archive_offset, file);
-        io.write_ui<uint64_t>(packets_added.at(i).payload, file);
-        io.write_ui<uint32_t>(static_cast<uint32_t>(packets_added.at(i).payload_length), file);
-        io.write_ui<uint32_t>(static_cast<uint32_t>(packets_added.at(i).compressed_length), file);
+    for (size_t i = 0; i < chunks_added.size(); i++) {
+        io.write_ui<uint64_t>(chunks_added.at(i).archive_offset, file);
+        io.write_ui<uint64_t>(chunks_added.at(i).payload, file);
+        io.write_ui<uint32_t>(static_cast<uint32_t>(chunks_added.at(i).payload_length), file);
+        io.write_ui<uint32_t>(static_cast<uint32_t>(chunks_added.at(i).compressed_length), file);
     }
     io.write_ui<uint32_t>(0, file);
     io.write_ui<uint64_t>(io.write_count - w, file);
@@ -664,9 +655,9 @@ vector<packet_t> parse_packets(const char *src, size_t len, size_t basepy) {
 vector<packet_t> get_packets(FILE* f, uint64_t base_payload) {
     vector<char> buf;
     io.read_vector(buf, DUP_CHUNK_HEADER_LEN, 0, f, true);
-    size_t r = chunk_size_compressed(buf.data());
+    size_t r = dup_chunk_size_compressed(buf.data());
     io.read_vector(buf, r - DUP_CHUNK_HEADER_LEN , DUP_CHUNK_HEADER_LEN, f, true);
-    size_t d = chunk_size_decompressed(buf.data());
+    size_t d = dup_chunk_size_decompressed(buf.data());
     buf.resize(d);
     size_t s = dup_decompress_chunk(buf.data(), buf.data());
     auto packets = parse_packets(buf.data(), s, base_payload);
@@ -690,12 +681,10 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
         size_t ref_has = chunk.payload_length - prior >= needed ? needed : chunk.payload_length - prior;
         
         io.seek(ifile, chunk.archive_offset, SEEK_SET);
-
         auto packets = get_packets(ifile, chunk.payload);
-
         vector<char> payl(chunk.payload_length);
-
         size_t local_resolved = 0;
+
         for (auto p : packets) {
             if (local_resolved + p.payload_length + chunk.payload < payload + bytes_resolved) {
                 local_resolved += p.payload_length;
@@ -707,9 +696,9 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
                 resolve(p.payload_reference.value(), p.payload_length, vdata.data(), ifile);
                 memcpy(payl.data() + local_resolved, vdata.data(), p.payload_length);
             } else {
-                //ensure_size(restore_buffer_out, p.payload_length);
                 memcpy(payl.data() + local_resolved, p.literals.data(), p.payload_length);
             }
+
             local_resolved += p.payload_length;
 
             if (local_resolved >= size + prior) {
@@ -723,6 +712,7 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
     bytebuffer.buffer_add(dst, payload, size);
     return false;
 }
+
 // clang-format off
 void print_file(STRING filename, uint64_t size, time_ms_t file_modified = 0) {
 #ifdef _WIN32
@@ -1708,7 +1698,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
 
     uint64_t backup_set_offset = sets.at(backup_set_number);
 
-    basepay = read_packets(ffull); // fixme basepay still needed?
+    basepay = read_chunks(ffull); // fixme basepay still needed?
 
    // verify_restorelist(restorelist, content); 
     time_ms_t d;
@@ -2074,7 +2064,7 @@ void empty_q(bool flush, bool entropy) {
             c.payload = pay_count;
             pay_count += pay;
             chunks.push_back(c);
-            packets_added.push_back(c);
+            chunks_added.push_back(c);
             io.write(out_result, cc, ofile); 
         }
         payload_compressed += pay;
@@ -2621,7 +2611,7 @@ void main_compress() {
         hashtable = malloc(memory_usage);
         abort(!hashtable, retvals::err_memory, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
         memset(hashtable, 0, memory_usage);
-        pay_count = read_packets(ifile); // read size in bytes of user payload in .full file
+        pay_count = read_chunks(ifile); // read size in bytes of user payload in .full file
 
         int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
         abort(r == 1, retvals::err_memory, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
@@ -2685,7 +2675,7 @@ void main_compress() {
     io.write_ui<uint64_t>(io.write_count - w, ofile);
 
     uint64_t end_time_without_overhead = GetTickCount64();
-    size_t references_size = write_packets_added(ofile);
+    size_t references_size = write_chunks_added(ofile);
     write_contents_added(ofile);
 
     commit();
