@@ -410,7 +410,7 @@ int64_t zstd_decompress(char *inbuf, size_t insize, char *outbuf, size_t outsize
     return ZSTD_decompressDCtx(zstd_params->dctx, outbuf, outsize, inbuf, insize);
 }
 
-static void hash(const void *src, size_t len, uint64_t salt, char *dst) {
+static void hash(const void *src, size_t len, uint64_t salt, char *dst, size_t result_len) {
     if (g_crypto_hash) {
         char s[sizeof(salt)];
         ll2str(salt, (char*)s, sizeof(salt));
@@ -420,18 +420,18 @@ static void hash(const void *src, size_t len, uint64_t salt, char *dst) {
         blake3_hasher_update(&hasher, src, len);
         uint8_t output[BLAKE3_OUT_LEN];
         blake3_hasher_finalize(&hasher, output, BLAKE3_OUT_LEN);
-        memcpy(dst, output, HASH_SIZE);
+        memcpy(dst, output, result_len);
     } else {
         XXH64_hash_t s{ salt };
         XXH128_hash_t hash = XXH128(src, len, s);
-        memcpy(dst, &hash, HASH_SIZE);
+        memcpy(dst, &hash, result_len);
     }
 }
 
 static uint64_t hash64(const void* src, size_t len) {
-    char h[HASH_SIZE];
-    hash(src, len, 0, h);
-    return str2ll(h, 8);
+    char h[sizeof(uint64_t)];
+    hash(src, len, 0, h, sizeof(uint64_t));
+    return str2ll(h, sizeof(uint64_t));
 }
 
 void print_table() {
@@ -672,11 +672,11 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
                     rassert(sizeof(tmp) >= LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE);
                     uint32_t k;
                     for (k = 0; k < LARGE_BLOCK / SMALL_BLOCK; k++) {
-                        hash(src + k * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + k * HASH_SIZE);
+                        hash(src + k * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + k * HASH_SIZE, HASH_SIZE);
                     }
-                    hash(tmp, LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, g_hash_salt, s);
+                    hash(tmp, LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, g_hash_salt, s, HASH_SIZE);
                 } else {
-                    hash(src, block, g_hash_salt, s);
+                    hash(src, block, g_hash_salt, s, HASH_SIZE);
                 }
 
                 if (e_cpy.offset + block < pay + (src - orig_src) && dd_equal(s, e_cpy.sha, HASH_SIZE)) {
@@ -789,7 +789,7 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length) {
     uint32_t j = 0;
 
     for (j = 0; j < small_blocks; j++) {
-        hash(src + j * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + smalls * HASH_SIZE);
+        hash(src + j * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + smalls * HASH_SIZE, HASH_SIZE);
         bool success_small = hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, false, tmp + smalls * HASH_SIZE);
         if(!success_small) {
             anomalies_small += SMALL_BLOCK;
@@ -798,7 +798,7 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length) {
         smalls++;
         if (smalls == LARGE_BLOCK / SMALL_BLOCK) {
             char tmp2[HASH_SIZE];
-            hash(tmp, smalls * HASH_SIZE, g_hash_salt, tmp2);
+            hash(tmp, smalls * HASH_SIZE, g_hash_salt, tmp2, HASH_SIZE);
             bool success_large = hashat(src + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, pay + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, LARGE_BLOCK, true, tmp2);
             if(!success_large) {
                 anomalies_large += SMALL_BLOCK;
