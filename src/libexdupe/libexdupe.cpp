@@ -150,7 +150,6 @@ struct hash_t {
     uint64_t offset;
     uint16_t slide;
     char sha[HASH_SIZE];
-    uint8_t first_byte;
 };
 
 struct hashblock_t {
@@ -213,11 +212,9 @@ size_t write_hashblock(hashblock_t* h, char* dst) {
 
         ll2str(h->entry[t].offset, dst + 4, 8);
         ll2str(h->entry[t].slide, dst + 12, 2);
-        ll2str(h->entry[t].first_byte, dst + 14, 1);
+        memcpy(dst + 14, h->entry[t].sha, HASH_SIZE);
 
-        memcpy(dst + 15, h->entry[t].sha, HASH_SIZE);
-
-        dst += 15 + HASH_SIZE;
+        dst += 14 + HASH_SIZE;
     }
     return dst - orig_dst;
 }
@@ -240,15 +237,13 @@ size_t read_hashblock(hashblock_t* h, char* src) {
             h->hash[t] = 0;
             h->entry[t].offset = 0;
             h->entry[t].slide = 0;
-            h->entry[t].first_byte = 0;
             memset(h->entry[t].sha, 0, HASH_SIZE);
         }
         else {
             h->entry[t].offset = str2ll(src, 8);
             h->entry[t].slide = gsl::narrow<uint16_t>(str2ll(src + 8, 2));
-            h->entry[t].first_byte = gsl::narrow<uint8_t>(str2ll(src + 10, 1));
-            memcpy(h->entry[t].sha, src + 11, HASH_SIZE);
-            src += 11 + HASH_SIZE;
+            memcpy(h->entry[t].sha, src + 10, HASH_SIZE);
+            src += 10 + HASH_SIZE;
         }
     }
     return src - orig_src;
@@ -538,7 +533,6 @@ int dup_decompress_hashtable(char* src) {
                 for(size_t i = 0; i < slots; i++) {
                     small_table[block].entry[i].offset = 0;
                     small_table[block].entry[i].slide = 0;
-                    small_table[block].entry[i].first_byte = 0;
                     memset(&small_table[block].entry[i].sha, 0, HASH_SIZE);
                     small_table[block].hash[i] = 0;
                 }
@@ -661,9 +655,9 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
             // This condition will exclude identical blocks that are both within the same block. This allows
             // them to be compressed much better by the LZ compressor in later steps, while also passing larger
             // blocks to LZ due to less fragmentation of the packets
-            if (e && e_cpy.first_byte == (uint8_t)src[0] && e_cpy.offset + block < pay) {
+            if (e && e_cpy.offset + block < pay) {
 #else
-            if (e && e_cpy.first_byte == (uint8_t)src[0] && e_cpy.offset + block < pay + (src - orig_src)) {
+            if (e && e_cpy.offset + block < pay + (src - orig_src)) {
 #endif
                 char s[HASH_SIZE];
 
@@ -714,7 +708,6 @@ static bool hashat(const char *src, uint64_t pay, size_t len, bool large, char *
     if(w != 0) {
         pthread_mutex_lock_wrapper(&table_mutex);
         hash_t e;            
-        e.first_byte = (uint8_t)src[0];
         e.offset = pay;
         memcpy(e.sha, hash, HASH_SIZE);
         e.slide = static_cast<uint16_t>(o - src);
