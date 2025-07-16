@@ -421,9 +421,11 @@ void itoa(int n, char s[]) {
 }
 
 
-std::string checksum_t::result() {
+std::array<char, 16> checksum_t::result() {
     hash = XXH3_128bits_digest(&state);
-    return string((char*)&hash, 16);
+    std::array<char, 16> ret;
+    memcpy(&ret, &hash, ret.size());
+    return ret;
 }
 
 

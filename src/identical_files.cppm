@@ -5,6 +5,7 @@
 
 #include <unordered_map>
 #include <vector>
+#include <optional>
 
 class IdenticalFiles {
 public:
@@ -16,7 +17,7 @@ public:
         }
     }
 
-    contents_t identical_to(FILE* ifile, contents_t& file_meta, Cio& io, void (*func)(uint64_t read, const STRING& file), STRING file) {
+    std::optional<contents_t> identical_to(FILE* ifile, contents_t& file_meta, Cio& io, void (*func)(uint64_t read, const STRING& file), STRING file) {
         checksum_t c;
 
         io.seek(ifile, 0, SEEK_SET);

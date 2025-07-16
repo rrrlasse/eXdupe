@@ -23,7 +23,7 @@ public:
     STRING abs_path;
     uint64_t file_id = 0; // diff files refer to this for unchanged files
     uint64_t duplicate = 0;
-    std::string hash;
+    std::array<char, 16> hash{};
     uint64_t first = 0;
     uint64_t last = 0;
 #ifdef _WIN32

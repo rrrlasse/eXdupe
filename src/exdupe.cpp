@@ -328,22 +328,18 @@ uint64_t backup_set_size() {
 // todo, move
 void read_hash(FILE* f, contents_t& c) {
     auto len = io.read_compact<uint64_t>(f);
-    c.hash = io.read_bin_string(len, f); // todo, make std::string reading function
-
-    if (len > 0) {
-        c.first = io.read_ui<uint64_t>(f);
-        c.last = io.read_ui<uint64_t>(f);
-    }
+    rassert(len == c.hash.size());
+    string h = io.read_bin_string(len, f);
+    memcpy(&c.hash, h.data(), c.hash.size());
+    c.first = io.read_ui<uint64_t>(f);
+    c.last = io.read_ui<uint64_t>(f);
 }
 
 void write_hash(FILE* f, const contents_t& c) {
     io.write_compact<uint64_t>(c.hash.size(), f);
-    io.write(c.hash.data(), c.hash.size(), f);
-
-    if (c.hash.size() > 0) {
-        io.write_ui<uint64_t>(c.first, f);
-        io.write_ui<uint64_t>(c.last, f);
-    }
+    io.write(&c.hash, c.hash.size(), f);
+    io.write_ui<uint64_t>(c.first, f);
+    io.write_ui<uint64_t>(c.last, f);
 }
 
 
@@ -2174,12 +2170,12 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 #if 1 // Detect files with identical payload, both within current backup set, and between full and diff sets
     if(file_size >= IDENTICAL_FILE_SIZE && input_file != L("-stdin")) {
         auto original = identical;
-        contents_t cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, const STRING& file) { identical += n; update_statusbar_backup(file); }, input_file);
+        auto cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, const STRING& file) { identical += n; update_statusbar_backup(file); }, input_file);
 
-        if(!cont.hash.empty()) {
-            file_meta.payload = cont.payload;
-            file_meta.checksum = cont.checksum;
-            file_meta.duplicate = cont.file_id;
+        if(cont.has_value()) {
+            file_meta.payload = cont.value().payload;
+            file_meta.checksum = cont.value().checksum;
+            file_meta.duplicate = cont.value().file_id;
 
             if (!diff_flag) {
                 // todo clear abs_path?
@@ -2803,7 +2799,7 @@ int main(int argc2, char *argv2[])
         std::wcerr << L"EXDUPE ERROR";
         return static_cast<int>(r);
     }
-    catch (...) {
+    catch (int) {
         std::wcerr << L"EXDUPE ERROR";
         return static_cast<int>(retvals::err_std_etc);
     }

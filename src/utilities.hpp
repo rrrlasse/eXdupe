@@ -37,6 +37,7 @@
 #include <tuple>
 #include <source_location>
 #include <iostream>
+#include <array>
 #ifdef _WIN32
 #define CASESENSE(str) lcase(str)
 #include <windows.h>
@@ -107,7 +108,7 @@ template <class T, class U> uint64_t minimum(T a, U b) {
 struct checksum_t {
     XXH3_state_t state{};
     XXH128_hash_t hash{};
-    std::string result();
+    std::array<char, 16> result();
     uint32_t hi();
     uint32_t result32();
     uint64_t result64();
