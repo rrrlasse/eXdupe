@@ -139,7 +139,7 @@ const size_t RESTORE_CHUNKSIZE = 1 * M;
 // this was benchmarked in 2010, test if still valid today
 const size_t RESTORE_BUFFER = 256 * M;
 
-const size_t IDENTICAL_FILE_SIZE = 4 * 4096;
+const size_t IDENTICAL_FILE_SIZE = 1;
 
 #define compile_assert(x) extern int __dummy[(int)x];
 
@@ -370,7 +370,7 @@ void update_statusbar_backupv3(STRING file, bool message = false) {
     }
 }
 
-void update_statusbar_backup(STRING file, bool message = false) {
+void update_statusbar_backup(const STRING& file, bool message = false) {
     if (verbose_level < 3) {
         statusbar.update(BACKUP, backup_set_size(), io.write_count, file, false, message);
     }
@@ -2174,7 +2174,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 #if 1 // Detect files with identical payload, both within current backup set, and between full and diff sets
     if(file_size >= IDENTICAL_FILE_SIZE && input_file != L("-stdin")) {
         auto original = identical;
-        contents_t cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, STRING file) { identical += n; update_statusbar_backup(file); }, input_file);
+        contents_t cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, const STRING& file) { identical += n; update_statusbar_backup(file); }, input_file);
 
         if(!cont.hash.empty()) {
             file_meta.payload = cont.payload;
