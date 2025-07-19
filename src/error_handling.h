@@ -14,7 +14,7 @@
 #endif
 
 
-enum class retvals {err_other = 1, err_parameters = 2, err_memory = 3, err_write = 4, err_assert = 5, err_permission = 6, err_std_etc = 7};
+enum class retvals {err_other = 1, err_parameters = 2, err_memory = 3, err_write = 4, err_assert = 5, err_permission = 6, err_std_etc = 7, err_corrupted = 8};
 
 inline void cleanup_and_exit([[maybe_unused]] retvals ret) {
     throw ret;

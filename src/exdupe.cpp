@@ -650,12 +650,13 @@ vector<packet_t> parse_packets(const char *src, size_t len, size_t basepy) {
 
 vector<packet_t> get_packets(FILE* f, uint64_t base_payload) {
     vector<char> buf;
-    io.read_vector(buf, DUP_CHUNK_HEADER_LEN, 0, f, true);
+    io.read_vector(buf, sizeof(chunk_t), 0, f, true);
     size_t r = dup_chunk_size_compressed(buf.data());
-    io.read_vector(buf, r - DUP_CHUNK_HEADER_LEN , DUP_CHUNK_HEADER_LEN, f, true);
+    io.read_vector(buf, r - sizeof(chunk_t), sizeof(chunk_t), f, true);
     size_t d = dup_chunk_size_decompressed(buf.data());
     buf.resize(d);
     size_t s = dup_decompress_chunk(buf.data(), buf.data());
+    abort(s == 0, retvals::err_corrupted, "Archive corrupted. Try restoring individual items with the [items] list.");   
     auto packets = parse_packets(buf.data(), s, base_payload);
     return packets;
 }
@@ -1752,9 +1753,11 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
                 while (resolved < c.size) {
                     size_t process = minimum(c.size - resolved, RESTORE_CHUNKSIZE);
                     resolve(c.payload + resolved, process, restore_buffer.data(), ffull);
+#ifndef NDEBUG
+                    // release mode uses checksums in libexdupe
                     checksum(restore_buffer.data(), process, &t);
+#endif                    
                     io.write(restore_buffer.data(), process, ofile);
-                   // io.close(ofile);
                     update_statusbar_restore(outfile);
                     resolved += process;
                 }
@@ -1762,7 +1765,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
                     fclose(ofile);
                     set_meta(dstdir + DELIM_STR + c.name, c);
                 }
-                abort(c.checksum != t.result32(), retvals::err_other, format(L("File checksum error {}"), c.name));
+                abort(t.result32() != t.empty32() && c.checksum != t.result32(), retvals::err_other, format(L("File checksum error {}"), c.name));
             }
         }
     }
@@ -1856,7 +1859,7 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
                 set_meta(c.at(0).extra, c.at(0));
                 ofile = 0;
                 curfile_written = 0;
-                abort(c.at(0).checksum != decompress_checksum.result32(), retvals::err_other, format(L("File checksum error {}"), c.at(0).extra));
+                abort(c.at(0).checksum != decompress_checksum.empty32() && c.at(0).checksum != decompress_checksum.result32(), retvals::err_other, format(L("File checksum error {}"), c.at(0).extra));
                 c.erase(c.begin());
             }
         }
@@ -2230,8 +2233,10 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
         size_t read = minimum(file_size - file_read, DISK_READ_CHUNK);
         size_t r = io.read_vector(payload_queue[current_queue], read, payload_queue_size[current_queue], handle, false);
         abort(io.stdin_tty() && r != read, (L("Unexpected midway read error, cannot continue: ") + input_file).c_str());
+#ifndef NDEBUG
+        // release mode uses checksums in libexdupe
         checksum(payload_queue[current_queue].data() + payload_queue_size[current_queue], r, &file_meta_ct);
-
+#endif
         if (overflows && input_file == L("-stdin") && r == 0) {
             break;
         }

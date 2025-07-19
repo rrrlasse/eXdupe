@@ -439,6 +439,10 @@ uint32_t checksum_t::result32() {
     return hash.low64;
 };
 
+uint32_t checksum_t::empty32() {
+    return XXH3_128bits(NULL, 0).low64;
+};
+
 uint64_t checksum_t::result64() {
     hash = XXH3_128bits_digest(&state);
     return hash.low64;

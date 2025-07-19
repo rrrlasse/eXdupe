@@ -26,8 +26,6 @@ L cccc dddd pppppppp <data compressed with some traditional data compression>
 
 #define DUP_UNCOMPRESSED_CHUNK '0'
 #define DUP_COMPRESSED_CHUNK '1'
-#define DUP_CHUNK_HEADER_LEN 5
-
 
 uint64_t dup_memory(uint64_t bits);
 int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
@@ -36,7 +34,6 @@ int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
 
 size_t dup_compress(void *src, char *dst, size_t size,
 		    uint64_t *payloadreturned, bool entropy, char*& retval_start);
-int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload);
 size_t dup_decompress_chunk(char *src, char *dst);
 int dup_packet_info(const char *src, size_t *length, uint64_t *payload, const char **literal);
 

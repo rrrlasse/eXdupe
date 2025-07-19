@@ -111,6 +111,7 @@ struct checksum_t {
     std::array<char, 16> result();
     uint32_t hi();
     uint32_t result32();
+    uint32_t empty32();
     uint64_t result64();
 };
 
