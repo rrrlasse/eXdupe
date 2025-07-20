@@ -428,20 +428,13 @@ std::array<char, 16> checksum_t::result() {
     return ret;
 }
 
-
-uint32_t checksum_t::hi() {
-    hash = XXH3_128bits_digest(&state);
-    return hash.high64;
-};
-
-uint32_t checksum_t::result32() {
-    hash = XXH3_128bits_digest(&state);
-    return hash.low64;
-};
-
 uint64_t checksum_t::result64() {
-    hash = XXH3_128bits_digest(&state);
-    return hash.low64;
+    auto h = result();
+    uint64_t r = 0;
+    for (int i = 0; i < 8; ++i) {
+        r |= static_cast<uint64_t>(static_cast<uint8_t>(h[i])) << (8 * i);
+    }
+    return r;
 };
 
 void checksum_init(checksum_t *t) {

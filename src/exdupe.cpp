@@ -327,19 +327,15 @@ uint64_t backup_set_size() {
 
 // todo, move
 void read_hash(FILE* f, contents_t& c) {
-    auto len = io.read_compact<uint64_t>(f);
-    rassert(len == c.hash.size());
-    string h = io.read_bin_string(len, f);
-    memcpy(&c.hash, h.data(), c.hash.size());
-    c.first = io.read_ui<uint64_t>(f);
-    c.last = io.read_ui<uint64_t>(f);
+    io.read(c.hash.data(), sizeof(c.hash), f);
+    c.first = io.read_ui<decltype(c.first)>(f);
+    c.last = io.read_ui<decltype(c.last)>(f);
 }
 
 void write_hash(FILE* f, const contents_t& c) {
-    io.write_compact<uint64_t>(c.hash.size(), f);
     io.write(&c.hash, c.hash.size(), f);
-    io.write_ui<uint64_t>(c.first, f);
-    io.write_ui<uint64_t>(c.last, f);
+    io.write_ui<decltype(c.first)>(c.first, f);
+    io.write_ui<decltype(c.last)>(c.last, f);
 }
 
 
@@ -410,7 +406,6 @@ void read_content_item(FILE* file, contents_t& c) {
     c.name = slashify(io.read_utf8_string(file));
     c.link = slashify(io.read_utf8_string(file));
     c.size = io.read_compact<uint64_t>(file);
-    c.checksum = io.read_ui<uint32_t>(file);
     c.file_c_time = io.read_compact<uint64_t>(file);
     c.file_modified = io.read_compact<uint64_t>(file);
     c.attributes = io.read_ui<uint32_t>(file);
@@ -461,7 +456,6 @@ void write_contents_item(FILE *file, const contents_t &c) {
     io.write_utf8_string(c.name, file);
     io.write_utf8_string(c.link, file);
     io.write_compact<uint64_t>(c.size, file);
-    io.write_ui<uint32_t>(c.checksum, file);
     io.write_compact<uint64_t>(c.file_c_time, file);
     io.write_compact<uint64_t>(c.file_modified, file);
     io.write_ui<uint32_t>(c.attributes, file);
@@ -766,7 +760,6 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
 
         c.link = L("");
         c.payload = 0;
-        c.checksum = 0;
         auto d = get_date(full);
         c.file_c_time = d.first;
         c.file_modified = d.second;
@@ -1760,7 +1753,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
                     fclose(ofile);
                     set_meta(dstdir + DELIM_STR + c.name, c);
                 }
-                abort(c.checksum != t.result32(), retvals::err_other, format(L("File checksum error {}"), c.name));
+                abort(c.hash != t.result(), retvals::err_other, format(L("File checksum error {}"), c.name));
             }
         }
     }
@@ -1854,7 +1847,7 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
                 set_meta(c.at(0).extra, c.at(0));
                 ofile = 0;
                 curfile_written = 0;
-                abort(c.at(0).checksum != decompress_checksum.result32(), retvals::err_other, format(L("File checksum error {}"), c.at(0).extra));
+                abort(c.at(0).hash != decompress_checksum.result(), retvals::err_other, format(L("File checksum error {}"), c.at(0).extra));
                 c.erase(c.begin());
             }
         }
@@ -1919,11 +1912,8 @@ void restore_from_stdin(const STRING& extract_dir) {
             }
             else {
                 c.extra = buf2;
-                c.checksum = 0;
                 file_queue.push_back(c);
-
                 written.insert({ c.file_id, c.extra });
-
                 update_statusbar_restore(buf2);
                 name = c.name;
             }
@@ -1931,8 +1921,8 @@ void restore_from_stdin(const STRING& extract_dir) {
             data_chunk_from_stdin(file_queue);
         }
         else if (w == 'C') { // crc
-            uint32_t crc = io.read_ui<uint32_t>(ifile);
-            file_queue.at(file_queue.size() - 1).checksum = crc;
+            auto &arr = file_queue.at(file_queue.size() - 1).hash;
+            io.read(arr.data(), sizeof(arr), ifile);
         }
         else if (w == 'L') { // symlink
             contents_t c;
@@ -2004,7 +1994,6 @@ void compress_symlink(const STRING &link, const STRING &target) {
     c.name = target;
     c.size = 0;
     c.payload = 0;
-    c.checksum = 0;
     c.file_modified = file_modified;
     c.file_id = file_id_counter++;
     write_contents_item(ofile, c);
@@ -2172,7 +2161,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 
         if(cont.has_value()) {
             file_meta.payload = cont.value().payload;
-            file_meta.checksum = cont.value().checksum;
+            file_meta.hash = cont.value().hash;
             file_meta.duplicate = cont.value().file_id;
 
             if (!diff_flag) {
@@ -2241,8 +2230,8 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
         if (file_read == file_size && file_size > 0) {
             // No CRC block for 0-sized files
             io.write("C", 1, ofile);
-            file_meta.checksum = file_meta_ct.result32();
-            io.write_ui<uint32_t>(file_meta_ct.result32(), ofile);
+            file_meta.hash = file_meta_ct.result();
+            io.write(file_meta_ct.result().data(), sizeof(file_meta.hash), ofile);
         }
 
         if (overflows && file_read >= file_size) {
@@ -2264,7 +2253,6 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
         file_meta.size = file_read;
     }
 
-    file_meta.checksum = file_meta_ct.result32();
     file_meta.hash = file_meta_ct.result();
     identical_files.add(file_meta);
 

@@ -12,7 +12,6 @@ public:
     STRING link;
     uint64_t size = 0;
     uint64_t payload = 0;
-    uint32_t checksum = 0;
     time_ms_t file_modified = 0;
     time_ms_t file_c_time = 0; // created on Windows, status change on nix
     int attributes = 0;
@@ -25,7 +24,7 @@ public:
     uint64_t duplicate = 0;
     std::array<char, 16> hash{};
     uint64_t first = 0;
-    uint64_t last = 0;
+    uint8_t last = 0;
 #ifdef _WIN32
     bool windows = true;
 #else

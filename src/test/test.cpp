@@ -101,11 +101,11 @@ TEST_CASE("checksum") {
         // Basic
         checksum_t t;
         checksum_init(&t);
-        auto result1 = t.result32();
+        auto result1 = t.result64();
         checksum((char *)"123456789", 9, &t);
-        auto result2 = t.result32();
+        auto result2 = t.result64();
         checksum((char *)"123456789", 9, &t);
-        auto result3 = t.result32();
+        auto result3 = t.result64();
 
         REQUIRE(result1 != result2);
         REQUIRE(result1 != result3);
@@ -123,29 +123,29 @@ TEST_CASE("checksum") {
         checksum((char *)"123", 3, &t2);
         checksum((char *)"456789 123456789 ", 17, &t2);
 
-        REQUIRE(t1.result32() == t2.result32());
+        REQUIRE(t1.result64() == t2.result64());
 
         checksum_t t3;
         checksum_init(&t3);
         checksum((char *)"123456789 ", 10, &t3);
         checksum((char *)"123456789 ", 10, &t3);
 
-        REQUIRE(t1.result32() == t3.result32());
+        REQUIRE(t1.result64() == t3.result64());
     }
 
     {
         // Zero lengths
         checksum_t t;
         checksum_init(&t);
-        auto result = t.result32();
+        auto result = t.result64();
         checksum((char *)"", 0, &t);
-        REQUIRE(result == t.result32());
+        REQUIRE(result == t.result64());
 
         checksum_init(&t);
         checksum((char *)"123456789", 9, &t);
-        result = t.result32();
+        result = t.result64();
         checksum((char *)"", 0, &t);
-        REQUIRE(result == t.result32());
+        REQUIRE(result == t.result64());
     }
 }
 

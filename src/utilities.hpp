@@ -110,8 +110,6 @@ struct checksum_t {
     XXH3_state_t state{};
     XXH128_hash_t hash{};
     std::array<char, 16> result();
-    uint32_t hi();
-    uint32_t result32();
     uint64_t result64();
 };
 

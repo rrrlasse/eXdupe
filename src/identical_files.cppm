@@ -30,7 +30,7 @@ public:
         io.read_vector(buf, r, 0, ifile, false);
         checksum_init(&c);
         checksum(buf.data(), r, &c);
-        file_meta.last = c.result64();
+        file_meta.last = static_cast<uint8_t>(c.result64());
         
         auto it = all_file_hashes.find(file_meta.first);
         if (it != all_file_hashes.end()) {
