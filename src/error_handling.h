@@ -16,7 +16,7 @@
 
 enum class retvals {err_other = 1, err_parameters = 2, err_memory = 3, err_write = 4, err_assert = 5, err_permission = 6, err_std_etc = 7};
 
-inline void cleanup_and_exit([[maybe_unused]] retvals ret) {
+[[noreturn]] inline void cleanup_and_exit([[maybe_unused]] retvals ret) {
     throw ret;
 }
 
@@ -29,7 +29,7 @@ template<typename T> inline void print_argument(const T& arg) {
     }
 }
 
-template<typename... Args> inline void rassert_function(const char* condition, const char* message, const std::source_location& location = std::source_location::current(), Args&&... args) {
+template <typename... Args> [[noreturn]] inline void rassert_function(const char *condition, const char *message, const std::source_location &location = std::source_location::current(), Args &&...args) {
     std::string f = location.file_name();
     size_t pos = f.find_last_of(PATHDELIMS);
     f = (pos != std::string::npos) ? f.substr(pos + 1) : f;
@@ -50,6 +50,7 @@ template<typename... Args> inline void rassert_function(const char* condition, c
     if (!(condition)) { \
         rassert_function(#condition, message, std::source_location::current(), __VA_ARGS__); \
     }
+
 
 #define rassert(condition, ...) \
     if (!(condition)) { \

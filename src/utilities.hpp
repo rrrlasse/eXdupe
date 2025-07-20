@@ -38,6 +38,7 @@
 #include <source_location>
 #include <iostream>
 #include <array>
+#include <utility>
 #ifdef _WIN32
 #define CASESENSE(str) lcase(str)
 #include <windows.h>

@@ -600,6 +600,10 @@ int get_attributes(STRING path, bool follow) {
 }
 
 bool set_attributes([[maybe_unused]] const STRING &path, [[maybe_unused]] int attributes) {
+    if (attributes == 0) {
+        // Data from stdin is assigned 0
+        return true;
+    }
 #ifdef _WIN32
     attributes = attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM);
     BOOL b = SetFileAttributesW(path.c_str(), attributes);

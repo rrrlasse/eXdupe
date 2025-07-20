@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <cmath>
 
 #ifdef _WIN32
 #include "pthread/pthread.h"
@@ -158,6 +159,26 @@ struct hashblock_t {
 };
 
 #pragma pack(pop)
+
+
+// Todo, make same type for packets
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable : 4200)
+#else
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
+struct chunk_t {
+    char is_compressed;
+    char compressed_size[4];
+    char payload[];
+};
+#ifdef _WIN32
+#pragma warning(pop)
+#else
+#pragma GCC diagnostic pop
+#endif
 
 size_t SMALL_BLOCK;
 size_t LARGE_BLOCK;
@@ -338,8 +359,6 @@ typedef struct {
 } zstd_params_s;
 
 char *zstd_init() {
-    // Todo, leaks if we should one day decide to use thread cancelation
-    // (bool exit_threads).
     zstd_params_s *zstd_params = (zstd_params_s *)malloc(sizeof(zstd_params_s));
     if (!zstd_params) {
         return NULL;
@@ -382,7 +401,7 @@ double shannon(const char *data, size_t size) {
 
 bool is_compressible(char *inbuf, size_t insize) {
     size_t file_header = 1024;
-    int tests = 8;
+    size_t tests = 8;
     size_t chunk = 1024;
 
     if (insize < 128 * 1024) {
@@ -746,13 +765,11 @@ static size_t write_match(size_t length, uint64_t payload, char *dst) {
     return 0;
 }
 
-static size_t write_literals(const char *src, size_t length, char *dst, int thread_id, bool entropy) {
+static size_t write_literals(const char *src, size_t length, char *dst) {
   //  wcerr << L"literal = " << length << L" ";
 
     if (length > 0) {
         size_t packet_size = 0;
-        bool compressible = true;
-
         dst[DUP_HEADER_LEN] = '0';
         memcpy(dst + DUP_HEADER_LEN + 1, src, length);
         // DUP_HEADER, '0', raw data
@@ -804,7 +821,7 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length) {
 }
 
 
-static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* dst, int thread_id) {
+static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* dst) {
     const char* upto;
     const char* src_orig = src;
     char* dst_orig = dst;
@@ -845,12 +862,12 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
             }
 
             if (n == 0) {
-                dst += write_literals(src, upto - src + 1, dst, thread_id, false);
+                dst += write_literals(src, upto - src + 1, dst);
                 break;
             }
             else {
                 if (match_s - src > 0) {
-                    dst += write_literals(src, match_s - src, dst, thread_id, false);
+                    dst += write_literals(src, match_s - src, dst);
                 }
                 auto min = minimum<size_t>(n * SMALL_BLOCK, upto - match_s + 1);
                 dst += write_match(min, ref_s, dst);
@@ -893,8 +910,9 @@ static int get_free(void) {
 }
 
 size_t dup_chunk_size_compressed(char *src) {
-    rassert(src[0] == '0' || src[0] == '1');
-    return str2ll(src + 1, 4);
+    chunk_t* c = (chunk_t *)src;
+    rassert(c->is_compressed == DUP_COMPRESSED_CHUNK || c->is_compressed == DUP_UNCOMPRESSED_CHUNK);
+    return str2ll(c->compressed_size, 4);
 }
 
 static void *compress_thread(void *arg) {
@@ -909,41 +927,29 @@ static void *compress_thread(void *arg) {
 
         me->busy = true;
         pthread_mutex_unlock_wrapper(&me->jobmutex);
-
-       // me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination, me->id);
-       // hash_chunk(me->source, me->payload, me->size_source, policy);
+        chunk_t *c = (chunk_t *)me->destination;
 
         if(!me->entropy) {
-            hash_chunk(me->source, me->payload, me->size_source);
-//            auto t = GetTickCount();
-            
-            me->size_destination = process_chunk(me->source, me->payload, me->size_source, me->destination + 1 + 4, me->id);
-                      
-
-            bool c = level > 0 && is_compressible(me->destination + 1 + 4, me->size_destination);
-            if (c) {
-                auto siz = zstd_compress(me->destination + 1 + 4, me->size_destination, me->source, me->size_destination + 10000, level, me->zstd);
-                //std::wcerr << L"\nsiz=" << siz << L"\n";
-                memcpy(me->destination + 1 + 4, me->source, siz);
+            hash_chunk(me->source, me->payload, me->size_source);            
+            me->size_destination = process_chunk(me->source, me->payload, me->size_source, c->payload);
+            bool compressible = level > 0 && is_compressible(c->payload, me->size_destination);
+            if (compressible) {
+                auto siz = zstd_compress(c->payload, me->size_destination, me->source, me->size_destination + 10000, level, me->zstd);
+                memcpy(c->payload, me->source, siz);
                 me->size_destination = siz;
-                me->destination[0] = '1';
+                me->destination[0] = DUP_COMPRESSED_CHUNK;
 
             } else {
-                me->destination[0] = '0';
+                me->destination[0] = DUP_UNCOMPRESSED_CHUNK;
             }
-
-//            hits1 += GetTickCount() - t;
         }
         else {
-            me->size_destination = write_literals(me->source, me->size_source, me->destination + 1 + 4, me->id, true);
-            me->destination[0] = '0';
+            me->size_destination = write_literals(me->source, me->size_source, c->payload);
+            me->destination[0] = DUP_UNCOMPRESSED_CHUNK;
 
         }
-        me->size_destination += 4 + 1;
-        ll2str(me->size_destination, me->destination + 1, 4);
-
-
-
+        me->size_destination += sizeof(chunk_t);
+        ll2str(me->size_destination, c->compressed_size, 4);
         pthread_mutex_lock_wrapper(&me->jobmutex);
         me->busy = false;
         pthread_mutex_unlock_wrapper(&me->jobmutex);
@@ -1084,9 +1090,9 @@ static uint64_t packet_payload(const char *src) {
 
 size_t dup_chunk_size_decompressed(char *src) {
     size_t len = dup_chunk_size_compressed((char *)src);
-    if (src[0] == '0') {
+    if (src[0] == DUP_UNCOMPRESSED_CHUNK) {
         return len - DUP_CHUNK_HEADER_LEN;
-    } else if (src[0] == '1') {
+    } else if (src[0] == DUP_COMPRESSED_CHUNK) {
         size_t decompressed_size = ZSTD_getFrameContentSize(src + DUP_CHUNK_HEADER_LEN, len - DUP_CHUNK_HEADER_LEN);
         return decompressed_size;
     }
@@ -1095,10 +1101,10 @@ size_t dup_chunk_size_decompressed(char *src) {
 
 size_t dup_decompress_chunk(char *src, char *dst) {
     size_t len = dup_chunk_size_compressed(src);
-    if (src[0] == '0') {
+    if (src[0] == DUP_UNCOMPRESSED_CHUNK) {
         memmove(dst, src + DUP_CHUNK_HEADER_LEN, len - DUP_CHUNK_HEADER_LEN);
         return len - DUP_CHUNK_HEADER_LEN;
-    } else if (src[0] == '1') {
+    } else if (src[0] == DUP_COMPRESSED_CHUNK) {
         char *zstd_decompress_state = zstd_init();
         size_t decompressed_size = dup_chunk_size_decompressed(src);
         char *buf = (char *)malloc(decompressed_size); // fixme err handling
@@ -1106,6 +1112,9 @@ size_t dup_decompress_chunk(char *src, char *dst) {
         rassert(s == decompressed_size);
         memmove(dst, buf, s);
         free(buf);
+        ZSTD_freeCCtx(((zstd_params_s *)zstd_decompress_state)->cctx);
+        ZSTD_freeDCtx(((zstd_params_s *)zstd_decompress_state)->dctx);
+        free(zstd_decompress_state);
         return s;
     }
     rassert(false);

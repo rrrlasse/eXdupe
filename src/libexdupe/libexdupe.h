@@ -15,17 +15,19 @@ R cccc dddd pppppppp
   p: 64-bit pointer into user payload. It can never point beyond the current position
 
 L cccc dddd pppppppp <data compressed with some traditional data compression>
- c = 32-bit, size of this packet, including data (i.e. 17 + data)
- d = Size in bytes of the *decompressed* data that follows this header
+ c = 32-bit, size of this packet including its header (payload length + 17)
+ d = Size in bytes of the payload that followes this header
  p = Offset into the user payload that this package represents
+
+ A chunk is a sequence of packets. A chunk can either be LZ compressed or uncompressed
 
 */
 
 #define DUP_REFERENCE 'R'
 #define DUP_LITERAL 'L'
 
-#define DUP_UNCOMPRESSED_CHUNK '0'
-#define DUP_COMPRESSED_CHUNK '1'
+#define DUP_UNCOMPRESSED_CHUNK 'U'
+#define DUP_COMPRESSED_CHUNK 'C'
 #define DUP_CHUNK_HEADER_LEN 5
 
 

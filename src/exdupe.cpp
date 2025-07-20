@@ -137,7 +137,7 @@ const size_t RESTORE_CHUNKSIZE = 1 * M;
 // Keep the last RESTORE_BUFFER bytes of resolved data in memory, so that we
 // don't have to seek on the disk while building above mentioned tree. Todo,
 // this was benchmarked in 2010, test if still valid today
-const size_t RESTORE_BUFFER = 256 * M;
+const size_t RESTORE_BUFFER = 1 * G;
 
 const size_t IDENTICAL_FILE_SIZE = 1;
 
@@ -1657,9 +1657,7 @@ namespace restore {
 
 void set_meta(STRING item, contents_t c) {
     set_date(item, c.file_modified);
-    if (c.windows == WIN) {
-        set_attributes(item, c.attributes);
-    }
+    set_attributes(item, c.attributes);
 }
 
 void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
@@ -2379,7 +2377,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
                 continue;
             }
 #endif
-            // avoid including full and diff file when compressing
+            // avoid including archive itself when compressing
             if ((output_file == L("-stdout") || !same_path(sub, full)) && include(sub, top_level)) {
                 if ((!ISDIR(type) && !ISSOCK(type)) && !(ISLINK(type) && !follow_symlinks)) {
                     files.emplace_back(item, type);
@@ -2543,7 +2541,7 @@ void print_statistics(uint64_t start_time, uint64_t end_time, uint64_t end_time_
     s << "Stored as duplicated files:  " << suffix(identical) << "B in " << w2s(del(identical_files_count)) << " files\n";
     s << "Stored as duplicated blocks: " << suffix(largehits + smallhits) << "B (" << suffix(largehits) << "B large, " << suffix(smallhits) << "B small)\n";
     s << "Stored as literals:          " << suffix(stored_as_literals) << "B (" << suffix(literals_compressed_size) << "B compressed)\n";
-    uint64_t total = literals_compressed_size + contents_size + references_size + hashtable_size;
+   // uint64_t total = literals_compressed_size + contents_size + references_size + hashtable_size; // fixme
     s << "Overheads:                   " << suffix(contents_size) << "B meta, " << suffix(references_size) << "B refs, " << suffix(hashtable_size) << "B hashtable\n";//    << suffix(io.write_count - total) << "B misc\n";
     s << "Unhashed due to congestion:  " << suffix(congested_large) << "B large, " << suffix(congested_small) << "B small\n";
     s << "Unhashed anomalies:          " << suffix(anomalies_large) << "B large, " << suffix(anomalies_small) << "B small\n";
@@ -2566,21 +2564,25 @@ void print_statistics(uint64_t start_time, uint64_t end_time, uint64_t end_time_
 
 void wrote_message(uint64_t bytes, uint64_t files) { statusbar.print(1, L("Wrote %s bytes in %s files"), del(bytes).c_str(), del(files).c_str()); }
 
-void create_shadows(void) {
 #ifdef _WIN32
+void create_shadows(void) {
     shadow(shadows);
-
     vector<pair<STRING, STRING>> snaps; //(STRING mount, STRING shadow)
     snaps = get_snaps();
     for (uint32_t i = 0; i < snaps.size(); i++) {
         statusbar.print(3, L("Created snapshot %s -> %s"), snaps.at(i).first.c_str(), snaps.at(i).second.c_str());
     }
-#endif
 }
+void remove_shadows(void) { unshadow(); }
+#else
+void create_shadows(void) { }
+void remove_shadows(void) { }
+#endif
+
 
 void main_compress() {
     uint64_t lastgood = 0;
-    scope_actions([]() { create_shadows(); }, []() { unshadow(); });
+    scope_actions([]() { create_shadows(); }, []() { remove_shadows(); });
     file_types.add(entropy_ext);
 
     for (uint32_t i = 0; i < threads + 1; i++) {
@@ -2753,6 +2755,8 @@ int wmain(int argc2, CHR *argv2[])
 int main(int argc2, char *argv2[])
 #endif
 {
+    int retval = 0;
+
 #ifdef _WIN32
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
@@ -2796,13 +2800,15 @@ int main(int argc2, char *argv2[])
         }
     } 
     catch (retvals r) {
-        std::wcerr << L"EXDUPE ERROR";
-        return static_cast<int>(r);
+        retval = static_cast<int>(r);
     }
-    catch (int) {
-        std::wcerr << L"EXDUPE ERROR";
-        return static_cast<int>(retvals::err_std_etc);
+    catch (std::exception& e) {
+        std::wcerr << e.what();
+        retval = static_cast<int>(retvals::err_std_etc);
+    }
+    if (aborted.load()) {
+        retval = aborted.load();
     }
 
-    return aborted.load() ? aborted.load() : 0;
+    return retval;
 }
