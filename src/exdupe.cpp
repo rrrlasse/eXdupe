@@ -81,7 +81,6 @@ const bool WIN = false;
 #define LONGLONG L("%lld")
 #endif
 
-#include "bytebuffer.h"
 #include "io.hpp"
 #include "libexdupe/libexdupe.h"
 #include "luawrapper.h"
@@ -132,9 +131,9 @@ const size_t DISK_READ_CHUNK = 1 * M;
 // Restore takes part by resolving a tree structure of backwards references in
 // past data. Resolve RESTORE_CHUNKSIZE bytes of payload at a time (too large
 // value can potentially expand a too huge tree; too small value can be slow)
-const size_t RESTORE_CHUNKSIZE = 2 * M;
+const size_t RESTORE_CHUNKSIZE = 1 * M;
 
-// Keep the last RESTORE_BUFFER bytes of resolved data in memory, so that we
+// Keep the last RESTORE_BUFFER bytes of decompressed chunks, so that we
 // don't have to seek on the disk while building above mentioned tree. Todo,
 // this was benchmarked in 2010, test if still valid today
 const size_t RESTORE_BUFFER = 2 * G;
@@ -227,8 +226,6 @@ uint64_t basepay = 0;
 
 const uint64_t max_payload = 20;
 
-Bytebuffer bytebuffer(RESTORE_BUFFER);
-
 FileTypes file_types;
 IdenticalFiles identical_files;
 UntouchedFiles untouched_files2;
@@ -264,9 +261,24 @@ vector<contents_t> contents_added;
 vector<chunk_t> chunks;
 vector<chunk_t> chunks_added;
 
+struct {
+    void add(uint64_t id, const vector<char> &v) {
+        while (size > RESTORE_BUFFER) {
+            size -= chunks.at(0).second.size();
+            chunks.erase(chunks.begin());
+        }
+        chunks.emplace_back(id, v);
+    }
+
+    auto find(uint64_t id) {
+        return std::find_if(chunks.begin(), chunks.end(), [&](auto &p) { return p.first == id; });
+    }
+    std::vector<pair<uint64_t, vector<char>>> chunks;
+    uint64_t size = 0;
+} chunk_cache;
+
 vector<uint64_t> backup_set; // file_id;
 uint64_t original_file_size = 0;
-
 
 std::vector<std::pair<string, uint64_t>> headers;
 std::vector<uint64_t> sets;
@@ -645,29 +657,29 @@ vector<packet_t> get_packets(FILE* f, uint64_t base_payload, std::vector<char>& 
     size_t d = dup_chunk_size_decompressed(dst.data());
     ensure_size(dst, d);
     size_t s = dup_decompress_chunk(dst.data(), dst.data());
+    dst.resize(s);
     auto packets = parse_packets(dst.data(), s, base_payload);
     return packets;
 }
 
+
 bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {    
-    if (char *b = bytebuffer.buffer_find(payload, size); b) {
-        memcpy(dst, b, size);
-        return true;
-    }
-
     size_t bytes_resolved = 0;
-
     while (bytes_resolved < size) {
         uint64_t rr = find_chunk(payload + bytes_resolved);
         rassert(rr != std::numeric_limits<uint64_t>::max());
         chunk_t chunk = chunks.at(rr);
         vector<packet_t> packets;
+        vector<char> chunk_buffer;
 
-        io.seek(ifile, chunk.archive_offset, SEEK_SET);
-
-        // packets will contain pointers into packet_payload. Todo, put in pair or something
-        vector<char> packets_payload; //        = std::make_unique_for_overwrite<char[]>(std::max(chunk.compressed_length, chunk.decompressed_length));
-        packets = get_packets(ifile, chunk.payload, packets_payload);
+        // note lifetime issue: packets point into chunk_buffer or into chunk_cache
+        if (auto it = chunk_cache.find(rr); it != chunk_cache.chunks.end()) {
+            packets = parse_packets(it->second.data(), it->second.size(), chunk.payload);
+        } else {
+            io.seek(ifile, chunk.archive_offset, SEEK_SET);
+            packets = get_packets(ifile, chunk.payload, chunk_buffer);
+            chunk_cache.add(rr, chunk_buffer);
+        }
 
         uint64_t prior = payload + bytes_resolved - chunk.payload;
         size_t needed = size - bytes_resolved;
@@ -695,7 +707,6 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
         memcpy(dst + bytes_resolved, payl.get() + prior, c);
         bytes_resolved += c;
     }
-    bytebuffer.buffer_add(dst, payload, size);
     return false;
 }
 
