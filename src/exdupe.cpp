@@ -860,6 +860,8 @@ void print_build_info() {
 #else
     b += L("debug mode");
 #endif
+    b += STRING(L(", avx detected: ")) + STRING(dup_is_avx_supported() ? L("yes") : L("no"));
+
     statusbar.print(0, b.c_str());
 }
 
@@ -2189,7 +2191,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // First process files
     std::atomic<size_t> ctr = 0;
-    const int max_threads = 6;
+    const int max_threads = 1;
     std::thread threads[max_threads];
 
     auto compress_file_function = [&]() {
