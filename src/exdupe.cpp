@@ -1193,13 +1193,12 @@ Flags:
     -a Store absolute and complete paths (default is to identify and remove
        any common parent path of the items passed on the command line).
 -s"x:" Use Volume Shadow Copy Service for local drive x: (Windows only)
- -u"s" Filter files using a script, s, written in the Lua language. See more
-       with -u? flag.
+ -u"s" Filter away files or directories with a Lua script. See more with -u?
    -z  Use slower cryptographic hash BLAKE3. Default is xxHash128
   -v#  Verbosity # (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
    -k  Show deduplication statistics at the end
  -e"x" Don't apply compression or deduplication to files with the file extension
-       x. See more with -e? flag.
+       x. See more with -e?
 
 Example of backup, differential backups and restore:
   exdupe my_dir backup.full
@@ -1288,25 +1287,29 @@ You can reference following variables:
   time:   Last modified time as os.date object. You can also reference these
           integer variables: year, month, day, hour, min, sec
 
-Helper functions:
+Extra helper functions:
   contains({list}, value): Test if the list contains the value
 
 All Lua string functions work in utf-8. If path, name or ext are not valid
 utf-8 it will be converted by replacing all bytes outside basic ASCII (a-z, A-Z,
-0-9 and common symbols) by '?' and then passed to your script.
+0-9 and common symbols) by '?' before being passed to your script.
 
 String and path comparing is case sensitive, but string.upper() and string.
 lower() will only change basic ASCII letters. Any other letters remain
 unchanged.
 
-Remember to return true for directories in order to traverse them.
+Remember to return true for directories to traverse them.
 
-Examples:
+Simple examples:
   -v0 -u"print('added ' .. path .. ': ' .. size); return true"
   -u"return year >= 2024 or is_dir"
   -u"return size < 1000000 or is_dir"
-  -u"return not contains({'tmp', 'temp'}, lower(ext))")del";
+  -u"return not contains({'tmp', 'temp'}, lower(ext))"
+  -u"return (is_dir and not (name == '.git')) or (not is_dir)"
 
+Example of skipping directories that begin with http+++ or https+++:
+  -u"return (is_dir and name:find('^https?%%+%%+%%+') == nil) or (not is_dir)")del";
+    // todo, get rid of print(const CHR *fmt)
     statusbar.print(0, tostring(lua_help).c_str());
 }
 
