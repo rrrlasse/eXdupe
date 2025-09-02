@@ -2394,7 +2394,11 @@ int wmain(int argc2, CHR *argv2[])
 int main(int argc2, char *argv2[])
 #endif
 {
-
+#ifdef _WIN32
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_U8TEXT);
+#endif
 
     tidy_args(argc2, argv2);
 
@@ -2428,11 +2432,7 @@ int main(int argc2, char *argv2[])
 
     file_types.add(entropy_ext);
 
-#ifdef _WIN32
-    _setmode(_fileno(stdin), _O_BINARY);
-    _setmode(_fileno(stdout), _O_BINARY);
-    _setmode(_fileno(stderr), _O_U16TEXT);
-#endif
+
     statusbar.m_verbose_level = verbose_level;
 
     if (restore_flag || compress_flag || list_flag) {
