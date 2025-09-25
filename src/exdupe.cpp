@@ -49,9 +49,6 @@
 #include <atomic>
 #include <mutex>
 
-#include "libexdupe/xxHash/xxh3.h"
-#include "libexdupe/xxHash/xxhash.h"
-
 #ifdef _WIN32
 const bool WIN = true;
 #include "shadow/shadow.h"
@@ -168,7 +165,6 @@ bool named_pipes = false;
 bool follow_symlinks = false;
 bool shadow_copy = false;
 bool absolute_path = false;
-bool hash_flag = false;
 bool build_info_flag = false;
 bool statistics_flag = false;
 bool no_timestamp_flag = false;
@@ -183,7 +179,6 @@ uint32_t threads_flag = 0;
 uint32_t compression_level = 1;
 uint32_t set_flag = -1;
 
-
 // statistics to show to user
 uint64_t files = 0;
 uint64_t dirs = 0;
@@ -194,7 +189,7 @@ uint64_t identical_files_count = 0;
 uint64_t high_entropy_files;
 uint64_t unchanged_files = 0;
 uint64_t contents_size = 0;
-uint64_t hash_salt;
+uint32_t hash_seed;
 
 STRING full;
 STRING directory;
@@ -532,8 +527,7 @@ uint64_t read_header(FILE *file, uint64_t *lastgood) {
     abort(major != VER_MAJOR, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}. Please use %d.x.x on it", major, minor, revision, major));
     abort(dev != VER_DEV, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}.dev-{}. Please use the exact same version on it", major, minor, revision, dev));
 
-    hash_flag = io.read_ui<uint8_t>(file) == 1;
-    hash_salt = io.read_ui<uint64_t>(file);
+    hash_seed = io.read_ui<uint32_t>(file);
 
     uint64_t mem = io.read_ui<uint64_t>(file);
     uint64_t last = io.read_ui<uint64_t>(file);
@@ -941,7 +935,7 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
 }
 
 
-void write_header(FILE *file, uint64_t mem, bool hash_flag, uint64_t hash_salt, uint64_t lastgood) {
+void write_header(FILE *file, uint64_t mem, uint32_t hash_seed, uint64_t lastgood) {
 
     io.write("EXDUPE D", 8, file);
 
@@ -952,9 +946,7 @@ void write_header(FILE *file, uint64_t mem, bool hash_flag, uint64_t hash_salt, 
 
     io.write_ui<uint64_t>(DEDUPE_SMALL, file);
     io.write_ui<uint64_t>(DEDUPE_LARGE, file);
-
-    io.write_ui<uint8_t>(hash_flag ? 1 : 0, file);
-    io.write_ui<uint64_t>(hash_salt, file);
+    io.write_ui<uint32_t>(hash_seed, file);
 
     io.write_ui<uint64_t>(mem, file);
     io.write_ui<uint64_t>(lastgood, file);
@@ -1183,7 +1175,6 @@ void parse_flags(void) {
                      {follow_symlinks, "h"},
                      {list_flag, "L"},
                      {absolute_path, "a"},
-                     {hash_flag, "z"},
                      {build_info_flag, "B"},
                      {statistics_flag, "k"},
                  }) {
@@ -1253,8 +1244,6 @@ void parse_flags(void) {
     abort(restore_flag && (megabyte_flag != 0 || gigabyte_flag != 0), L("-m and -t flags not applicable to restore (no memory required)"));
     abort(restore_flag && (threads_flag != 0), L("-t flag not supported for restore"));
     abort(diff_flag && compress_flag && (megabyte_flag != 0 || gigabyte_flag != 0), L("-m and -t flags not applicable to differential backup (uses same memory as full)"));
-    abort(hash_flag && diff_flag, L("-h flag not applicable to differential backup"));
-    abort(hash_flag && !compress_flag, L("-h flag not applicable to restore"));
 }
 
 void add_item(const STRING &item) {
@@ -1406,7 +1395,6 @@ Flags:
 -s"x:" Use Volume Shadow Copy Service for local drive x: (Windows only)
  -u"s" Filter files using a script, s, written in the Lua language. See more
        with -u? flag.
-   -z  Use slower cryptographic hash BLAKE3. Default is xxHash128
   -v#  Verbosity # (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
    -k  Show deduplication statistics at the end
  -e"x" Don't apply compression or deduplication to files with the file extension
@@ -1741,7 +1729,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
             } else if (!c.directory) {
                 files++;
                 checksum_t t;
-                checksum_init(&t);
+                checksum_init(&t, hash_seed);
                 STRING outfile = remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
                 update_statusbar_restore(outfile);
                 ofile = pipe_out ? stdout : create_file(outfile);
@@ -1759,6 +1747,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
                     fclose(ofile);
                     set_meta(dstdir + DELIM_STR + c.name, c);
                 }
+                
                 abort(c.hash != t.result(), retvals::err_other, format(L("File checksum error {}"), c.name));
             }
         }
@@ -1781,9 +1770,10 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
     size_t len2;
     vector<char> buf;
     auto packets = get_packets(ifile, c.at(0).payload, buf);
+    
+    vector<char> chunkdata;
 
-
-    for(auto p: packets) {
+    for (auto p : packets) {
         size_t len = p.payload_length;
         payload_orig = c.at(0).payload;
         vector<char> out(len);
@@ -1798,7 +1788,7 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
                     size_t fo = belongs_to(payload + resolved);
                     int j = io.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
                     massert(j == 0, "Internal error or destination drive is not seekable", infiles.at(fo).filename, payload, payload_orig);
-                    len2 = io.read_vector(out, len - resolved , resolved, ofile, false);
+                    len2 = io.read_vector(out, len - resolved, resolved, ofile, false);
                     massert(!(len2 != len - resolved), "Internal error: Reference points past current output file", infiles.at(fo).filename, len, len2);
                     resolved += len2;
                     io.seek(ofile, 0, SEEK_END);
@@ -1818,47 +1808,51 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
                 }
             }
         }
+        chunkdata.insert(chunkdata.end(), out.begin(), out.end());
+    }
 
-        uint64_t src_consumed = 0;
+    uint64_t src_consumed = 0;
 
-        while (c.size() > 0 && src_consumed < len) {
-            if (ofile == 0) {
-                ofile = create_file(c.at(0).extra);
-                destfile = c.at(0).extra;
-                checksum_init(&decompress_checksum);
-                {
-                    file_offset_t t;
-                    t.filename = c.at(0).extra;
-                    t.offset = add_file_payload;
-                    t.handle = 0;
-                    add_file_payload += c.at(0).size;
-                    infiles.push_back(t);
-                }
-                curfile_written = 0;
+    while (c.size() > 0 && src_consumed < chunkdata.size()) {
+        if (ofile == 0) {
+            ofile = create_file(c.at(0).extra);
+            destfile = c.at(0).extra;
+            checksum_init(&decompress_checksum, hash_seed);
+            {
+                file_offset_t t;
+                t.filename = c.at(0).extra;
+                t.offset = add_file_payload;
+                t.handle = 0;
+                add_file_payload += c.at(0).size;
+                infiles.push_back(t);
             }
-            auto missing = c.at(0).size - curfile_written;
-            auto has = minimum(missing, len - src_consumed);
-            curfile_written += has;
-            if (verbose_level < 3) {
-                // level 3 doesn't show progress
-                update_statusbar_restore(destfile);
-            }
+            curfile_written = 0;
+        }
+        auto missing = c.at(0).size - curfile_written;
+        auto has = minimum(missing, chunkdata.size() - src_consumed);
 
-            io.write(&out[src_consumed], has, ofile);
-            checksum(&out[src_consumed], has, &decompress_checksum);
-            payload_written += has;
-            src_consumed += has;
+        curfile_written += has;
+        if (verbose_level < 3) {
+            // level 3 doesn't show progress
+            update_statusbar_restore(destfile);
+        }
 
-            if (curfile_written == c.at(0).size) {
-                io.close(ofile);
-                set_meta(c.at(0).extra, c.at(0));
-                ofile = 0;
-                curfile_written = 0;
-                abort(c.at(0).hash != decompress_checksum.result(), retvals::err_other, format(L("File checksum error {}"), c.at(0).extra));
-                c.erase(c.begin());
-            }
+        io.write(&chunkdata[src_consumed], has, ofile);
+
+        checksum(&chunkdata[src_consumed], has, &decompress_checksum);
+        payload_written += has;
+        src_consumed += has;
+
+        if (curfile_written == c.at(0).size) {
+            io.close(ofile);
+            set_meta(c.at(0).extra, c.at(0));
+            ofile = 0;
+            curfile_written = 0;
+            abort(c.at(0).hash != decompress_checksum.result(), retvals::err_other, format(L("File checksum error {}"), c.at(0).extra));
+            c.erase(c.begin());
         }
     }
+    
 }
 
 
@@ -2088,7 +2082,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     pair<time_ms_t, time_ms_t> file_time = input_file == L("-stdin") ? pair<time_ms_t, time_ms_t>(cur_date(), cur_date()) : get_date(input_file);
 
     checksum_t file_checksum;
-    checksum_init(&file_checksum);
+    checksum_init(&file_checksum,hash_seed);
     uint64_t file_size = 0;
     contents_t file_meta;
     uint64_t file_read = 0;   
@@ -2164,7 +2158,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 #if 1 // Detect files with identical payload, both within current backup set, and between full and diff sets
     if(file_size >= IDENTICAL_FILE_SIZE && input_file != L("-stdin")) {
         auto original = identical;
-        auto cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, const STRING& file) { identical += n; update_statusbar_backup(file); }, input_file);
+        auto cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, const STRING& file) { identical += n; update_statusbar_backup(file); }, input_file, hash_seed);
 
         if(cont.has_value()) {
             file_meta.payload = cont.value().payload;
@@ -2192,7 +2186,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     }
 #endif
 
-    checksum_init(&file_meta_ct);
+    checksum_init(&file_meta_ct, hash_seed);
 
     if(!diff_flag) {
         io.write("F", 1, ofile);
@@ -2595,14 +2589,14 @@ void main_compress() {
         io.seek(ifile, 0, SEEK_SET);
         ofile = ifile;
 
-        memory_usage = read_header(ifile, &lastgood); // also inits hash_salt and sets
+        memory_usage = read_header(ifile, &lastgood); // also inits hash_seed and sets
         abort(!read_headers(ifile), corrupted_msg.c_str());
         hashtable = malloc(memory_usage);
         abort(!hashtable, retvals::err_memory, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
         memset(hashtable, 0, memory_usage);
         pay_count = read_chunks(ifile); // read size in bytes of user payload in .full file
 
-        int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, pay_count);
+        int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_seed, pay_count);
         abort(r == 1, retvals::err_memory, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
         abort(r == 2, retvals::err_memory, format("Error creating threads. This differential backup requires {} MB memory. Try -t1 flag", memory_usage >> 20));
 
@@ -2624,20 +2618,20 @@ void main_compress() {
     } else {
         output_file = full;
         ofile = create_file(output_file);
-        hash_salt = hash_flag ? rnd64() : 0;
+        hash_seed = static_cast<uint32_t>(rnd64());
         hashtable = tmalloc(memory_usage);
         abort(!hashtable, retvals::err_memory, "Out of memory. Reduce -m, -g or -t flag");
-        int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_flag, hash_salt, 0);
+        int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_seed, 0);
         abort(r == 1, retvals::err_memory, "Out of memory. Reduce -m, -g or -t flag");
         abort(r == 2, retvals::err_memory, "Error creating threads. Reduce -m, -g or -t flag");
-        write_header(ofile, memory_usage, hash_flag, hash_salt, 0);
+        write_header(ofile, memory_usage, hash_seed, 0);
     }
 
     auto commit = [&]() {
         if (output_file != L("-stdout")) {
             lastgood = io.tell(ofile);
             io.seek(ofile, 0, SEEK_SET);
-            write_header(ofile, memory_usage, hash_flag, hash_salt, lastgood);
+            write_header(ofile, memory_usage, hash_seed, lastgood);
             io.seek(ofile, lastgood, SEEK_SET);
         }
     };

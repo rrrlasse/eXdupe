@@ -96,58 +96,65 @@ TEST_CASE("bytebuffer") {
     }
 }
 
-TEST_CASE("checksum") {
-    {   
-        // Basic
-        checksum_t t;
-        checksum_init(&t);
-        auto result1 = t.result64();
-        checksum((char *)"123456789", 9, &t);
-        auto result2 = t.result64();
-        checksum((char *)"123456789", 9, &t);
-        auto result3 = t.result64();
+TEST_CASE("checksum2") {
+    {
+        // Differing
+        checksum_t t1;
+        checksum_t t2;
+        checksum_init(&t1, 0);
+        checksum_init(&t2, 0);
+
+        checksum((char *)"AAAAAAAAA", 9, &t1);
+        auto result1 = t1.result64();
+
+        checksum((char *)"BBBBBBBBB", 9, &t2);
+        auto result2 = t2.result64();
 
         REQUIRE(result1 != result2);
-        REQUIRE(result1 != result3);
-        REQUIRE(result2 != result3);
     }
 
     {
         // Associative
         checksum_t t1;
-        checksum_init(&t1);
-        checksum((char *)"123456789 123456789 ", 20, &t1);
+        checksum_init(&t1, 0);
 
         checksum_t t2;
-        checksum_init(&t2);
-        checksum((char *)"123", 3, &t2);
-        checksum((char *)"456789 123456789 ", 17, &t2);
+        checksum_init(&t2, 0);
+
+        string one;
+        for (int i = 0; i < 32 * 1; i++) {
+            one += "12345678";
+        }
+
+        string two = one + one;
+
+        checksum(one.c_str(), one.size(), &t1);
+        checksum(two.c_str(), two.size(), &t1);
+
+        checksum(two.c_str(), two.size(), &t2);
+        checksum(one.c_str(), one.size(), &t2);
 
         REQUIRE(t1.result64() == t2.result64());
-
-        checksum_t t3;
-        checksum_init(&t3);
-        checksum((char *)"123456789 ", 10, &t3);
-        checksum((char *)"123456789 ", 10, &t3);
-
-        REQUIRE(t1.result64() == t3.result64());
     }
 
+    // Seed
     {
-        // Zero lengths
-        checksum_t t;
-        checksum_init(&t);
-        auto result = t.result64();
-        checksum((char *)"", 0, &t);
-        REQUIRE(result == t.result64());
+        checksum_t t1;
+        checksum_t t2;
+        checksum_init(&t1, 1);
+        checksum_init(&t2, 2);
 
-        checksum_init(&t);
-        checksum((char *)"123456789", 9, &t);
-        result = t.result64();
-        checksum((char *)"", 0, &t);
-        REQUIRE(result == t.result64());
+        checksum((char *)"AAAAAAAAA", 9, &t1);
+        auto result1 = t1.result64();
+
+        checksum((char *)"AAAAAAAAA", 9, &t2);
+        auto result2 = t2.result64();
+
+        REQUIRE(result1 != result2);
     }
+
 }
+
 
 TEST_CASE("format_size") {
     REQUIRE(suffix(0) == "0 ");

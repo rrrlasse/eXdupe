@@ -18,10 +18,8 @@
 
 #include "unicode.h"
 #include "utilities.hpp"
-//#include "abort.h"
 
-#include "libexdupe/xxHash/xxh3.h"
-#include "libexdupe/xxHash/xxhash.h"
+#include "libexdupe/gxhash/gxhash.h"
 
 #ifdef _WIN32
 #include "Shlwapi.h"
@@ -422,7 +420,8 @@ void itoa(int n, char s[]) {
 
 
 std::array<char, 16> checksum_t::result() {
-    hash = XXH3_128bits_digest(&state);
+    gxhash_finish(&state);
+    hash = state.finalized;
     std::array<char, 16> ret;
     memcpy(&ret, &hash, ret.size());
     return ret;
@@ -437,14 +436,12 @@ uint64_t checksum_t::result64() {
     return r;
 };
 
-void checksum_init(checksum_t *t) {
-    XXH3_128bits_reset(&t->state);
+void checksum_init(checksum_t *t, uint32_t hash_seed) {
+    gxhash_init(&t->state, hash_seed);
 }
 
-void checksum(char *data, size_t len, checksum_t *t) {
-    if (XXH3_128bits_update(&t->state, data, len) == XXH_ERROR) {
-        rassert(false);
-    }
+void checksum(const char *data, size_t len, checksum_t *t) {
+    gxhash_stream((uint8_t *)data, len, &t->state);
     return;
 }
 

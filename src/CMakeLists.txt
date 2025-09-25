@@ -18,7 +18,7 @@ function(apply_compile_options_to_files files_list options)
 endfunction()
 
 file(GLOB MODULES *.cppm)
-file(GLOB EXDUPE *.h *.hpp *.cpp)
+file(GLOB EXDUPE *.h *.hpp *.cpp libexdupe/gxhash/gxhash.c)
 file(GLOB LUA ${CMAKE_CURRENT_SOURCE_DIR}/lua/*.c ${CMAKE_CURRENT_SOURCE_DIR}/lua/*.h)
 
 if(MSVC)
@@ -31,7 +31,7 @@ if(MSVC)
 	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/..>)
 	
 else()
-	set(flags_to_apply "-pedantic" "-Wextra" "-Wall" "-Wno-gnu-zero-variadic-macro-arguments")
+	set(flags_to_apply "-maes" "-msse2" "-pedantic" "-Wextra" "-Wall" "-Wno-gnu-zero-variadic-macro-arguments")
 	add_definitions(-DLUA_USE_MKSTEMP)
 endif()
 

@@ -4,7 +4,7 @@ project (libexdupe)
 
 set(CMAKE_CXX_STANDARD 20)
 
-ADD_LIBRARY(libexdupe STATIC libexdupe.cpp)
+ADD_LIBRARY(libexdupe STATIC libexdupe.cpp gxhash/gxhash.c)
 
 set(BUILD_SHARED_LIBS OFF)
 option(XXHASH_BUILD_XXHSUM "" OFF)
@@ -17,13 +17,11 @@ if (MSVC)
 	add_subdirectory(pthread)
 else()
 	target_compile_options(libexdupe PRIVATE -mavx2)
-	set(flags_to_apply "-pedantic" "-Wextra" "-Wall" "-Wno-gnu-zero-variadic-macro-arguments")
+	set(flags_to_apply "-maes" "-msse2" "-pedantic" "-Wextra" "-Wall" "-Wno-gnu-zero-variadic-macro-arguments")
 endif(MSVC)
 
 apply_compile_options_to_files("libexdupe.cpp" "${flags_to_apply}")
-
-add_subdirectory(blake3/c)
-add_subdirectory(xxHash/cmake_unofficial)
+apply_compile_options_to_files("gxhash/gxhash.c" "${flags_to_apply}")
 
 # Todo, is all this really needed for libzstd?
 set(ZSTD_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/zstd")
@@ -35,8 +33,6 @@ include(GNUInstallDirs)
 add_subdirectory(zstd/build/cmake/lib)
 
 target_link_libraries(libexdupe PRIVATE libzstd_static)
-target_link_libraries(libexdupe PRIVATE blake3)
-target_link_libraries(libexdupe PUBLIC xxhash)
 
 if (MSVC)
 	target_link_libraries(libexdupe PRIVATE libpthreadVC3)

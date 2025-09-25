@@ -29,9 +29,7 @@
 #include <iostream>
 #include <vector>
 
-#include "blake3/c/blake3.h"
-#include "xxHash/xxh3.h"
-#include "xxHash/xxhash.h"
+#include "gxhash/gxhash.h"
 #include "../gsl/gsl"
 
 #define ZSTD_STATIC_LINKING_ONLY
@@ -108,8 +106,7 @@ int pthread_mutex_trylock_wrapper(pthread_mutex_t *mutex) {
 
 namespace {
 
-bool g_crypto_hash = false;
-uint64_t g_hash_salt = 0;
+uint32_t g_hash_salt = 0;
 pthread_mutex_t table_mutex;
 pthread_cond_t jobdone_cond;
 pthread_mutex_t jobdone_mutex;
@@ -424,27 +421,14 @@ int64_t zstd_decompress(char *inbuf, size_t insize, char *outbuf, size_t outsize
     return ZSTD_decompressDCtx(zstd_params->dctx, outbuf, outsize, inbuf, insize);
 }
 
-static void hash(const void *src, size_t len, uint64_t salt, char *dst, size_t result_len) {
-    if (g_crypto_hash) {
-        char s[sizeof(salt)];
-        ll2str(salt, (char*)s, sizeof(salt));
-        blake3_hasher hasher;
-        blake3_hasher_init(&hasher);
-        blake3_hasher_update(&hasher, s, sizeof(s));
-        blake3_hasher_update(&hasher, src, len);
-        uint8_t output[BLAKE3_OUT_LEN];
-        blake3_hasher_finalize(&hasher, output, BLAKE3_OUT_LEN);
-        memcpy(dst, output, result_len);
-    } else {
-        XXH64_hash_t s{ salt };
-        XXH128_hash_t hash = XXH128(src, len, s);
-        memcpy(dst, &hash, result_len);
-    }
+static void hash(const void *src, size_t len, uint32_t hash_seed, char *dst, size_t result_len) {
+    gxhash((uint8_t *)src, len, dst, result_len, hash_seed);
+    return; 
 }
 
-static uint64_t hash64(const void* src, size_t len) {
+static uint64_t hash64(const void* src, size_t len, uint32_t hash_seed) {
     char h[sizeof(uint64_t)];
-    hash(src, len, 0, h, sizeof(uint64_t));
+    hash(src, len, hash_seed, h, sizeof(uint64_t));
     return str2ll(h, sizeof(uint64_t));
 }
 
@@ -505,7 +489,7 @@ size_t dup_compress_hashtable(char* dst) {
     char* dst_orig = dst;
     size_t total_entries = small_entries + large_entries;
     size_t s = sizeof(hashblock_t) * total_entries;
-    uint64_t crc = hash64(&small_table[0], s);
+    uint64_t crc = hash64(&small_table[0], s, g_hash_salt);
     size_t block = 0;
 
     ll2str(crc, dst, 8);
@@ -562,7 +546,7 @@ int dup_decompress_hashtable(char* src) {
 
     size_t s = sizeof(hashblock_t) * total_entries;
     // todo, add crc of compressed table too
-    uint64_t crc2 = hash64(&small_table[0], s);
+    uint64_t crc2 = hash64(&small_table[0], s, g_hash_salt);
     return crc == crc2 ? 0 : 1;
 }
 
@@ -963,7 +947,7 @@ static void *compress_thread(void *arg) {
 }
 
 
-int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_count, void *space, int compression_level, bool crypto_hash, uint64_t hash_seed, uint64_t basepay) {
+int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_count, void *space, int compression_level, uint32_t hash_seed, uint64_t basepay) {
     // FIXME: The dup() function contains a stack allocated array ("tmp") of 8
     // KB that must be able to fit LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE bytes.
     // Find a better solution. alloca() causes sporadic crash in VC for inlined
@@ -975,8 +959,6 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
     count_payload = 0;
     global_payload = basepay;
     flushed = global_payload;
-
-    g_crypto_hash = crypto_hash;
     g_hash_salt = hash_seed;
     level = compression_level;
     threads = thread_count;

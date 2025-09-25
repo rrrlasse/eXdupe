@@ -33,8 +33,8 @@ L cccc dddd pppppppp <data compressed with some traditional data compression>
 
 uint64_t dup_memory(uint64_t bits);
 int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
-	     int max_threadcount, void *memory, int compression_level,
-	     bool crypto_hash, uint64_t hash_seed, uint64_t basepay);
+     int max_threadcount, void *memory, int compression_level,
+     uint32_t hash_seed, uint64_t basepay);
 
 size_t dup_compress(void *src, char *dst, size_t size,
 		    uint64_t *payloadreturned, bool entropy, char*& retval_start);

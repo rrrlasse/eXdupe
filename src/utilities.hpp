@@ -52,8 +52,7 @@
 #define CASESENSE(str) str
 #endif
 
-#include "libexdupe/xxHash/xxh3.h"
-#include "libexdupe/xxHash/xxhash.h"
+#include "libexdupe/gxhash/gxhash.h"
 
 enum { FILE_TYPE, DIR_TYPE, SYMLINK_TYPE, ERROR_TYPE };
 enum status_t { BACKUP, DIFF_BACKUP, RESTORE, DIFF_RESTORE, LIST, DIFF_LIST };
@@ -107,14 +106,15 @@ template <class T, class U> uint64_t minimum(T a, U b) {
 }
 
 struct checksum_t {
-    XXH3_state_t state{};
-    XXH128_hash_t hash{};
+    gxhash_state state{};
+    gxhash_register hash{};
     std::array<char, 16> result();
     uint64_t result64();
+    uint32_t hash_seed{};
 };
 
-void checksum(char *data, size_t len, checksum_t *t);
-void checksum_init(checksum_t *t);
+void checksum(const char *data, size_t len, checksum_t *t);
+void checksum_init(checksum_t *t, uint32_t hash_seed);
 STRING abs_path(const STRING& source);
 bool exists(const STRING& file);
 bool is_dir(const STRING& path);
