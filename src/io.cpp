@@ -71,7 +71,7 @@ int Cio::seek(FILE *_File, int64_t _Offset, int Origin) { return _fseeki64(_File
 size_t Cio::write(const void *Str, size_t Count, FILE *_File) {
     size_t c = 0;
     while (c < Count) {
-        size_t w = minimum(Count - c, 1024 * 1024);
+        size_t w = Count - c;
         size_t r = fwrite((char*)Str + c, 1, w, _File);
         write_count += r;
         abort(r != w, retvals::err_write, "Disk full or write denied while writing destination file");
@@ -83,7 +83,7 @@ size_t Cio::write(const void *Str, size_t Count, FILE *_File) {
 size_t Cio::read(void* DstBuf, size_t Count, FILE* _File, bool read_exact) {
     size_t c = 0;
     for(;;) {
-        size_t r = minimum(Count - c, 1024 * 1024);
+        size_t r = Count - c;
         size_t w = fread((char*)DstBuf + c, 1, r, _File);
         read_count += w;
         abort(read_exact && stdin_tty() && w != r, L("Unexpected end of source file"));
