@@ -28,7 +28,7 @@ L cccc dddd pppppppp <data compressed with some traditional data compression>
 
 #define DUP_UNCOMPRESSED_CHUNK 'U'
 #define DUP_COMPRESSED_CHUNK 'C'
-#define DUP_CHUNK_HEADER_LEN 5
+#define DUP_CHUNK_HEADER_LEN 9
 
 
 uint64_t dup_memory(uint64_t bits);
