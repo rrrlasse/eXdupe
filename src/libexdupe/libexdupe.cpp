@@ -169,6 +169,7 @@ struct hashblock_t {
 struct chunk_t {
     char is_compressed;
     char compressed_size[4];
+    char decompressed_size[4];
     char payload[];
 };
 #ifdef _WIN32
@@ -919,6 +920,7 @@ static void *compress_thread(void *arg) {
             bool compressible = level > 0 && is_compressible(c->payload, me->size_destination);
             if (compressible) {
                 auto siz = zstd_compress(c->payload, me->size_destination, me->source, me->size_destination + 10000, level, me->zstd);
+                ll2str(me->size_destination, c->decompressed_size, 4);
                 memcpy(c->payload, me->source, siz);
                 me->size_destination = siz;
                 me->destination[0] = DUP_COMPRESSED_CHUNK;
@@ -1071,12 +1073,13 @@ static uint64_t packet_payload(const char *src) {
 }
 
 size_t dup_chunk_size_decompressed(char *src) {
-    size_t len = dup_chunk_size_compressed((char *)src);
     if (src[0] == DUP_UNCOMPRESSED_CHUNK) {
+        size_t len = dup_chunk_size_compressed((char *)src);
         return len - DUP_CHUNK_HEADER_LEN;
     } else if (src[0] == DUP_COMPRESSED_CHUNK) {
-        size_t decompressed_size = ZSTD_getFrameContentSize(src + DUP_CHUNK_HEADER_LEN, len - DUP_CHUNK_HEADER_LEN);
-        return decompressed_size;
+        chunk_t *c = (chunk_t *)src;
+        size_t len = str2ll(c->decompressed_size, 4);
+        return len;
     }
     rassert(false);
 }
