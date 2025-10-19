@@ -208,11 +208,6 @@ gxhash_register compress_avx(gxhash_register a, gxhash_register b) {
     gxhash_register keys_2 = _mm_set_epi32(0x39136BD9, 0xB361DC58, 0xCB6B2E9B, 0x03FCE279);
     b = _mm_aesenc_si128(b, keys_1);
     b = _mm_aesenc_si128(b, keys_2);
-gxhash_register compress_avx(gxhash_register a, gxhash_register b) {
-    gxhash_register keys_1 = _mm_set_epi32(0xF2784542, 0xB09D3E21, 0x89C222E5, 0xFC3BC28E);
-    gxhash_register keys_2 = _mm_set_epi32(0x39136BD9, 0xB361DC58, 0xCB6B2E9B, 0x03FCE279);
-    b = _mm_aesenclast_si128(b, keys_1);
-    b = _mm_aesenclast_si128(b, keys_2);
     return _mm_aesenclast_si128(a, b);
 }
 

@@ -27,7 +27,8 @@ L cccc dddd pppppppp <data compressed with some traditional data compression>
 #define DUP_LITERAL 'L'
 
 #define DUP_UNCOMPRESSED_CHUNK 'U'
-#define DUP_COMPRESSED_CHUNK 'C'
+#define DUP_BLOCK_COMPRESSED_CHUNK 'B' // LZ is done on whole chunk with zstd
+#define DUP_STREAM_COMPRESSED_CHUNK 'S' // LZ is done on each packet in the chunk in memlz streaming mode
 #define DUP_CHUNK_HEADER_LEN 9
 
 
