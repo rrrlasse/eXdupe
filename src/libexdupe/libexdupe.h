@@ -28,6 +28,7 @@ L cccc dddd pppppppp <data compressed with some traditional data compression>
 
 #define DUP_UNCOMPRESSED_CHUNK 'U'
 #define DUP_COMPRESSED_CHUNK 'C'
+#define DUP_STREAM_COMPRESSED_CHUNK 'M'
 #define DUP_CHUNK_HEADER_LEN 9
 
 

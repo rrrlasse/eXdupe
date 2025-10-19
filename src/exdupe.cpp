@@ -260,6 +260,7 @@ vector<chunk_t> chunks_added;
 
 struct {
     void add(uint64_t id, const vector<char> &v) {
+        return;
         while (size > RESTORE_BUFFER) {
             size -= chunks.at(0).second.size();
             chunks.erase(chunks.begin());
@@ -1237,7 +1238,7 @@ void parse_flags(void) {
             }
 
             if (set_int_flag(compression_level, "x")) {
-                abort(compression_level > 3, L("-x flag value must be 0...3"));
+                abort(compression_level > 4, L("-x flag value must be 0...4"));
             }
 
             if (set_int_flag(set_flag, "R")) {
@@ -1404,8 +1405,8 @@ Flags:
        of data in a single backup set for best result. Use -m# to specify MB
        instead. Differential backups will use the same memory as the initial
        backup
-   -x# Use compression level # after deduplication (0, 1 = default, 2, 3). Level
-       0 means no compression and lets you apply your own
+   -x# Use compression level # after deduplication (0, 1, 2 = default, 3, 4).
+       Level 0 means no compression and lets you apply your own
     -- Prefix items in the <sources> list with "--" to exclude them
     -p Include named pipes
     -h Follow symlinks (default is to store symlink only)
@@ -1447,7 +1448,7 @@ A few flags:
  -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per )" + std::to_string(max_payload) + R"( GB of
      data in a single backup set for best result. Differential backups 
      will use the same memory as the initial backup
- -x# Use compression level # after deduplication (0, 1 = default, 2, 3)
+ -x# Use compression level # after deduplication (0, 1, 2 = default, 3, 4)
   -? Show complete help)";
  
     auto delim = [](std::string& s) {
