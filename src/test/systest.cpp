@@ -469,6 +469,23 @@ TEST_CASE("case rename") {
     cmp();
 }
 
+TEST_CASE("compression levels") {
+    std::string x = GENERATE("-x0", "-x1", "-x2", "-x3", "-x4", "-x5");
+    clean();
+    md(in);
+    std::ofstream(in + "/t") << "The quick brown fox jumps over the lazy dog";
+    ex("-m1", x, in, full);
+    ex("-R0", full, out);
+    if (x != "-x5") {
+        cmp();
+    } else {
+        INFO("Expected to fail for -x5");
+        clean();
+        md(in);
+        cmp();
+    }
+}
+
 TEST_CASE("simple backup, diff backup and restore") {
     clean();
     pick("a");
@@ -493,7 +510,7 @@ TEST_CASE("no -g or -m flag during incremental backup") {
 }
 
 TEST_CASE("diff size") {
-    // Diff must be tiny without -w
+    // Diff must be tiny without -w and every unique filename should be stored just once
     clean();
     pick("high_entropy_a");
     for(int i = 0; i < 30; i++) {
