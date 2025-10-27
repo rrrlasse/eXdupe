@@ -1144,7 +1144,7 @@ size_t dup_decompress_chunk(char *src, char *dst) {
         while (missing > 0) {
             size_t d = memlz_decompress(buf.get() + decompressed, src + inpos, &c);
             decompressed += d;
-            size_t c = memlz_compressed_size(src + inpos);
+            size_t c = memlz_compressed_len(src + inpos);
             inpos += c;
             missing -= d;
         }
