@@ -262,6 +262,7 @@ struct {
             size -= chunks.at(0).second.size();
             chunks.erase(chunks.begin());
         }
+        size += v.size();
         chunks.emplace_back(id, v);
     }
 
