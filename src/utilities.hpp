@@ -147,3 +147,4 @@ void tm_to_short(short_tm *s, tm *l);
 void tm_to_long(short_tm *s, tm *l);
 
 std::string regx(std::string str, std::string pat);
+bool cpu_supports_avx2(void);

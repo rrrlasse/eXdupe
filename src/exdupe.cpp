@@ -2394,6 +2394,11 @@ int wmain(int argc2, CHR *argv2[])
 int main(int argc2, char *argv2[])
 #endif
 {
+    if (!cpu_supports_avx2()) {
+        std::cerr << "eXdupe needs CPU support for AVX2. AVX2 was introduced on Intel Haswell from\n2013, Intel Celeron from 2020 and AMD Excavator from 2015.\n";
+        return 10;
+    }
+
 #ifdef _WIN32
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
