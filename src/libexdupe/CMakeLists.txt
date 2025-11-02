@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.6)
 
+if(MSVC)
+    # Force static CRT via flags
+    set(CMAKE_C_FLAGS_RELEASE   "${CMAKE_C_FLAGS_RELEASE} /MT")
+    set(CMAKE_C_FLAGS_DEBUG     "${CMAKE_C_FLAGS_DEBUG} /MTd")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
+    set(CMAKE_CXX_FLAGS_DEBUG   "${CMAKE_CXX_FLAGS_DEBUG} /MTd")
+endif()
+
 project (libexdupe)
 
 set(CMAKE_CXX_STANDARD 20)
