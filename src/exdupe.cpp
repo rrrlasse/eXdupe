@@ -860,7 +860,7 @@ void print_build_info() {
 #else
     b += L("debug mode");
 #endif
-    b += STRING(L(", avx detected: ")) + STRING(dup_is_avx_supported() ? L("yes") : L("no"));
+    b += STRING(L(", avx2 detected: ")) + STRING(dup_is_avx2_supported() ? L("yes") : L("no"));
 
     statusbar.print(0, b.c_str());
 }
@@ -2394,11 +2394,6 @@ int wmain(int argc2, CHR *argv2[])
 int main(int argc2, char *argv2[])
 #endif
 {
-    if (!cpu_supports_avx2()) {
-        std::cerr << "eXdupe needs CPU support for AVX2. AVX2 was introduced on Intel Haswell from\n2013, Intel Celeron from 2020 and AMD Excavator from 2015.\n";
-        return 10;
-    }
-
 #ifdef _WIN32
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);

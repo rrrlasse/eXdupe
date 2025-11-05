@@ -24,7 +24,7 @@ if (MSVC)
 	include_directories(pthread)
 	add_subdirectory(pthread)
 else()
-	target_compile_options(libexdupe PRIVATE -mavx2)
+	target_compile_options(libexdupe PRIVATE -mno-avx2)
 	set(flags_to_apply "-pedantic" "-Wextra" "-Wall" "-Wno-gnu-zero-variadic-macro-arguments")
 endif(MSVC)
 

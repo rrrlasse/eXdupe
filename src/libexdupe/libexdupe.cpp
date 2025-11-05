@@ -178,7 +178,7 @@ char* memory_end;
 
 size_t memsize;
 
-bool use_avx = false;
+std::atomic<bool> use_avx = false;
 
 // statistics
 std::atomic<uint64_t> largehits;
@@ -543,7 +543,46 @@ static uint32_t quick(const char* src, size_t len) {
     return static_cast<uint32_t>(res);
 }
 
-static uint32_t window(const char* src, size_t len, const char** pos) {
+#ifndef _WIN32
+__attribute__((target("avx2")))
+#endif
+bool avx2(const char *src, size_t i, size_t block, int16_t b, size_t* match) {
+    __m256i src1 = _mm256_loadu_si256((__m256i *)(&src[i]));
+    __m256i src2 = _mm256_loadu_si256((__m256i *)(&src[i + block - 32 - 1]));
+    __m256i sum1 = _mm256_add_epi16(src1, src2);
+
+    __m256i src3 = _mm256_loadu_si256((__m256i *)(&src[i + 1]));
+    __m256i src4 = _mm256_loadu_si256((__m256i *)(&src[i + block - 32]));
+    __m256i sum2 = _mm256_add_epi16(src3, src4);
+
+    sum1 = _mm256_mullo_epi16(sum1, sum1);
+    sum2 = _mm256_mullo_epi16(sum2, sum2);
+
+    __m256i comparison1 = _mm256_cmpgt_epi16(sum1, _mm256_set1_epi16(b));
+    __m256i comparison2 = _mm256_cmpgt_epi16(sum2, _mm256_set1_epi16(b));
+    __m256i comparison = _mm256_or_si256(comparison1, comparison2);
+
+    auto larger = _mm256_movemask_epi8(comparison);
+
+    if (larger != 0) {
+        auto b1 = _mm256_movemask_epi8(comparison1);
+        auto b2 = _mm256_movemask_epi8(comparison2);
+#if defined _MSC_VER
+        unsigned int off1 = _tzcnt_u32(static_cast<unsigned int>(b1));
+        unsigned int off2 = 1 + _tzcnt_u32(static_cast<unsigned int>(b2));
+#else
+        unsigned int off1 = __builtin_ctz(static_cast<unsigned int>(b1));
+        unsigned int off2 = 1 + __builtin_ctz(static_cast<unsigned int>(b2));
+#endif
+        unsigned int off = minimum(off1, off2);
+        *match = i + off;
+        return true;
+    }
+    return false;
+}
+
+
+static uint32_t window(const char *src, size_t len, const char **pos) {
     size_t i = 0;
     size_t slide = minimum<size_t>(len / 2, 65536); // slide must be able to fit in hash_t.O. Todo, static assert
     size_t block = len - slide;
@@ -555,35 +594,8 @@ static uint32_t window(const char* src, size_t len, const char** pos) {
 #if 1
     if (use_avx) {
         for (i = 0; i + simdw < slide; i += simdw) {
-            __m256i src1 = _mm256_loadu_si256((__m256i *)(&src[i]));
-            __m256i src2 = _mm256_loadu_si256((__m256i *)(&src[i + block - 32 - 1]));
-            __m256i sum1 = _mm256_add_epi16(src1, src2);
-
-            __m256i src3 = _mm256_loadu_si256((__m256i *)(&src[i + 1]));
-            __m256i src4 = _mm256_loadu_si256((__m256i *)(&src[i + block - 32]));
-            __m256i sum2 = _mm256_add_epi16(src3, src4);
-
-            sum1 = _mm256_mullo_epi16(sum1, sum1);
-            sum2 = _mm256_mullo_epi16(sum2, sum2);
-
-            __m256i comparison1 = _mm256_cmpgt_epi16(sum1, _mm256_set1_epi16(b));
-            __m256i comparison2 = _mm256_cmpgt_epi16(sum2, _mm256_set1_epi16(b));
-            __m256i comparison = _mm256_or_si256(comparison1, comparison2);
-
-            auto larger = _mm256_movemask_epi8(comparison);
-
-            if (larger != 0) {
-                auto b1 = _mm256_movemask_epi8(comparison1);
-                auto b2 = _mm256_movemask_epi8(comparison2);
-#if defined _MSC_VER
-                unsigned int off1 = _tzcnt_u32(static_cast<unsigned int>(b1));
-                unsigned int off2 = 1 + _tzcnt_u32(static_cast<unsigned int>(b2));
-#else
-                unsigned int off1 = __builtin_ctz(static_cast<unsigned int>(b1));
-                unsigned int off2 = 1 + __builtin_ctz(static_cast<unsigned int>(b2));
-#endif
-                unsigned int off = minimum(off1, off2);
-                match = i + off;
+            bool b = avx2(src, i, block, b, &match);
+            if (b) {
                 break;
             }
         }
@@ -919,33 +931,26 @@ uint64_t flushed;
 uint64_t global_payload;
 uint64_t count_payload;
 
-bool dup_is_avx_supported() {
-    int cpuInfo[4] = {0};
-
-    // Step 1: Check if CPUID supports AVX (bit 28 of ECX after function 1)
+bool dup_is_avx2_supported() {
 #if defined(_MSC_VER)
-    __cpuid(cpuInfo, 1);
-#else
-    __cpuid(1, cpuInfo[0], cpuInfo[1], cpuInfo[2], cpuInfo[3]);
-#endif
-
-    bool osUsesXSAVE_XRSTORE = (cpuInfo[2] & (1 << 27)) != 0;
-    bool cpuAVXSupport = (cpuInfo[2] & (1 << 28)) != 0;
-
-    if (osUsesXSAVE_XRSTORE && cpuAVXSupport) {
-        // Step 2: Check if OS saves YMM registers via XGETBV
-#if defined(_MSC_VER)
-        unsigned long long xcrFeatureMask = _xgetbv(0); // XCR0
-#else
-        unsigned int eax, edx;
-        __asm__ volatile(".byte 0x0f, 0x01, 0xd0" : "=a"(eax), "=d"(edx) : "c"(0));
-        unsigned long long xcrFeatureMask = ((uint64_t)edx << 32) | eax;
-#endif
-        // Check if XMM (bit 1) and YMM (bit 2) state are enabled in XCR0
-        return (xcrFeatureMask & 0x6) == 0x6;
+    int cpuInfo[4];
+    __cpuid(cpuInfo, 0);
+    int nIds = cpuInfo[0];
+    if (nIds >= 7) {
+        __cpuidex(cpuInfo, 7, 0);
+        return (cpuInfo[1] & (1 << 5)) != 0; // AVX2 flag is EBX bit 5
     }
-
     return false;
+#else
+    unsigned int maxLevel;
+    unsigned int eax, ebx, ecx, edx;
+    __cpuid(0, maxLevel, ebx, ecx, edx);
+    if (maxLevel >= 7) {
+        __cpuid_count(7, 0, eax, ebx, ecx, edx);
+        return (ebx & (1 << 5)) != 0; // AVX2 flag
+    }
+    return false;
+#endif
 }
 
 static int get_free(void) {
@@ -1083,7 +1088,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
 	cerr << "\nHASH SIZE = " << sizeof(hash_t) << "\n";
 #endif
 
-    use_avx = dup_is_avx_supported();
+    use_avx = dup_is_avx2_supported();
     return 0;
 }
 
