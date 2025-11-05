@@ -833,25 +833,18 @@ bool is_symlink_consistent(const std::wstring &symlinkPath) {
 }
 #endif
 
-bool cpu_supports_avx2(void) {
-    unsigned int eax, ebx, ecx, edx;
 
+bool cpu_supports_avx2() {
 #if defined(_MSC_VER)
-    int cpuInfo[4];
-    __cpuid(cpuInfo, 0);
-    int nIds = cpuInfo[0];
-    if (nIds >= 7) {
-        __cpuidex(cpuInfo, 7, 0);
-        return (cpuInfo[1] & (1 << 5)) != 0; // AVX2 flag is EBX bit 5
-    }
-    return false;
+        int info[4];
+        __cpuid(info, 1);
+        __cpuidex(info, 7, 0);
+        int ebx = info[1];
+        return (ebx & (1 << 5)) != 0;
 #else
-    unsigned int maxLevel;
-    __cpuid(0, maxLevel, ebx, ecx, edx);
-    if (maxLevel >= 7) {
+        unsigned int eax, ebx, ecx, edx;
+        unsigned int dummy;
         __cpuid_count(7, 0, eax, ebx, ecx, edx);
-        return (ebx & (1 << 5)) != 0; // AVX2 flag
-    }
-    return false;
+        return (ebx & (1 << 5)) != 0;
 #endif
-}
+    }
