@@ -154,6 +154,7 @@ struct hash_t {
 struct hashblock_t {
     uint32_t hash[slots];
     hash_t entry[slots];
+    uint64_t count;
 };
 
 #pragma pack(pop)
@@ -224,7 +225,6 @@ size_t write_hashblock(hashblock_t* h, char* dst) {
     }
 
     for (t = 0; t < slots; t++) {
-
         ll2str(h->hash[t], dst, 4);
         if (h->hash[t] == 0) {
             dst += 4;
@@ -237,12 +237,19 @@ size_t write_hashblock(hashblock_t* h, char* dst) {
 
         dst += 14 + HASH_SIZE;
     }
+
+    ll2str(h->count, dst, sizeof(h->count));
+    dst += sizeof(h->count);
+    //std::wcerr << h->next;
+
+
     return dst - orig_dst;
 }
 
 size_t read_hashblock(hashblock_t* h, char* src) {
     char* orig_src = src;
     bool nulls = false;
+
     for (size_t t = 0; t < slots; t++) {
 
         if (!nulls) {
@@ -267,6 +274,10 @@ size_t read_hashblock(hashblock_t* h, char* src) {
             src += 10 + HASH_SIZE;
         }
     }
+
+    h->count = str2ll(src, sizeof(h->count));
+   // std::wcerr << h->next;
+    src += sizeof(h->count);
     return src - orig_src;
 }
 
@@ -295,7 +306,7 @@ hash_t* lookup(uint32_t hash, bool large) {
 
     for(uint64_t i = 0; i < slots; i++) {
         if (e.hash[i] == 0) {
-            return 0;
+            return 0; 
         }
         else if(e.hash[i] == hash && hash != 0) {
             return &e.entry[i];
@@ -310,17 +321,33 @@ bool add(hash_t value, uint32_t hash, bool large) {
     uint32_t row = hash % ((large ? large_entries : small_entries));
     hashblock_t& e = table[row];
 
-    for(uint64_t i = 0; i < slots; i++) {
-        if(e.hash[i] == hash) {
-            return dd_equal(e.entry[i].sha, value.sha, HASH_SIZE);
+    // todo: Now that we have count we no longer need 0 as magic unused value
+    if (hash == 0) {
+        return false;
+    }
+
+    // If exact same payload has already been seen, just exit
+    for (uint64_t i = 0; i < slots; i++) {
+        if (e.hash[i] == hash && dd_equal(e.entry[i].sha, value.sha, HASH_SIZE)) {
+            return false;
         }
-        if(e.hash[i] == 0 && hash != 0) {
+    }
+
+    // If payload exists in slightly modified form, overwrite old
+    for (uint64_t i = 0; i < slots; i++) {
+        if (e.hash[i] == 0 || e.hash[i] == hash) {
             e.hash[i] = hash;
             e.entry[i] = value;
+            e.count++;
             return true;
         }
     }
-    return false;
+
+    // New payload probably never seen
+    e.hash[e.count % slots] = hash;
+    e.entry[e.count % slots] = value;
+    e.count++;
+    return true;
 }
 
 
@@ -474,14 +501,14 @@ size_t equ(size_t start) {
 void fillratio(double* l, double* s) {
     int64_t full = 0;
     for (uint64_t i = 0; i < small_entries; i++) {
-        if (small_table[i].hash[slots - 1] != 0) {
+        if (small_table[i].count > slots) {
             full++;
         }
     }
     *s = (double)full / small_entries;
     full = 0;
     for (uint64_t i = 0; i < large_entries; i++) {
-        if (large_table[i].hash[slots - 1] != 0) {
+        if (large_table[i].count > slots) {
             full++;
         }
     }
@@ -541,6 +568,7 @@ int dup_decompress_hashtable(char* src) {
                     small_table[block].entry[i].slide = 0;
                     memset(&small_table[block].entry[i].sha, 0, HASH_SIZE);
                     small_table[block].hash[i] = 0;
+                    small_table[block].count = 0;
                 }
             }
             block++;
