@@ -1440,7 +1440,13 @@ void create_symlink(STRING path, contents_t c) {
 
 void ensure_relative(const STRING &path) {
     STRING s = STRING(L("Archive contains absolute paths. Add a [files] argument. ")) + STRING(diff_flag ? STRING() : STRING());
-    abort((path.size() >= 2 && path.substr(0, 2) == L("\\\\")) || path.find_last_of(L(":")) != string::npos, s.c_str());
+    // TODO: Not the best method
+#ifdef _WIN32
+    bool b = (path.size() >= 2 && path.substr(0, 2) == L("\\\\")) || path.find_last_of(L(":")) != string::npos;
+#else
+    bool b = (path.size() >= 2 && path.substr(0, 2) == L("\\\\"));
+#endif
+    abort(b, s.c_str());
 }
 
 // todo, namespace is a temporary fix to separate things
