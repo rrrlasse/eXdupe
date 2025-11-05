@@ -832,26 +832,3 @@ bool is_symlink_consistent(const std::wstring &symlinkPath) {
     return linkSaysDirectory == targetIsDirectory;
 }
 #endif
-
-bool cpu_supports_avx2(void) {
-    unsigned int eax, ebx, ecx, edx;
-
-#if defined(_MSC_VER)
-    int cpuInfo[4];
-    __cpuid(cpuInfo, 0);
-    int nIds = cpuInfo[0];
-    if (nIds >= 7) {
-        __cpuidex(cpuInfo, 7, 0);
-        return (cpuInfo[1] & (1 << 5)) != 0; // AVX2 flag is EBX bit 5
-    }
-    return false;
-#else
-    unsigned int maxLevel;
-    __cpuid(0, maxLevel, ebx, ecx, edx);
-    if (maxLevel >= 7) {
-        __cpuid_count(7, 0, eax, ebx, ecx, edx);
-        return (ebx & (1 << 5)) != 0; // AVX2 flag
-    }
-    return false;
-#endif
-}

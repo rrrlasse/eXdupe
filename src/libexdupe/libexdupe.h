@@ -44,7 +44,7 @@ uint64_t dup_counter_compressed(void);
 size_t dup_compress_hashtable(char*);
 int dup_decompress_hashtable(char* src);
 void dup_deinit(void);
-bool dup_is_avx_supported();
+bool dup_is_avx2_supported();
 
 void fillratio(double* l, double* s);
 
