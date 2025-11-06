@@ -11,6 +11,7 @@
 #include <vector>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 #ifdef _WIN32
 #include <Windows.h>

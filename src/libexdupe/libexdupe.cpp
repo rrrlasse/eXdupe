@@ -594,8 +594,8 @@ static uint32_t window(const char *src, size_t len, const char **pos) {
 #if 1
     if (use_avx) {
         for (i = 0; i + simdw < slide; i += simdw) {
-            bool b = avx2(src, i, block, b, &match);
-            if (b) {
+            bool br = avx2(src, i, block, b, &match);
+            if (br) {
                 break;
             }
         }

@@ -15,6 +15,7 @@
 #include <assert.h>
 #include <tuple>
 #include <regex>
+#include <sstream>
 
 #include "unicode.h"
 #include "utilities.hpp"
@@ -26,7 +27,6 @@
 #ifdef _WIN32
 #include "Shlwapi.h"
 #else
-#include <cpuid.h>
 uint64_t GetTickCount64() {
     struct timeval tv;
     gettimeofday(&tv, NULL);

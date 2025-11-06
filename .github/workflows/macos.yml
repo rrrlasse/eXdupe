@@ -1,11 +1,14 @@
 name: macOS Build & Debug
 
 on:
-  workflow_dispatch:  # manually trigger workflow from any branch
+  workflow_dispatch:           # Allows manual run from any branch
+  push:
+    branches:
+      - act                  # Optional: also triggers automatically on push to act
 
 jobs:
   build-and-debug:
-    runs-on: macos-latest
+    runs-on: macos-13
 
     steps:
       - name: Checkout repository
@@ -18,10 +21,9 @@ jobs:
 
       - name: Configure project
         run: cmake -S src -B build -DCMAKE_BUILD_TYPE=Release
-
+      
       - name: Build project
         run: cmake --build build --config Release -j$(sysctl -n hw.logicalcpu)
-
-      # Interactive terminal step
-      - name: Start tmate session
+        
+      - name: Start interactive terminal
         uses: mxschmitt/action-tmate@v3
