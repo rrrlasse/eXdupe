@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-and-debug:
-    runs-on: macos-latest
+    runs-on: macos-12
 
     steps:
       - name: Checkout repository
