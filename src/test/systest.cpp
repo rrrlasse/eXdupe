@@ -5,13 +5,19 @@
 #include <thread>
 #include <array>
 #include <iostream>
-#include <format>
 #include <map>
 #include <regex>
 #include <vector>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+
+#define FMT_HEADER_ONLY
+#define FMT_UNICODE 0
+#include "../fmt/core.h"
+#include "../fmt/format.h"
+using namespace fmt;
+
 
 #ifdef _WIN32
 #include <Windows.h>

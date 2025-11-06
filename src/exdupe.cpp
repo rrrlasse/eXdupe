@@ -49,6 +49,12 @@
 #include <atomic>
 #include <mutex>
 
+#define FMT_HEADER_ONLY
+#define FMT_UNICODE 0
+#include "fmt/core.h"
+#include "fmt/format.h"
+using namespace fmt;
+
 #include "libexdupe/xxHash/xxh3.h"
 #include "libexdupe/xxHash/xxhash.h"
 
@@ -147,7 +153,6 @@ using std::string;
 using std::wstring;
 using std::vector;
 using std::pair;
-using std::format;
 
 // command line flags
 uint64_t memory_usage = 2 * G;
