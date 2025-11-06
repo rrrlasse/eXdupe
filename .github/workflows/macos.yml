@@ -1,0 +1,27 @@
+name: macOS Build & Debug
+
+on:
+  workflow_dispatch:  # manually trigger workflow from any branch
+
+jobs:
+  build-and-debug:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: latest
+
+      - name: Configure project
+        run: cmake -S src -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build project
+        run: cmake --build build --config Release -j$(sysctl -n hw.logicalcpu)
+
+      # Interactive terminal step
+      - name: Start tmate session
+        uses: mxschmitt/action-tmate@v3
