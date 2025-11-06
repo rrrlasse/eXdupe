@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-and-debug:
-    runs-on: macos-13
+    runs-on: macos-latest
 
     steps:
       - name: Checkout repository
@@ -20,7 +20,7 @@ jobs:
           cmake-version: latest
 
       - name: Configure project
-        run: cmake -S src -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_SYSROOT=$(xcrun --show-sdk-path) -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+        run: cmake -S src -B build -DCMAKE_BUILD_TYPE=Release
       
       - name: Build project
         run: cmake --build build --config Release -j$(sysctl -n hw.logicalcpu)
