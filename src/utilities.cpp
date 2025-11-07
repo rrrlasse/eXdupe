@@ -24,6 +24,7 @@
 #ifdef _WIN32
 #include "Shlwapi.h"
 #else
+#include <cpuid.h>
 uint64_t GetTickCount64() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -547,6 +548,11 @@ bool ISSOCK(int attributes) {
 
 int get_attributes(STRING path, bool follow) {
 #ifdef _WIN32
+    if (PathIsRootW(path.c_str())) {
+        // GetFileAttributesW() would return +H +S attr which restore would then apply to dst dir
+        return 0x10; // DIR
+    }
+
     if (path.size() > 250) {
         path = std::wstring(L"\\\\?\\") + path;
     }

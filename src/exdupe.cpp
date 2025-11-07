@@ -7,7 +7,7 @@
 
 #define VER_MAJOR 4
 #define VER_MINOR 0
-#define VER_REVISION 0
+#define VER_REVISION 1
 #define VER_DEV 4
 
 #define Q(x) #x
@@ -1054,6 +1054,8 @@ void print_build_info() {
 #else
     b += L("debug mode");
 #endif
+    b += STRING(L(", avx2 detected: ")) + STRING(dup_is_avx2_supported() ? L("yes") : L("no"));
+
     statusbar.print(0, b.c_str());
 }
 
@@ -1394,12 +1396,11 @@ Flags:
     -a Store absolute and complete paths (default is to identify and remove
        any common parent path of the items passed on the command line).
 -s"x:" Use Volume Shadow Copy Service for local drive x: (Windows only)
- -u"s" Filter files using a script, s, written in the Lua language. See more
-       with -u? flag.
+ -u"s" Filter away files or directories with a Lua script. See more with -u?
   -v#  Verbosity # (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
    -k  Show deduplication statistics at the end
  -e"x" Don't apply compression or deduplication to files with the file extension
-       x. See more with -e? flag.
+       x. See more with -e?
 
 Example of backup, incremental backups and restore:
   exdupe my_dir backup.exd
@@ -1486,25 +1487,29 @@ You can reference following variables:
   time:   Last modified time as os.date object. You can also reference these
           integer variables: year, month, day, hour, min, sec
 
-Helper functions:
+Extra helper functions:
   contains({list}, value): Test if the list contains the value
 
 All Lua string functions work in utf-8. If path, name or ext are not valid
 utf-8 it will be converted by replacing all bytes outside basic ASCII (a-z, A-Z,
-0-9 and common symbols) by '?' and then passed to your script.
+0-9 and common symbols) by '?' before being passed to your script.
 
 String and path comparing is case sensitive, but string.upper() and string.
 lower() will only change basic ASCII letters. Any other letters remain
 unchanged.
 
-Remember to return true for directories in order to traverse them.
+Remember to return true for directories to traverse them.
 
-Examples:
+Simple examples:
   -v0 -u"print('added ' .. path .. ': ' .. size); return true"
   -u"return year >= 2024 or is_dir"
   -u"return size < 1000000 or is_dir"
-  -u"return not contains({'tmp', 'temp'}, lower(ext))")del";
+  -u"return not contains({'tmp', 'temp'}, lower(ext))"
+  -u"return (is_dir and not (name == '.git')) or (not is_dir)"
 
+Example of skipping directories that begin with http+++ or https+++:
+  -u"return (is_dir and name:find('^https?%%+%%+%%+') == nil) or (not is_dir)")del";
+    // todo, get rid of print(const CHR *fmt)
     statusbar.print(0, tostring(lua_help).c_str());
 }
 
@@ -1635,7 +1640,13 @@ void create_symlink(STRING path, contents_t c) {
 
 void ensure_relative(const STRING &path) {
     STRING s = STRING(L("Archive contains absolute paths. Add a [files] argument. ")) + STRING(diff_flag ? STRING() : STRING());
-    abort((path.size() >= 2 && path.substr(0, 2) == L("\\\\")) || path.find_last_of(L(":")) != string::npos, s.c_str());
+    // TODO: Not the best method
+#ifdef _WIN32
+    bool b = (path.size() >= 2 && path.substr(0, 2) == L("\\\\")) || path.find_last_of(L(":")) != string::npos;
+#else
+    bool b = (path.size() >= 2 && path.substr(0, 2) == L("\\\\"));
+#endif
+    abort(b, s.c_str());
 }
 
 // todo, namespace is a temporary fix to separate things
@@ -2385,7 +2396,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // First process files
     std::atomic<size_t> ctr = 0;
-    const int max_threads = 6;
+    const int max_threads = 1;
     std::thread threads[max_threads];
     std::atomic<bool> abort = false;
 
@@ -2569,7 +2580,6 @@ void create_shadows(void) { }
 void remove_shadows(void) { }
 #endif
 
-
 void main_compress() {
     uint64_t lastgood = 0;
     scope_actions([]() { create_shadows(); }, []() { remove_shadows(); });
@@ -2750,7 +2760,7 @@ int main(int argc2, char *argv2[])
 #ifdef _WIN32
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
-    _setmode(_fileno(stderr), _O_U16TEXT);
+    _setmode(_fileno(stderr), _O_U8TEXT);
 #endif
 
     tidy_args(argc2, argv2);

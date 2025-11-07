@@ -23,6 +23,7 @@
 #else
 #include <pthread.h>
 #include <unistd.h>
+#include <cpuid.h>
 #endif
 
 #include <condition_variable>
@@ -196,6 +197,7 @@ char* memory_end;
 
 size_t memsize;
 
+std::atomic<bool> use_avx = false;
 
 // statistics
 std::atomic<uint64_t> largehits;
@@ -561,47 +563,99 @@ static uint32_t quick(const char* src, size_t len) {
     return static_cast<uint32_t>(res);
 }
 
-static uint32_t window(const char* src, size_t len, const char** pos) {
+#ifndef _WIN32
+__attribute__((target("avx2")))
+#endif
+bool avx2(const char *src, size_t i, size_t block, int16_t b, size_t* match) {
+    __m256i src1 = _mm256_loadu_si256((__m256i *)(&src[i]));
+    __m256i src2 = _mm256_loadu_si256((__m256i *)(&src[i + block - 32 - 1]));
+    __m256i sum1 = _mm256_add_epi16(src1, src2);
+
+    __m256i src3 = _mm256_loadu_si256((__m256i *)(&src[i + 1]));
+    __m256i src4 = _mm256_loadu_si256((__m256i *)(&src[i + block - 32]));
+    __m256i sum2 = _mm256_add_epi16(src3, src4);
+
+    sum1 = _mm256_mullo_epi16(sum1, sum1);
+    sum2 = _mm256_mullo_epi16(sum2, sum2);
+
+    __m256i comparison1 = _mm256_cmpgt_epi16(sum1, _mm256_set1_epi16(b));
+    __m256i comparison2 = _mm256_cmpgt_epi16(sum2, _mm256_set1_epi16(b));
+    __m256i comparison = _mm256_or_si256(comparison1, comparison2);
+
+    auto larger = _mm256_movemask_epi8(comparison);
+
+    if (larger != 0) {
+        auto b1 = _mm256_movemask_epi8(comparison1);
+        auto b2 = _mm256_movemask_epi8(comparison2);
+#if defined _MSC_VER
+        unsigned int off1 = _tzcnt_u32(static_cast<unsigned int>(b1));
+        unsigned int off2 = 1 + _tzcnt_u32(static_cast<unsigned int>(b2));
+#else
+        unsigned int off1 = __builtin_ctz(static_cast<unsigned int>(b1));
+        unsigned int off2 = 1 + __builtin_ctz(static_cast<unsigned int>(b2));
+#endif
+        unsigned int off = minimum(off1, off2);
+        *match = i + off;
+        return true;
+    }
+    return false;
+}
+
+
+static uint32_t window(const char *src, size_t len, const char **pos) {
     size_t i = 0;
     size_t slide = minimum<size_t>(len / 2, 65536); // slide must be able to fit in hash_t.O. Todo, static assert
     size_t block = len - slide;
     int16_t b = len >= LARGE_BLOCK ? 32767 - 32 : 32767 - 256;
     size_t none = static_cast<size_t>(-1);
     size_t match = none;
+    int simdw = use_avx ? sizeof(__m256i) : sizeof(__m128i);
 
-    for (i = 0; i + 32 < slide; i += 32) {
-        __m256i src1 = _mm256_loadu_si256((__m256i*)(&src[i]));
-        __m256i src2 = _mm256_loadu_si256((__m256i*)(&src[i + block - 32 - 1]));
-        __m256i sum1 = _mm256_add_epi16(src1, src2);
+#if 1
+    if (use_avx) {
+        for (i = 0; i + simdw < slide; i += simdw) {
+            bool br = avx2(src, i, block, b, &match);
+            if (br) {
+                break;
+            }
+        }
+    } else {
+        for (i = 0; i + simdw < slide; i += simdw) {
+            __m128i src1 = _mm_loadu_si128((__m128i *)(&src[i]));
+            __m128i src2 = _mm_loadu_si128((__m128i *)(&src[i + block - 32 - 1]));
+            __m128i sum1 = _mm_add_epi16(src1, src2);
 
-        __m256i src3 = _mm256_loadu_si256((__m256i*)(&src[i + 1]));
-        __m256i src4 = _mm256_loadu_si256((__m256i*)(&src[i + block - 32]));
-        __m256i sum2 = _mm256_add_epi16(src3, src4);
+            __m128i src3 = _mm_loadu_si128((__m128i *)(&src[i + 1]));
+            __m128i src4 = _mm_loadu_si128((__m128i *)(&src[i + block - 32]));
+            __m128i sum2 = _mm_add_epi16(src3, src4);
 
-        sum1 = _mm256_mullo_epi16(sum1, sum1);
-        sum2 = _mm256_mullo_epi16(sum2, sum2);
+            sum1 = _mm_mullo_epi16(sum1, sum1);
+            sum2 = _mm_mullo_epi16(sum2, sum2);
 
-        __m256i comparison1 = _mm256_cmpgt_epi16(sum1, _mm256_set1_epi16(b));
-        __m256i comparison2 = _mm256_cmpgt_epi16(sum2, _mm256_set1_epi16(b));
-        __m256i comparison = _mm256_or_si256(comparison1, comparison2);
+            __m128i comparison1 = _mm_cmpgt_epi16(sum1, _mm_set1_epi16(b));
+            __m128i comparison2 = _mm_cmpgt_epi16(sum2, _mm_set1_epi16(b));
+            __m128i comparison = _mm_or_si128(comparison1, comparison2);
 
-        auto larger = _mm256_movemask_epi8(comparison);
+            int larger = _mm_movemask_epi8(comparison);
 
-        if (larger != 0) {
-            auto b1 = _mm256_movemask_epi8(comparison1); 
-            auto b2 = _mm256_movemask_epi8(comparison2);
+            if (larger != 0) {
+                auto b1 = _mm_movemask_epi8(comparison1);
+                auto b2 = _mm_movemask_epi8(comparison2);
 #if defined _MSC_VER
-            unsigned int off1 = _tzcnt_u32(static_cast<unsigned int>(b1));
-            unsigned int off2 = 1 + _tzcnt_u32(static_cast<unsigned int>(b2));
+                unsigned int off1 = _tzcnt_u32(static_cast<unsigned int>(b1));
+                unsigned int off2 = 1 + _tzcnt_u32(static_cast<unsigned int>(b2));
 #else
-            unsigned int off1 = __builtin_ctz(static_cast<unsigned int>(b1));
-            unsigned int off2 = 1 + __builtin_ctz(static_cast<unsigned int>(b2));
+                unsigned int off1 = __builtin_ctz(static_cast<unsigned int>(b1));
+                unsigned int off2 = 1 + __builtin_ctz(static_cast<unsigned int>(b2));
 #endif
-            unsigned int off = minimum(off1, off2);
-            match = i + off;
-            break;
+                unsigned int off = minimum(off1, off2);
+                match = i + off;
+                break;
+            }
         }
     }
+#endif
+
 
     if (match == none) {
         for (; i < slide; i += 1) {
@@ -882,6 +936,28 @@ uint64_t flushed;
 uint64_t global_payload;
 uint64_t count_payload;
 
+bool dup_is_avx2_supported() {
+#if defined(_MSC_VER)
+    int cpuInfo[4];
+    __cpuid(cpuInfo, 0);
+    int nIds = cpuInfo[0];
+    if (nIds >= 7) {
+        __cpuidex(cpuInfo, 7, 0);
+        return (cpuInfo[1] & (1 << 5)) != 0; // AVX2 flag is EBX bit 5
+    }
+    return false;
+#else
+    unsigned int maxLevel;
+    unsigned int eax, ebx, ecx, edx;
+    __cpuid(0, maxLevel, ebx, ecx, edx);
+    if (maxLevel >= 7) {
+        __cpuid_count(7, 0, eax, ebx, ecx, edx);
+        return (ebx & (1 << 5)) != 0; // AVX2 flag
+    }
+    return false;
+#endif
+}
+
 static int get_free(void) {
     int i;
     for (i = 0; i < threads; i++) {
@@ -1031,6 +1107,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
 	cerr << "\nHASH SIZE = " << sizeof(hash_t) << "\n";
 #endif
 
+    use_avx = dup_is_avx2_supported();
     return 0;
 }
 

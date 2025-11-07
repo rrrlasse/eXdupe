@@ -1,3 +1,14 @@
+if(MSVC)
+    # Force static CRT via flags
+    set(CMAKE_C_FLAGS_RELEASE   "${CMAKE_C_FLAGS_RELEASE} /MT")
+    set(CMAKE_C_FLAGS_DEBUG     "${CMAKE_C_FLAGS_DEBUG} /MTd")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
+    set(CMAKE_CXX_FLAGS_DEBUG   "${CMAKE_CXX_FLAGS_DEBUG} /MTd")
+endif()
+
+# Force Lua static
+set(LUA_ENABLE_SHARED OFF CACHE BOOL "Build static Lua" FORCE)
+
 set(LUA_LIB_SRCS 
     "src/lapi.c"
     "src/lcode.c"
