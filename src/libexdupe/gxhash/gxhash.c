@@ -250,6 +250,10 @@ void gxhash_init(gxhash_state *s, uint32_t hash_seed) {
 }
 
 void gxhash_stream(const uint8_t* input, size_t len, gxhash_state* state) {
+    if (len == 0) {
+        return;
+    }
+
     const int VECTOR_SIZE = sizeof(gxhash_register);
     const gxhash_register* v = (const gxhash_register*)input;
     const gxhash_register* end_address;

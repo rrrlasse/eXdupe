@@ -1946,6 +1946,10 @@ void restore_from_stdin(const STRING& extract_dir) {
         }
 
         else if (w == 'X') {
+            if (file_queue.size() > 0 && curfile_written > 0) {
+                // archive was created from -stdin with non-zero sized input
+                abort(file_queue.at(0).hash != decompress_checksum.result(), retvals::err_other, format(L("File checksum error {}"), file_queue.at(0).extra));
+            }
             break;
         }
         else {
@@ -2232,19 +2236,20 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
         abort(io.stdin_tty() && r != read, (L("Unexpected midway read error, cannot continue: ") + input_file).c_str());
         checksum(payload_queue[current_queue].data() + payload_queue_size[current_queue], r, &file_meta_ct);
 
-        if (overflows && input_file == L("-stdin") && r == 0) {
-            break;
-        }
-
         payload_queue_size[current_queue] += r;
         file_read += r;
         payload_read += r;
 
-        if (file_read == file_size && file_size > 0) {
+        if ((overflows && input_file == L("-stdin") && r == 0) || (file_read == file_size && file_size > 0)) {
             // No CRC block for 0-sized files
-            io.write("C", 1, ofile);
-            file_meta.hash = file_meta_ct.result();
-            io.write(file_meta_ct.result().data(), sizeof(file_meta.hash), ofile);
+            if (file_read > 0) {
+                io.write("C", 1, ofile);
+                file_meta.hash = file_meta_ct.result();
+                io.write(file_meta_ct.result().data(), sizeof(file_meta.hash), ofile);
+            }
+            if ((overflows && input_file == L("-stdin") && r == 0)) {
+                break;
+            }
         }
 
         if (overflows && file_read >= file_size) {
