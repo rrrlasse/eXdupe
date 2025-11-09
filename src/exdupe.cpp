@@ -658,7 +658,7 @@ vector<packet_t> get_packets(FILE* f, uint64_t base_payload, std::vector<char>& 
 }
 
 
-bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {    
+bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
     size_t bytes_resolved = 0;
     while (bytes_resolved < size) {
         uint64_t rr = find_chunk(payload + bytes_resolved);
@@ -678,8 +678,9 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
 
         uint64_t prior = payload + bytes_resolved - chunk.payload;
         size_t needed = size - bytes_resolved;
-        size_t ref_has = chunk.payload_length - prior >= needed ? needed : chunk.payload_length - prior;        
-        auto payl = std::make_unique_for_overwrite<char[]>(chunk.payload_length);
+        size_t ref_has = chunk.payload_length - prior >= needed ? needed : chunk.payload_length - prior;
+
+        auto payl = std::make_unique_for_overwrite<char[]>(size + prior);
         size_t local_resolved = 0;
 
         for (auto p : packets) {
@@ -688,12 +689,15 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
                 continue;
             }
 
+            size_t need = size + prior - local_resolved;
+            need = need > p.payload_length ? p.payload_length : need;
+
             if (p.is_reference) {
-                resolve(p.payload_reference.value(), p.payload_length, payl.get() + local_resolved, ifile);
+                resolve(p.payload_reference.value(), need, payl.get() + local_resolved, ifile);
             } else {
-                memcpy(payl.get() + local_resolved, p.literals, p.payload_length);
+                memcpy(payl.get() + local_resolved, p.literals, need);
             }
-            local_resolved += p.payload_length;
+            local_resolved += need;
             if (local_resolved >= size + prior) {
                 break;
             }
