@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.6)
 
+if(MSVC)
+    # Force static CRT via flags
+    set(CMAKE_C_FLAGS_RELEASE   "${CMAKE_C_FLAGS_RELEASE} /MT")
+    set(CMAKE_C_FLAGS_DEBUG     "${CMAKE_C_FLAGS_DEBUG} /MTd")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
+    set(CMAKE_CXX_FLAGS_DEBUG   "${CMAKE_CXX_FLAGS_DEBUG} /MTd")
+endif()
+
 project (libexdupe)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -16,7 +24,7 @@ if (MSVC)
 	include_directories(pthread)
 	add_subdirectory(pthread)
 else()
-	target_compile_options(libexdupe PRIVATE -mavx2)
+	target_compile_options(libexdupe PRIVATE -mno-avx2)
 	set(flags_to_apply "-maes" "-msse2" "-pedantic" "-Wextra" "-Wall" "-Wno-gnu-zero-variadic-macro-arguments")
 endif(MSVC)
 

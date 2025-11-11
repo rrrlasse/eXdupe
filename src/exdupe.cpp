@@ -7,7 +7,7 @@
 
 #define VER_MAJOR 4
 #define VER_MINOR 0
-#define VER_REVISION 0
+#define VER_REVISION 1
 #define VER_DEV 4
 
 #define Q(x) #x
@@ -658,7 +658,7 @@ vector<packet_t> get_packets(FILE* f, uint64_t base_payload, std::vector<char>& 
 }
 
 
-bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {    
+bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
     size_t bytes_resolved = 0;
     while (bytes_resolved < size) {
         uint64_t rr = find_chunk(payload + bytes_resolved);
@@ -676,31 +676,32 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
             chunk_cache.add(rr, chunk_buffer);
         }
 
-        uint64_t prior = payload + bytes_resolved - chunk.payload;
-        size_t needed = size - bytes_resolved;
-        size_t ref_has = chunk.payload_length - prior >= needed ? needed : chunk.payload_length - prior;        
-        auto payl = std::make_unique_for_overwrite<char[]>(chunk.payload_length);
-        size_t local_resolved = 0;
+        size_t packet_payload_start = chunk.payload;
 
         for (auto p : packets) {
-            if (local_resolved + p.payload_length + chunk.payload < payload + bytes_resolved) {
-                local_resolved += p.payload_length;
+            if (packet_payload_start + p.payload_length < payload + bytes_resolved) {
+                packet_payload_start += p.payload_length;
                 continue;
             }
 
+            size_t missing = size - bytes_resolved;
+            size_t prior = payload + bytes_resolved - packet_payload_start;
+            size_t get = p.payload_length - prior;
+            get = get < missing ? get : missing;
+
             if (p.is_reference) {
-                resolve(p.payload_reference.value(), p.payload_length, payl.get() + local_resolved, ifile);
+                resolve(p.payload_reference.value() + prior, get, dst + bytes_resolved, ifile);
             } else {
-                memcpy(payl.get() + local_resolved, p.literals, p.payload_length);
+                memcpy(dst + bytes_resolved, p.literals + prior, get);
             }
-            local_resolved += p.payload_length;
-            if (local_resolved >= size + prior) {
+
+            bytes_resolved += get;
+            packet_payload_start += p.payload_length;
+
+            if (bytes_resolved >= size || packet_payload_start > payload + bytes_resolved) {
                 break;
             }
         }
-        size_t c = minimum(size - bytes_resolved, ref_has);
-        memcpy(dst + bytes_resolved, payl.get() + prior, c);
-        bytes_resolved += c;
     }
     return false;
 }
@@ -1054,6 +1055,8 @@ void print_build_info() {
 #else
     b += L("debug mode");
 #endif
+    b += STRING(L(", avx2 detected: ")) + STRING(dup_is_avx2_supported() ? L("yes") : L("no"));
+
     statusbar.print(0, b.c_str());
 }
 
@@ -1394,12 +1397,11 @@ Flags:
     -a Store absolute and complete paths (default is to identify and remove
        any common parent path of the items passed on the command line).
 -s"x:" Use Volume Shadow Copy Service for local drive x: (Windows only)
- -u"s" Filter files using a script, s, written in the Lua language. See more
-       with -u? flag.
+ -u"s" Filter away files or directories with a Lua script. See more with -u?
   -v#  Verbosity # (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
    -k  Show deduplication statistics at the end
  -e"x" Don't apply compression or deduplication to files with the file extension
-       x. See more with -e? flag.
+       x. See more with -e?
 
 Example of backup, incremental backups and restore:
   exdupe my_dir backup.exd
@@ -1486,25 +1488,29 @@ You can reference following variables:
   time:   Last modified time as os.date object. You can also reference these
           integer variables: year, month, day, hour, min, sec
 
-Helper functions:
+Extra helper functions:
   contains({list}, value): Test if the list contains the value
 
 All Lua string functions work in utf-8. If path, name or ext are not valid
 utf-8 it will be converted by replacing all bytes outside basic ASCII (a-z, A-Z,
-0-9 and common symbols) by '?' and then passed to your script.
+0-9 and common symbols) by '?' before being passed to your script.
 
 String and path comparing is case sensitive, but string.upper() and string.
 lower() will only change basic ASCII letters. Any other letters remain
 unchanged.
 
-Remember to return true for directories in order to traverse them.
+Remember to return true for directories to traverse them.
 
-Examples:
+Simple examples:
   -v0 -u"print('added ' .. path .. ': ' .. size); return true"
   -u"return year >= 2024 or is_dir"
   -u"return size < 1000000 or is_dir"
-  -u"return not contains({'tmp', 'temp'}, lower(ext))")del";
+  -u"return not contains({'tmp', 'temp'}, lower(ext))"
+  -u"return (is_dir and not (name == '.git')) or (not is_dir)"
 
+Example of skipping directories that begin with http+++ or https+++:
+  -u"return (is_dir and name:find('^https?%%+%%+%%+') == nil) or (not is_dir)")del";
+    // todo, get rid of print(const CHR *fmt)
     statusbar.print(0, tostring(lua_help).c_str());
 }
 
@@ -1635,7 +1641,13 @@ void create_symlink(STRING path, contents_t c) {
 
 void ensure_relative(const STRING &path) {
     STRING s = STRING(L("Archive contains absolute paths. Add a [files] argument. ")) + STRING(diff_flag ? STRING() : STRING());
-    abort((path.size() >= 2 && path.substr(0, 2) == L("\\\\")) || path.find_last_of(L(":")) != string::npos, s.c_str());
+    // TODO: Not the best method
+#ifdef _WIN32
+    bool b = (path.size() >= 2 && path.substr(0, 2) == L("\\\\")) || path.find_last_of(L(":")) != string::npos;
+#else
+    bool b = (path.size() >= 2 && path.substr(0, 2) == L("\\\\"));
+#endif
+    abort(b, s.c_str());
 }
 
 // todo, namespace is a temporary fix to separate things
@@ -1935,6 +1947,10 @@ void restore_from_stdin(const STRING& extract_dir) {
         }
 
         else if (w == 'X') {
+            if (file_queue.size() > 0 && curfile_written > 0) {
+                // archive was created from -stdin with non-zero sized input
+                abort(file_queue.at(0).hash != decompress_checksum.result(), retvals::err_other, format(L("File checksum error {}"), file_queue.at(0).extra));
+            }
             break;
         }
         else {
@@ -2221,19 +2237,20 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
         abort(io.stdin_tty() && r != read, (L("Unexpected midway read error, cannot continue: ") + input_file).c_str());
         checksum(payload_queue[current_queue].data() + payload_queue_size[current_queue], r, &file_meta_ct);
 
-        if (overflows && input_file == L("-stdin") && r == 0) {
-            break;
-        }
-
         payload_queue_size[current_queue] += r;
         file_read += r;
         payload_read += r;
 
-        if (file_read == file_size && file_size > 0) {
+        if ((overflows && input_file == L("-stdin") && r == 0) || (file_read == file_size && file_size > 0)) {
             // No CRC block for 0-sized files
-            io.write("C", 1, ofile);
-            file_meta.hash = file_meta_ct.result();
-            io.write(file_meta_ct.result().data(), sizeof(file_meta.hash), ofile);
+            if (file_read > 0) {
+                io.write("C", 1, ofile);
+                file_meta.hash = file_meta_ct.result();
+                io.write(file_meta_ct.result().data(), sizeof(file_meta.hash), ofile);
+            }
+            if ((overflows && input_file == L("-stdin") && r == 0)) {
+                break;
+            }
         }
 
         if (overflows && file_read >= file_size) {
@@ -2385,7 +2402,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // First process files
     std::atomic<size_t> ctr = 0;
-    const int max_threads = 6;
+    const int max_threads = 1;
     std::thread threads[max_threads];
     std::atomic<bool> abort = false;
 
@@ -2569,7 +2586,6 @@ void create_shadows(void) { }
 void remove_shadows(void) { }
 #endif
 
-
 void main_compress() {
     uint64_t lastgood = 0;
     scope_actions([]() { create_shadows(); }, []() { remove_shadows(); });
@@ -2750,7 +2766,7 @@ int main(int argc2, char *argv2[])
 #ifdef _WIN32
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
-    _setmode(_fileno(stderr), _O_U16TEXT);
+    _setmode(_fileno(stderr), _O_U8TEXT);
 #endif
 
     tidy_args(argc2, argv2);
