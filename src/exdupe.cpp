@@ -676,35 +676,32 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
             chunk_cache.add(rr, chunk_buffer);
         }
 
-        uint64_t prior = payload + bytes_resolved - chunk.payload;
-        size_t needed = size - bytes_resolved;
-        size_t ref_has = chunk.payload_length - prior >= needed ? needed : chunk.payload_length - prior;
-
-        auto payl = std::make_unique_for_overwrite<char[]>(size + prior);
-        size_t local_resolved = 0;
+        size_t packet_payload_start = chunk.payload;
 
         for (auto p : packets) {
-            if (local_resolved + p.payload_length + chunk.payload < payload + bytes_resolved) {
-                local_resolved += p.payload_length;
+            if (packet_payload_start + p.payload_length < payload + bytes_resolved) {
+                packet_payload_start += p.payload_length;
                 continue;
             }
 
-            size_t need = size + prior - local_resolved;
-            need = need > p.payload_length ? p.payload_length : need;
+            size_t missing = size - bytes_resolved;
+            size_t prior = payload + bytes_resolved - packet_payload_start;
+            size_t get = p.payload_length - prior;
+            get = get < missing ? get : missing;
 
             if (p.is_reference) {
-                resolve(p.payload_reference.value(), need, payl.get() + local_resolved, ifile);
+                resolve(p.payload_reference.value() + prior, get, dst + bytes_resolved, ifile);
             } else {
-                memcpy(payl.get() + local_resolved, p.literals, need);
+                memcpy(dst + bytes_resolved, p.literals + prior, get);
             }
-            local_resolved += need;
-            if (local_resolved >= size + prior) {
+
+            bytes_resolved += get;
+            packet_payload_start += p.payload_length;
+
+            if (bytes_resolved >= size || packet_payload_start > payload + bytes_resolved) {
                 break;
             }
         }
-        size_t c = minimum(size - bytes_resolved, ref_has);
-        memcpy(dst + bytes_resolved, payl.get() + prior, c);
-        bytes_resolved += c;
     }
     return false;
 }
