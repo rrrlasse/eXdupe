@@ -321,16 +321,19 @@ bool add(hash_t value, uint32_t hash, bool large) {
     uint32_t row = hash % ((large ? large_entries : small_entries));
     hashblock_t& e = table[row];
 
+    // todo: Now that we have count we no longer need 0 as magic unused value
     if (hash == 0) {
         return false;
     }
 
+    // If exact same payload has already been seen, just exit
     for (uint64_t i = 0; i < slots; i++) {
         if (e.hash[i] == hash && dd_equal(e.entry[i].sha, value.sha, HASH_SIZE)) {
             return false;
         }
     }
 
+    // If payload exists in slightly modified form, overwrite old
     for (uint64_t i = 0; i < slots; i++) {
         if (e.hash[i] == 0 || e.hash[i] == hash) {
             e.hash[i] = hash;
@@ -340,6 +343,7 @@ bool add(hash_t value, uint32_t hash, bool large) {
         }
     }
 
+    // New payload probably never seen
     e.hash[e.count % slots] = hash;
     e.entry[e.count % slots] = value;
     e.count++;
