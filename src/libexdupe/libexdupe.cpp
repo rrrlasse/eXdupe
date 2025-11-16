@@ -321,11 +321,18 @@ bool add(hash_t value, uint32_t hash, bool large) {
     uint32_t row = hash % ((large ? large_entries : small_entries));
     hashblock_t& e = table[row];
 
-    for(uint64_t i = 0; i < slots; i++) {
+    if (hash == 0) {
+        return false;
+    }
+
+    for (uint64_t i = 0; i < slots; i++) {
         if (e.hash[i] == hash && dd_equal(e.entry[i].sha, value.sha, HASH_SIZE)) {
             return false;
         }
-        if ((e.hash[i] == 0 && hash != 0) || (e.hash[i] == hash && hash != 0)) {
+    }
+
+    for (uint64_t i = 0; i < slots; i++) {
+        if (e.hash[i] == 0 || e.hash[i] == hash) {
             e.hash[i] = hash;
             e.entry[i] = value;
             e.count++;
@@ -333,14 +340,10 @@ bool add(hash_t value, uint32_t hash, bool large) {
         }
     }
 
-    if (hash != 0) {
-        e.hash[e.count % slots] = hash;
-        e.entry[e.count % slots] = value;
-        e.count++;
-        return true;
-    }
-
-    return false;
+    e.hash[e.count % slots] = hash;
+    e.entry[e.count % slots] = value;
+    e.count++;
+    return true;
 }
 
 
