@@ -254,7 +254,7 @@ void gxhash_stream(const uint8_t* input, size_t len, gxhash_state* state) {
         return;
     }
 
-    const int VECTOR_SIZE = sizeof(gxhash_register);
+    const size_t VECTOR_SIZE = sizeof(gxhash_register);
     const gxhash_register* v = (const gxhash_register*)input;
     const gxhash_register* end_address;
     size_t remaining_blocks_count = len / VECTOR_SIZE;
