@@ -1,11 +1,11 @@
-#pragma once
-
-// SPDX-License-Identifier: GPL-2.0-or-later
-// 
+// SPDX-License-Identifier: MIT
+//
 // eXdupe deduplication library and file archiver.
 //
 // Copyrights:
 // 2010 - 2025: Lasse Mikkel Reinhold
+
+#pragma once
 
 #include "unicode.h"
 #include "utilities.hpp"

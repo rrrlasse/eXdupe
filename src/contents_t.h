@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: MIT
+//
+// eXdupe deduplication library and file archiver.
+//
+// Copyrights:
+// 2010 - 2025: Lasse Mikkel Reinhold
+
 #pragma once
 
 #include "utilities.hpp"

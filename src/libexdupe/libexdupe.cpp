@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
-// 
+// SPDX-License-Identifier: MIT
+//
 // eXdupe deduplication library and file archiver.
 //
 // Copyrights:
-// 2010 - 2023: Lasse Mikkel Reinhold
+// 2010 - 2025: Lasse Mikkel Reinhold
 
 #define HASH_SIZE 16
 
