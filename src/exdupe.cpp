@@ -287,8 +287,6 @@ const string hashtable_header = "HASHTBLE";
 const string chunks_header = "CHUNKSCH";
 const string payload_header = "PAYLOADP";
 
-const STRING corrupted_msg = L("\nArchive is corrupted, you can only list contents (-L flag) or restore (-R flag)");
-
 std::mutex abort_mutex;
 std::atomic<int> aborted = 0;
 
@@ -975,9 +973,7 @@ void list_contents() {
 
     FILE *ffile = try_open(full.c_str(), 'r', true);
     uint64_t mem = read_header(ffile, 0);
-    if (!read_headers(ffile)) {
-        statusbar.print(0, L("%s"), corrupted_msg.c_str());
-    }
+    read_headers(ffile);
 
     auto print_item = [](contents_t& c) {
         if (c.symlink) {
@@ -2607,7 +2603,10 @@ void main_compress() {
         ofile = ifile;
 
         memory_usage = read_header(ifile, &lastgood); // also inits hash_seed and sets
-        abort(!read_headers(ifile), corrupted_msg.c_str());
+        
+        // todo, function names and what they return are not descriptive
+        bool was_killed = !read_headers(ifile);
+
         hashtable = malloc(memory_usage);
         abort(!hashtable, retvals::err_memory, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
         memset(hashtable, 0, memory_usage);
@@ -2617,8 +2616,7 @@ void main_compress() {
         abort(r == 1, retvals::err_memory, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
         abort(r == 2, retvals::err_memory, format("Error creating threads. This differential backup requires {} MB memory. Try -t1 flag", memory_usage >> 20));
 
-        read_hashtable(ifile);
-
+        // Accumulated payload of initial backup + all incrementals
         basepay = pay_count;
 
         contents = read_contents(ifile);
@@ -2628,9 +2626,16 @@ void main_compress() {
             identical_files.add(c);
         }
 
-        seek_to_header(ifile, hashtable_header);
-        io.seek(ifile, -8, SEEK_CUR);
-        io.truncate(ifile);
+        if (!was_killed) {
+            read_hashtable(ifile);
+            seek_to_header(ifile, hashtable_header);
+            io.seek(ifile, -8, SEEK_CUR);
+            io.truncate(ifile);
+        } else {
+            // eXdupe was killed during last incremental backup
+            io.seek(ifile, lastgood, SEEK_SET);
+            io.truncate(ifile);
+        }
 
     } else {
         output_file = full;
