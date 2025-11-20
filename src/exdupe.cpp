@@ -7,7 +7,7 @@
 
 #define VER_MAJOR 4
 #define VER_MINOR 0
-#define VER_REVISION 1
+#define VER_REVISION 0
 #define VER_DEV 4
 
 #define Q(x) #x
