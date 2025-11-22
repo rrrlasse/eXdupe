@@ -1000,18 +1000,18 @@ void list_contents() {
     };
 
     if (set_flag == static_cast<uint32_t>(-1)) {
-        statusbar.print(0, L("Using %sB memory during backups, suitable for backup sets of %sB each\n"), s2w(suffix(mem)).c_str(), s2w(suffix(max_payload * mem)).c_str());
-        statusbar.print(0, L("Backup sets:"));
         uint64_t prev_c = 0;
-
+        statusbar.print(0, L("   Set                 Date            Files                 Size      Compressed size"));
+        //                    000001  dddd-dd-dd dd:dd:dd  999,999,999,999  999,999,999,999,999  999,999,999,999,999
         for (size_t set = 0; set < sets.size(); set++) {
             uint64_t c = sets.at(set) - prev_c;
             prev_c = sets.at(set);            
             read_backup_set(ffile, sets.at(set), d, s, f, nullptr);
             auto ds = date2str(d);
-            statusbar.print(0, L("%s  %s  %sB  %s files  %sB"), del(set, 3).c_str(), ds.c_str(), s2w(suffix(s, true)).c_str(), s2w(suffix(f, true)).c_str(), s2w(suffix(c, true)).c_str());
+            statusbar.print(0, L("%s  %s  %s  %s  %s"), del(set, 6).c_str(), ds.c_str(), del(f, 15).c_str(), del(s, 19).c_str(), del(c, 19).c_str());
         }
-
+        statusbar.print(0, L("\nUsing %sB memory during backups, suitable for backup sets of %sB each"), s2w(suffix(mem)).c_str(), s2w(suffix(max_payload * mem)).c_str());
+#if 0
         statusbar.print(0, L("\nA few files:"));
         read_content_map(ffile);
         size_t add = content_map.size() / 5 + 1;
@@ -1026,6 +1026,7 @@ void list_contents() {
             }
             statusbar.print(0, L("  %s"), s.c_str());
         }
+#endif 
     } else {
         abort(set_flag >= sets.size(), L("Backup set does not exist")); // fixme, allows you to specify the last set even if its corrupted?
         vector<uint64_t> set;
