@@ -2529,13 +2529,13 @@ void compress_args(vector<STRING> args) {
     compress(base_dir, args);
 }
 
-void print_statistics(uint64_t start_time, uint64_t end_time, uint64_t end_time_without_overhead, uint64_t references_size, uint64_t hashtable_size) {
+void print_statistics(uint64_t start_time, uint64_t end_time, uint64_t end_time_without_overhead, uint64_t references_size, uint64_t hashtable_size, uint64_t added) {
     std::ostringstream s;
-    int sratio = int((double(io.write_count) / double(backup_set_size() + 1)) * 100.);
+    int sratio = int((double(added) / double(backup_set_size() + 1)) * 100.);
     sratio = sratio > 999 ? 999 : sratio == 0 ? 1 : sratio;
 
     s << "Input:                       " << w2s(del(backup_set_size())) << " B in " << w2s(del(files)) << " files\n";
-    s << "Output:                      " << w2s(del(io.write_count)) << " B (" << sratio << "%)\n";
+    s << "Output:                      " << w2s(del(added)) << " B (" << sratio << "%)\n";
     s << "Speed:                       " << w2s(del(backup_set_size() / ((end_time - start_time) + 1) * 1000 / 1024 / 1024)) << " MB/s\n";
     s << "Speed w/o init overhead:     " << w2s(del(backup_set_size() / ((end_time_without_overhead - start_time_without_overhead) + 1) * 1000 / 1024 / 1024)) << " MB/s\n";
 
@@ -2545,9 +2545,9 @@ void print_statistics(uint64_t start_time, uint64_t end_time, uint64_t end_time_
     s << "Stored as duplicated files:  " << suffix(identical) << "B in " << w2s(del(identical_files_count)) << " files\n";
     s << "Stored as duplicated blocks: " << suffix(largehits + smallhits) << "B (" << suffix(largehits) << "B large, " << suffix(smallhits) << "B small)\n";
     s << "Stored as literals:          " << suffix(stored_as_literals) << "B (" << suffix(literals_compressed_size) << "B compressed)\n";
-   // uint64_t total = literals_compressed_size + contents_size + references_size + hashtable_size; // fixme
-    s << "Overheads:                   " << suffix(contents_size) << "B meta, " << suffix(references_size) << "B refs, " << suffix(hashtable_size) << "B hashtable\n";//    << suffix(io.write_count - total) << "B misc\n";
-    s << "Unhashed due to congestion:  " << suffix(congested_large) << "B large, " << suffix(congested_small) << "B small\n";
+    // uint64_t total = literals_compressed_size + contents_size + references_size + hashtable_size; // fixme
+    s << "Overheads:                   " << suffix(contents_size) << "B meta, " << suffix(references_size) << "B refs\n";
+    s << "Hashtable:                   " << suffix(hashtable_size) << "B\n";//    << suffix(io.write_count - total) << " B misc\n ";
     s << "Unhashed anomalies:          " << suffix(anomalies_large) << "B large, " << suffix(anomalies_small) << "B small\n";
     s << "High entropy files:          " << suffix(high_entropy) << "B in " << w2s(del(high_entropy_files)) << " files";
     STRING str = s2w(s.str());
@@ -2694,8 +2694,7 @@ void main_compress() {
         commit();
     }
 
-    size_t hashtable_size = 0;
-    write_hashtable(ofile);
+    size_t hashtable_size = write_hashtable(ofile);
 
     io.write(file_footer.data(), file_footer.size(), ofile);
 
@@ -2707,7 +2706,6 @@ void main_compress() {
     if (ofile != stdout) {
         io.seek(ofile, 0, SEEK_END);
         added = io.tell(ofile) - original_file_size;
-
         io.close(ofile);
 
     } else {
@@ -2716,7 +2714,7 @@ void main_compress() {
 
     if (statistics_flag) {
         uint64_t end_time = GetTickCount64();
-        print_statistics(start_time, end_time, end_time_without_overhead, references_size, hashtable_size);
+        print_statistics(start_time, end_time, end_time_without_overhead, references_size, hashtable_size, added);
     } else if (!aborted) {
         statusbar.print_no_lf(1, L("Added %s B in %s files using %sB\n"), del(backup_set_size()).c_str(), del(files).c_str(), s2w(suffix(added)).c_str());
     }

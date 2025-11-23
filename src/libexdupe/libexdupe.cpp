@@ -207,8 +207,6 @@ std::atomic<uint64_t> stored_as_literals;
 std::atomic<uint64_t> literals_compressed_size;
 std::atomic<uint64_t> anomalies_small;
 std::atomic<uint64_t> anomalies_large;
-std::atomic<uint64_t> congested_small;
-std::atomic<uint64_t> congested_large;
 std::atomic<uint64_t> high_entropy;
 
 std::atomic<uint64_t> hits1;
@@ -797,15 +795,7 @@ static bool hashat(const char *src, uint64_t pay, size_t len, bool large, char *
         e.offset = pay;
         memcpy(e.sha, hash, HASH_SIZE);
         e.slide = static_cast<uint16_t>(o - src);
-        bool added = add(e, w, large);
-        if(!added) {
-            if(large) {
-                congested_large += len;
-            }
-            else {
-                congested_small += len;
-            }
-        }
+        add(e, w, large);
         pthread_mutex_unlock_wrapper(&table_mutex);
         return true;
     }
@@ -848,10 +838,6 @@ static size_t write_literals(const char *src, size_t length, char *dst) {
         ll2str(packet_size, dst + 1, 4);
         ll2str(length, dst + 5, 4);
         ll2str(0, dst + 9, 8);
-
-        stored_as_literals += length;
-        literals_compressed_size += packet_size;
-
         return packet_size;
     }
     return 0;
@@ -1024,16 +1010,23 @@ static void *compress_thread(void *arg) {
             bool compressible = level > 0 && is_compressible(c->payload, me->size_destination);
             if (compressible) {
                 auto siz = zstd_compress(c->payload, me->size_destination, me->source, me->size_destination + 10000, level, me->zstd);
+                stored_as_literals += me->size_destination;
+                literals_compressed_size += siz;
                 ll2str(me->size_destination, c->decompressed_size, 4);
                 memcpy(c->payload, me->source, siz);
                 me->size_destination = siz;
                 me->destination[0] = DUP_COMPRESSED_CHUNK;
 
+
             } else {
+                stored_as_literals += me->size_destination;
+                literals_compressed_size += me->size_destination;
                 me->destination[0] = DUP_UNCOMPRESSED_CHUNK;
             }
         }
         else {
+            stored_as_literals += me->size_source;
+            literals_compressed_size += me->size_source;
             me->size_destination = write_literals(me->source, me->size_source, c->payload);
             me->destination[0] = DUP_UNCOMPRESSED_CHUNK;
 
