@@ -1161,20 +1161,18 @@ void parse_flags(void) {
             string flagsS = w2s(flags);
 
             // abort if numeric digits are used with a wrong flag
-            if (regx(flagsS, "[^mgwtvsiLxS0123456789][0-9]+") != "") {
-                abort(true, L("Numeric values must be preceded by S, m, g, t, v, or x"));
+            if (regx(flagsS, "[^mgwtvsiLxR0123456789][0-9]+") != "") {
+                abort(true, L("Numeric values must be preceded by R, m, g, t, v, or x"));
             }
 
             for (auto t : std::vector<pair<bool &, std::string>>{
                      {no_timestamp_flag, "w"},
-                     {restore_flag, "R"},
                      {no_recursion_flag, "r"},
                      {force_flag, "f"},
                      {continue_flag, "c"},
                      {diff_flag, "D"},
                      {named_pipes, "p"},
                      {follow_symlinks, "h"},
-                     {list_flag, "L"},
                      {absolute_path, "a"},
                      {build_info_flag, "B"},
                      {statistics_flag, "k"},
@@ -1184,13 +1182,13 @@ void parse_flags(void) {
                 }
             }
 
-            auto set_int_flag = [&](uint32_t &flag_ref, const string letter) {
+            auto set_int_flag = [&](uint32_t &flag_ref, const string letter, bool required = true) {
                 if (regx(flagsS, letter) == "") {
                     return false;
                 }
                 string f = regx(flagsS, letter + "\\d+");
-                abort(f == "", L("-%s flag must be an integer"), letter.c_str());
-                int i = atoi(f.substr(1).c_str());
+                abort(required && f == "", L("-%s flag must be an integer"), letter.c_str());
+                int i = f == "" ? -1 : atoi(f.substr(1).c_str());
                 flag_ref = i;
                 return true;
             };
@@ -1227,7 +1225,12 @@ void parse_flags(void) {
                 abort(compression_level > 3, L("-x flag value must be 0...3"));
             }
 
-            if (set_int_flag(set_flag, "S")) {
+            if (set_int_flag(set_flag, "R")) {
+                restore_flag = true;
+            }
+
+            if (set_int_flag(set_flag, "L", false)) {
+                list_flag = true;
             }
 
         }
@@ -1367,10 +1370,10 @@ Show available backup sets:
   exdupe -L <backup file>
 
 Show contents of backup set:
-  exdupe -L -S# <backup file>
+  exdupe -L# <backup file>
 
 Restore backup set:
-  exdupe -R -S# [flags] <backup file> <dest dir> [items]
+  exdupe -R# [flags] <backup file> <dest dir> [items]
 
 Show build info: -B
 
@@ -1404,12 +1407,12 @@ Example of backup, incremental backups and restore:
   exdupe my_dir backup.exd
   exdupe -D my_dir backup.exd
   exdupe -D my_dir backup.exd
-  exdupe -R -S2 backup.exd restore_dir
+  exdupe -R1 backup.exd restore_dir
 
 More examples:
   exdupe -t12 -g8 dir1 dir2 backup.full
-  exdupe -R -S0 backup.full restore_dir dir2%/file.txt
-  exdupe file.txt -stdout | exdupe -R -S0 -stdin restore_dir)";
+  exdupe -R0 backup.full restore_dir dir2%/file.txt
+  exdupe file.txt -stdout | exdupe -R0 -stdin restore_dir)";
 
     std::string short_help = R"(Create first backup:
   exdupe [flags] <sources | -stdin> <backup file | -stdout>
@@ -1421,7 +1424,7 @@ Show available backup sets:
   exdupe -L <backup file>
 
 Restore backup set:
-  exdupe -R -S# [flags] <backup file> <dest dir>
+  exdupe -R# [flags] <backup file> <dest dir>
 
 A few flags:
   -f Overwrite existing files (default is to abort)
