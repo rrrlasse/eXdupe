@@ -798,13 +798,13 @@ uint64_t read_hashtable(FILE *file) {
     uint64_t s = io.read_ui<uint64_t>(file);
     if (verbose_level > 0) {
         statusbar.clear_line();
-        statusbar.update(BACKUP, 0, 0, (STRING() + L("Reading hashtable from full backup...\r")).c_str(), false, true);
+        statusbar.update(BACKUP, 0, 0, (STRING() + L("Reading hashtable from backup...\r")).c_str(), false, true);
     }
 
     io.read(memory_end - s, s, file);
     io.seek(file, orig, SEEK_SET);
     int i = dup_decompress_hashtable(memory_end - s);
-    abort(i != 0, L("'%s' is corrupted or not a .full file (hash table)"), slashify(full).c_str());
+    abort(i != 0, L("'%s' is corrupted or not an archive (hash table)"), slashify(full).c_str());
     return 0;
 }
 
@@ -1153,7 +1153,7 @@ void parse_flags(void) {
             abort(true, L("-s flag not supported on *nix"));
 #endif
         } else {
-            size_t e = flags.find_first_not_of(L("-wfhuPRrxqcDpiLzSksatgmv0123456789B"));
+            size_t e = flags.find_first_not_of(L("-wfhuPRrxqcpiLzksatgmv0123456789B"));
             if (e != string::npos) {
                 abort(true, L("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
@@ -1170,7 +1170,6 @@ void parse_flags(void) {
                      {no_recursion_flag, "r"},
                      {force_flag, "f"},
                      {continue_flag, "c"},
-                     {diff_flag, "D"},
                      {named_pipes, "p"},
                      {follow_symlinks, "h"},
                      {absolute_path, "a"},
@@ -1242,7 +1241,6 @@ void parse_flags(void) {
     }
 
     // todo, add s and p verification
-    abort(no_timestamp_flag != 0 && !diff_flag, L("-w flag can only be used for differential backup"));
     abort(megabyte_flag != 0 && gigabyte_flag != 0, L("-m flag not compatible with -g"));
     abort(restore_flag && (no_recursion_flag || continue_flag), L("-R flag not compatible with -n or -c"));
     abort(restore_flag && (megabyte_flag != 0 || gigabyte_flag != 0), L("-m and -t flags not applicable to restore (no memory required)"));
@@ -1364,7 +1362,7 @@ Create first backup:
   exdupe [flags] <sources | -stdin> <backup file | -stdout>
 
 Add incremental backup:
-  exdupe -D [flags] <sources> <backup file>
+  exdupe [flags] <sources> <backup file>
 
 Show available backup sets:
   exdupe -L <backup file>
@@ -1381,14 +1379,15 @@ Show build info: -B
 paths to restore, written as printed by the -L flag.
 
 Flags:
-    -f Overwrite existing files (default is to abort)
+    -f Overwrite existing files
     -c Continue if a source file cannot be read (default is to abort)
     -w Read contents of files during incremental backup to determine if they
        have changed (default is to look at timestamps only).
    -t# Use # threads (default = 8)
    -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per )" + std::to_string(max_payload) + R"( GB 
        of data in a single backup set for best result. Use -m# to specify MB
-       instead.
+       instead. Differential backups will use the same memory as the initial
+       backup
    -x# Use compression level # after deduplication (0, 1 = default, 2, 3). Level
        0 means no compression and lets you apply your own
     -- Prefix items in the <sources> list with "--" to exclude them
@@ -1405,8 +1404,8 @@ Flags:
 
 Example of backup, incremental backups and restore:
   exdupe my_dir backup.exd
-  exdupe -D my_dir backup.exd
-  exdupe -D my_dir backup.exd
+  exdupe my_dir backup.exd
+  exdupe my_dir backup.exd
   exdupe -R1 backup.exd restore_dir
 
 More examples:
@@ -1418,7 +1417,7 @@ More examples:
   exdupe [flags] <sources | -stdin> <backup file | -stdout>
 
 Add incremental backup:
-  exdupe -D [flags] <sources> <backup file>
+  exdupe [flags] <sources> <backup file>
 
 Show available backup sets:
   exdupe -L <backup file>
@@ -1427,10 +1426,11 @@ Restore backup set:
   exdupe -R# [flags] <backup file> <dest dir>
 
 A few flags:
-  -f Overwrite existing files (default is to abort)
+  -f Overwrite existing files
   -c Continue if a source file cannot be read (default is to abort)
  -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per )" + std::to_string(max_payload) + R"( GB of
-     data in a single backup set for best result
+     data in a single backup set for best result. Differential backups 
+     will use the same memory as the initial backup
  -x# Use compression level # after deduplication (0, 1 = default, 2, 3)
   -? Show complete help)";
  
@@ -2598,9 +2598,14 @@ void main_compress() {
         compression::out_payload_queue_size.push_back(0);
     }
 
+    if (full != L("-stdout") && !force_flag && std::filesystem::exists(full)) {
+        diff_flag = true;
+    }
+
     if (diff_flag) {
         output_file = full;
         ifile = try_open(full.c_str(), 'a', true);
+        abort(!ifile, L("Error opening archive file %s"), full.c_str());
         io.seek(ifile, 0, SEEK_END);
         original_file_size = io.tell(ifile);
         io.seek(ifile, 0, SEEK_SET);

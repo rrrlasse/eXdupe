@@ -463,7 +463,7 @@ TEST_CASE("case rename") {
     pick("a");
     ex("-m1", in, full);    
     rename(in, "a","A");
-    ex("-D", in, full);
+    ex(in, full);
     rm(out);
     ex("-R1", full, out);
     cmp();
@@ -476,7 +476,7 @@ TEST_CASE("simple backup, diff backup and restore") {
     ex("-R0", full, out);
     cmp();
 
-    ex("-D", in, full);
+    ex(in, full);
     rm(out);
     ex("-R1", full, out);
     cmp();
@@ -491,7 +491,7 @@ TEST_CASE("diff size") {
     }
     ex("-m1", in, full);
     size_t f = siz(full);
-    ex("-D", in, full);
+    ex(in, full);
     CHECK(siz(full) - f < 500);
     ex("-R0", full, out);
     cmp();
@@ -504,9 +504,9 @@ TEST_CASE("w flag") {
         pick("high_entropy_a");
         ex("-m1", in, full);
         auto s1 = siz(full);
-        ex("-D", in, full);
+        ex(in, full);
         auto s2 = siz(full);
-        ex("-Dw", in, full);
+        ex("-w", in, full);
         auto s3 = siz(full);
         CHECK(s3 - s2 > (s2 - s1) + 50);
         ex("-R1", full, out);
@@ -525,9 +525,9 @@ TEST_CASE("w flag") {
         ex("-m1", a, full);
         auto s1 = siz(full);
         std::transform(a.begin(), a.end(), a.begin(), [](unsigned char c) { return std::tolower(c); });
-        ex("-D", in, full);
+        ex(in, full);
         auto s2 = siz(full);
-        ex("-Dw", a, full);
+        ex("-w", a, full);
         auto s3 = siz(full);
         CHECK((s3 > s2 / 2));
     }
@@ -536,7 +536,7 @@ TEST_CASE("w flag") {
     // Recognize that file has changed
     modify(in + "/high_entropy_a");
     rm(out);
-    ex("-Dwf", in, full);
+    ex("-w", in, full);
     ex("-R3", full, out);
     cmp();
 }
@@ -548,7 +548,7 @@ TEST_CASE("destination directory doesn't exist") {
     rm(out);
     ex("-R0", full, out);
     cmp();
-    ex("-D", in, full);
+    ex(in, full);
     rm(out);
     ex("-R1", full, out);
     cmp();
@@ -659,7 +659,7 @@ TEST_CASE("deduplication") {
         ex("-m1x0",in, full);
         size_t f = siz(full);
         pick("high_entropy_a", "dir2"); // 65811 bytes
-        ex("-D", in, full);
+        ex(in, full);
         size_t d = siz(full) - f;
         CHECK(((d > 100) && d < 8000));
     }
@@ -670,7 +670,7 @@ TEST_CASE("deduplication") {
         size_t f = siz(full);
         pick("high_entropy_a", "dir1"); // 65811 bytes
         pick("high_entropy_a", "dir2");
-        ex("-D", in, full);
+        ex(in, full);
         CHECK(((siz(full) - f > 65811) && siz(full) - f < 76000));
     } 
 }
