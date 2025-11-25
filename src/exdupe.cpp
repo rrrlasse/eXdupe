@@ -1356,7 +1356,7 @@ void parse_files(void) {
 STRING tostring(std::string s) { return STRING(s.begin(), s.end()); }
 
 void print_usage(bool show_long) {
-    std::string long_help = R"(eXdupe %v file archiver. GPLv2 or later. Copyright 2010 - 2025
+    std::string long_help = R"(eXdupe %v file archiver. MIT license. Copyright 2010 - 2025
 
 Create first backup:
   exdupe [flags] <sources | -stdin> <backup file | -stdout>
