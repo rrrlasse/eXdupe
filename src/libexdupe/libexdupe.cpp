@@ -214,20 +214,21 @@ std::atomic<uint64_t> hits2;
 std::atomic<uint64_t> hits3;
 std::atomic<uint64_t> hits4;
 
+template <class T> const T minimum(const T a, const T b) { return a > b ? b : a; }
+
 size_t write_hashblock(hashblock_t* h, char* dst) {
     char* orig_dst = dst;
     size_t t;
 
-    if (h->hash[0] == 0) {
+    if (h->count == 0) {
         return 0;
     }
 
-    for (t = 0; t < slots; t++) {
+    ll2str(h->count, dst, sizeof(h->count));
+    dst += sizeof(h->count);
+    
+    for (t = 0; t < minimum(slots, h->count); t++) {
         ll2str(h->hash[t], dst, 4);
-        if (h->hash[t] == 0) {
-            dst += 4;
-            break;
-        }
 
         ll2str(h->entry[t].offset, dst + 4, 8);
         ll2str(h->entry[t].slide, dst + 12, 2);
@@ -235,12 +236,6 @@ size_t write_hashblock(hashblock_t* h, char* dst) {
 
         dst += 14 + HASH_SIZE;
     }
-
-    ll2str(h->count, dst, sizeof(h->count));
-    dst += sizeof(h->count);
-    //std::wcerr << h->next;
-
-
     return dst - orig_dst;
 }
 
@@ -248,34 +243,17 @@ size_t read_hashblock(hashblock_t* h, char* src) {
     char* orig_src = src;
     bool nulls = false;
 
-    for (size_t t = 0; t < slots; t++) {
+    h->count = str2ll(src, sizeof(h->count));
+    src += sizeof(h->count);
 
-        if (!nulls) {
+    for (size_t t = 0; t < minimum(slots, h->count); t++) {
             h->hash[t] = gsl::narrow<uint32_t>(str2ll(src, 4));
             src += 4;
-        }
-
-        if (h->hash[t] == 0) {
-            nulls = true;
-        }
-
-        if (nulls) {
-            h->hash[t] = 0;
-            h->entry[t].offset = 0;
-            h->entry[t].slide = 0;
-            memset(h->entry[t].sha, 0, HASH_SIZE);
-        }
-        else {
             h->entry[t].offset = str2ll(src, 8);
             h->entry[t].slide = gsl::narrow<uint16_t>(str2ll(src + 8, 2));
             memcpy(h->entry[t].sha, src + 10, HASH_SIZE);
             src += 10 + HASH_SIZE;
-        }
     }
-
-    h->count = str2ll(src, sizeof(h->count));
-   // std::wcerr << h->next;
-    src += sizeof(h->count);
     return src - orig_src;
 }
 
@@ -302,11 +280,8 @@ hash_t* lookup(uint32_t hash, bool large) {
     uint32_t row = hash % ((large ? large_entries : small_entries));
     hashblock_t& e = table[row];
 
-    for(uint64_t i = 0; i < slots; i++) {
-        if (e.hash[i] == 0) {
-            return 0; 
-        }
-        else if(e.hash[i] == hash && hash != 0) {
+    for(uint64_t i = 0; i < minimum(e.count, slots); i++) {
+        if(e.hash[i] == hash) {
             return &e.entry[i];
         }
     }
@@ -319,21 +294,16 @@ bool add(hash_t value, uint32_t hash, bool large) {
     uint32_t row = hash % ((large ? large_entries : small_entries));
     hashblock_t& e = table[row];
 
-    // todo: Now that we have count we no longer need 0 as magic unused value
-    if (hash == 0) {
-        return false;
-    }
-
     // If exact same payload has already been seen, just exit
-    for (uint64_t i = 0; i < slots; i++) {
+    for (uint64_t i = 0; i < minimum(e.count, slots); i++) {
         if (e.hash[i] == hash && dd_equal(e.entry[i].sha, value.sha, HASH_SIZE)) {
             return false;
         }
     }
 
     // If payload exists in slightly modified form, overwrite old
-    for (uint64_t i = 0; i < slots; i++) {
-        if (e.hash[i] == 0 || e.hash[i] == hash) {
+    for (uint64_t i = 0; i < minimum(e.count, slots); i++) {
+        if (e.hash[i] == hash) {
             e.hash[i] = hash;
             e.entry[i] = value;
             e.count++;
@@ -346,11 +316,6 @@ bool add(hash_t value, uint32_t hash, bool large) {
     e.entry[e.count % slots] = value;
     e.count++;
     return true;
-}
-
-
-template <class T> const T minimum(const T a, const T b) {
-    return a > b ? b : a;
 }
 
 typedef struct {
@@ -476,7 +441,7 @@ void print_table() {
 
 bool in_use(size_t i) {
     for(size_t t = 0; t < slots; t++) {
-        if(small_table[i].hash[t] != 0) {
+        if(small_table[i].count > 0) {
             return true;
         }
     }
@@ -513,15 +478,19 @@ void fillratio(double* l, double* s) {
     *l = (double)full / large_entries;
 }
 
+void init_hashtable() {
+    size_t total_entries = small_entries + large_entries;
+    
+    for (size_t t = 0; t < total_entries; t++) {
+        small_table[t].count = 0;
+    }
+}
+
 size_t dup_compress_hashtable(char* dst) {
     char* dst_orig = dst;
     size_t total_entries = small_entries + large_entries;
     size_t s = sizeof(hashblock_t) * total_entries;
-    uint64_t crc = hash64(&small_table[0], s, g_hash_salt);
     size_t block = 0;
-
-    ll2str(crc, dst, 8);
-    dst += 8;
 
     do {
         size_t count = equ(block);
@@ -543,9 +512,6 @@ size_t dup_compress_hashtable(char* dst) {
 int dup_decompress_hashtable(char* src) {
     size_t total_entries = small_entries + large_entries;
     size_t block = 0;
-    uint64_t crc = str2ll(src, 8);
-    src += 8;
-
     do {
         char b = *src++;
         if(b != 'C') {
@@ -562,10 +528,7 @@ int dup_decompress_hashtable(char* src) {
             }
             else {
                 for(size_t i = 0; i < slots; i++) {
-                    small_table[block].entry[i].offset = 0;
-                    small_table[block].entry[i].slide = 0;
-                    memset(&small_table[block].entry[i].sha, 0, HASH_SIZE);
-                    small_table[block].hash[i] = 0;
+
                     small_table[block].count = 0;
                 }
             }
@@ -574,9 +537,7 @@ int dup_decompress_hashtable(char* src) {
     } while(block < total_entries);
 
     size_t s = sizeof(hashblock_t) * total_entries;
-    // todo, add crc of compressed table too
-    uint64_t crc2 = hash64(&small_table[0], s, g_hash_salt);
-    return crc == crc2 ? 0 : 1;
+    return 0;
 }
 
 static uint32_t quick(const char* src, size_t len) {
@@ -1099,7 +1060,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
     small_table = (hashblock_t*)memory_table;;
     large_table = small_table + small_entries;
 
-    memset(space, 0, mem);
+    init_hashtable();
 
     for (int i = 0; i < threads; i++) {
         pthread_mutex_init(&jobs[i].jobmutex, NULL);

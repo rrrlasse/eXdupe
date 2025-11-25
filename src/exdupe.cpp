@@ -97,6 +97,7 @@ const bool WIN = false;
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include "libexdupe/zstd/lib/zstd.h"
+#include "libexdupe/gxhash/gxhash.h"
 
 
 //import FileTypes;
@@ -784,11 +785,21 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
     return false;
 }
 
+
+uint64_t checksum64(const void *src, size_t len, uint32_t hash_seed) {
+    char h[sizeof(uint64_t)];
+    gxhash((const uint8_t *)src, len, h, sizeof(uint64_t), hash_seed);
+    return *(uint64_t*)h;
+}
+
 size_t write_hashtable(FILE *file) {
     size_t t = dup_compress_hashtable(memory_begin);
     io.write(hashtable_header.c_str(), hashtable_header.size(), file);
     io.write_ui<uint64_t>(t, file);
     io.write(memory_begin, t, file);
+    auto crc = checksum64(memory_begin, t, hash_seed);
+    io.write_ui<uint64_t>(crc, file);
+    t += 8;
     io.write_ui<uint64_t>(t + 8, file);
     return t;
 }
@@ -802,9 +813,12 @@ uint64_t read_hashtable(FILE *file) {
     }
 
     io.read(memory_end - s, s, file);
+    uint64_t crc = io.read_ui<uint64_t>(file);
+    uint64_t crc2 = checksum64(memory_end - s, s, hash_seed);
+    abort(crc != crc2, L("'%s' is corrupted or not an archive (hashtable checksum)"), slashify(full).c_str());
     io.seek(file, orig, SEEK_SET);
     int i = dup_decompress_hashtable(memory_end - s);
-    abort(i != 0, L("'%s' is corrupted or not an archive (hash table)"), slashify(full).c_str());
+    abort(i != 0, L("'%s' is corrupted or not an archive (hashtable structure)"), slashify(full).c_str());
     return 0;
 }
 
@@ -2618,7 +2632,7 @@ void main_compress() {
 
         hashtable = malloc(memory_usage);
         abort(!hashtable, retvals::err_memory, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
-        memset(hashtable, 0, memory_usage);
+        //memset(hashtable, 0, memory_usage);
         pay_count = read_chunks(ifile); // read size in bytes of user payload in .full file
 
         int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_seed, pay_count);
