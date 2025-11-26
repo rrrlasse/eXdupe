@@ -437,8 +437,8 @@ uint64_t checksum_t::result64() {
     return r;
 };
 
-void checksum_init(checksum_t *t, uint32_t hash_seed) {
-    gxhash_init(&t->state, hash_seed);
+void checksum_init(checksum_t *t, uint32_t hash_seed, bool use_aesni) {
+    gxhash_init(&t->state, hash_seed, use_aesni);
 }
 
 void checksum(const char *data, size_t len, checksum_t *t) {

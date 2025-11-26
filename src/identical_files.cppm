@@ -17,18 +17,18 @@ public:
         }
     }
 
-    std::optional<contents_t> identical_to(FILE* ifile, contents_t& file_meta, Cio& io, void (*func)(uint64_t read, const STRING& file), STRING file, uint32_t hash_seed) {
+    std::optional<contents_t> identical_to(FILE* ifile, contents_t& file_meta, Cio& io, void (*func)(uint64_t read, const STRING& file), STRING file, uint32_t hash_seed, int emulate_avx) {
         checksum_t c;
 
         io.seek(ifile, 0, SEEK_SET);
         int64_t r = io.read_vector(buf, 1024, 0, ifile, false);
-        checksum_init(&c, hash_seed);
+        checksum_init(&c, hash_seed, emulate_avx);
         checksum(buf.data(), r, &c);
         file_meta.first = c.result64();
 
         io.seek(ifile, -r, SEEK_END);
         io.read_vector(buf, r, 0, ifile, false);
-        checksum_init(&c, hash_seed);
+        checksum_init(&c, hash_seed, emulate_avx);
         checksum(buf.data(), r, &c);
         file_meta.last = static_cast<uint8_t>(c.result64());
         
@@ -37,7 +37,7 @@ public:
             auto candidate = it->second;
             if (candidate.size == file_meta.size && candidate.first == file_meta.first && candidate.last == file_meta.last) {
                 io.seek(ifile, 0, SEEK_SET);
-                checksum_init(&c, hash_seed);
+                checksum_init(&c, hash_seed, emulate_avx);
                 size_t total_read = 0;
                 for (size_t r; (r = io.read_vector(buf, 1024 * 1024, 0, ifile, false));) {
                     func(r, file);
@@ -58,4 +58,5 @@ public:
 private:
     std::unordered_map<uint64_t, contents_t> all_file_hashes;
     std::vector<char> buf;
+    int emulate_avx;
 };
