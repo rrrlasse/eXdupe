@@ -107,7 +107,8 @@ int pthread_mutex_trylock_wrapper(pthread_mutex_t *mutex) {
 
 namespace {
 
-uint32_t g_hash_salt = 0;
+static uint32_t g_hash_salt = 0;
+static bool use_aesni = true;
 pthread_mutex_t table_mutex;
 pthread_cond_t jobdone_cond;
 pthread_mutex_t jobdone_mutex;
@@ -241,8 +242,6 @@ size_t write_hashblock(hashblock_t* h, char* dst) {
 
 size_t read_hashblock(hashblock_t* h, char* src) {
     char* orig_src = src;
-    bool nulls = false;
-
     h->count = str2ll(src, sizeof(h->count));
     src += sizeof(h->count);
 
@@ -414,15 +413,9 @@ int64_t zstd_decompress(char *inbuf, size_t insize, char *outbuf, size_t outsize
     return ZSTD_decompressDCtx(zstd_params->dctx, outbuf, outsize, inbuf, insize);
 }
 
-static void hash(const void *src, size_t len, uint32_t hash_seed, char *dst, size_t result_len) {
-    gxhash((uint8_t *)src, len, dst, result_len, hash_seed);
+static void hash(const void *src, size_t len, uint32_t hash_seed, char *dst, size_t result_len, bool use_aesni) {
+    gxhash((uint8_t *)src, len, dst, result_len, hash_seed, use_aesni);
     return; 
-}
-
-static uint64_t hash64(const void* src, size_t len, uint32_t hash_seed) {
-    char h[sizeof(uint64_t)];
-    hash(src, len, hash_seed, h, sizeof(uint64_t));
-    return str2ll(h, sizeof(uint64_t));
 }
 
 void print_table() {
@@ -489,9 +482,7 @@ void init_hashtable() {
 size_t dup_compress_hashtable(char* dst) {
     char* dst_orig = dst;
     size_t total_entries = small_entries + large_entries;
-    size_t s = sizeof(hashblock_t) * total_entries;
     size_t block = 0;
-
     do {
         size_t count = equ(block);
         bool used = in_use(block);
@@ -505,7 +496,6 @@ size_t dup_compress_hashtable(char* dst) {
             block++;
         }
     } while (block < total_entries);
-
     return dst - dst_orig;
 }
 
@@ -535,8 +525,6 @@ int dup_decompress_hashtable(char* src) {
             block++;
         }
     } while(block < total_entries);
-
-    size_t s = sizeof(hashblock_t) * total_entries;
     return 0;
 }
 
@@ -711,11 +699,11 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
                     rassert(sizeof(tmp) >= LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE);
                     uint32_t k;
                     for (k = 0; k < LARGE_BLOCK / SMALL_BLOCK; k++) {
-                        hash(src + k * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + k * HASH_SIZE, HASH_SIZE);
+                        hash(src + k * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + k * HASH_SIZE, HASH_SIZE, use_aesni);
                     }
-                    hash(tmp, LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, g_hash_salt, s, HASH_SIZE);
+                    hash(tmp, LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, g_hash_salt, s, HASH_SIZE, use_aesni);
                 } else {
-                    hash(src, block, g_hash_salt, s, HASH_SIZE);
+                    hash(src, block, g_hash_salt, s, HASH_SIZE, use_aesni);
                 }
 
                 if (e_cpy.offset + block < pay + (src - orig_src) && dd_equal(s, e_cpy.sha, HASH_SIZE)) {
@@ -813,7 +801,7 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length) {
     uint32_t j = 0;
 
     for (j = 0; j < small_blocks; j++) {
-        hash(src + j * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + smalls * HASH_SIZE, HASH_SIZE);
+        hash(src + j * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + smalls * HASH_SIZE, HASH_SIZE, use_aesni);
         bool success_small = hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, false, tmp + smalls * HASH_SIZE);
         if(!success_small) {
             anomalies_small += SMALL_BLOCK;
@@ -822,7 +810,7 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length) {
         smalls++;
         if (smalls == LARGE_BLOCK / SMALL_BLOCK) {
             char tmp2[HASH_SIZE];
-            hash(tmp, smalls * HASH_SIZE, g_hash_salt, tmp2, HASH_SIZE);
+            hash(tmp, smalls * HASH_SIZE, g_hash_salt, tmp2, HASH_SIZE, use_aesni);
             bool success_large = hashat(src + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, pay + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, LARGE_BLOCK, true, tmp2);
             if(!success_large) {
                 anomalies_large += SMALL_BLOCK;
@@ -910,6 +898,21 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
 uint64_t flushed;
 uint64_t global_payload;
 uint64_t count_payload;
+
+bool dup_is_aesni_supported() {
+#if defined(_MSC_VER)
+    uint32_t ecx;
+    int cpuInfo[4];
+    __cpuid(cpuInfo, 1);
+    ecx = (uint32_t)cpuInfo[2];
+#else
+    uint32_t eax, ebx, ecx, edx;
+    if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx))
+        return false;
+#endif
+    // AES-NI is bit 25 of ECX in CPUID leaf 1
+    return (ecx & (1 << 25)) != 0;
+}
 
 bool dup_is_avx2_supported() {
 #if defined(_MSC_VER)
@@ -1090,6 +1093,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
 #endif
 
     use_avx = dup_is_avx2_supported();
+    use_aesni = dup_is_aesni_supported();
     return 0;
 }
 

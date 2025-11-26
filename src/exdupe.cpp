@@ -191,6 +191,7 @@ uint64_t high_entropy_files;
 uint64_t unchanged_files = 0;
 uint64_t contents_size = 0;
 uint32_t hash_seed;
+bool use_aesni = true;
 
 STRING full;
 STRING directory;
@@ -786,9 +787,9 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
 }
 
 
-uint64_t checksum64(const void *src, size_t len, uint32_t hash_seed) {
+uint64_t checksum64(const void *src, size_t len, uint32_t hash_seed, int use_aesni) {
     char h[sizeof(uint64_t)];
-    gxhash((const uint8_t *)src, len, h, sizeof(uint64_t), hash_seed);
+    gxhash((const uint8_t *)src, len, h, sizeof(uint64_t), hash_seed, use_aesni);
     return *(uint64_t*)h;
 }
 
@@ -797,7 +798,7 @@ size_t write_hashtable(FILE *file) {
     io.write(hashtable_header.c_str(), hashtable_header.size(), file);
     io.write_ui<uint64_t>(t, file);
     io.write(memory_begin, t, file);
-    auto crc = checksum64(memory_begin, t, hash_seed);
+    auto crc = checksum64(memory_begin, t, hash_seed, use_aesni);
     io.write_ui<uint64_t>(crc, file);
     t += 8;
     io.write_ui<uint64_t>(t + 8, file);
@@ -814,7 +815,7 @@ uint64_t read_hashtable(FILE *file) {
 
     io.read(memory_end - s, s, file);
     uint64_t crc = io.read_ui<uint64_t>(file);
-    uint64_t crc2 = checksum64(memory_end - s, s, hash_seed);
+    uint64_t crc2 = checksum64(memory_end - s, s, hash_seed, use_aesni);
     abort(crc != crc2, L("'%s' is corrupted or not an archive (hashtable checksum)"), slashify(full).c_str());
     io.seek(file, orig, SEEK_SET);
     int i = dup_decompress_hashtable(memory_end - s);
@@ -1066,7 +1067,8 @@ void print_build_info() {
 #else
     b += L("debug mode");
 #endif
-    b += STRING(L(", avx2 detected: ")) + STRING(dup_is_avx2_supported() ? L("yes") : L("no"));
+    b += STRING(L(", avx2: ")) + STRING(dup_is_avx2_supported() ? L("yes") : L("no"));
+    b += STRING(L(", aes-ni: ")) + STRING(dup_is_aesni_supported() ? L("yes") : L("no"));
 
     statusbar.print(0, b.c_str());
 }
@@ -1460,6 +1462,10 @@ A few flags:
     if (VER_DEV != 0) {
         statusbar.print(0, L("\nHIGHLY UNSTABLE PREVIEW VERSION"));
     }
+
+    if (!use_aesni) {
+        statusbar.print(0, L("\nNOTE: AES-NI CPU feature not detected - performance will be very slow. Check\nyour setup if running in a virtual machine."));
+    }
 }
 
 void print_e_help() {
@@ -1756,7 +1762,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
             } else if (!c.directory) {
                 files++;
                 checksum_t t;
-                checksum_init(&t, hash_seed);
+                checksum_init(&t, hash_seed, use_aesni);
                 STRING outfile = remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
                 update_statusbar_restore(outfile);
                 ofile = pipe_out ? stdout : create_file(outfile);
@@ -1844,7 +1850,7 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
         if (ofile == 0) {
             ofile = create_file(c.at(0).extra);
             destfile = c.at(0).extra;
-            checksum_init(&decompress_checksum, hash_seed);
+            checksum_init(&decompress_checksum, hash_seed, use_aesni);
             {
                 file_offset_t t;
                 t.filename = c.at(0).extra;
@@ -2113,7 +2119,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     pair<time_ms_t, time_ms_t> file_time = input_file == L("-stdin") ? pair<time_ms_t, time_ms_t>(cur_date(), cur_date()) : get_date(input_file);
 
     checksum_t file_checksum;
-    checksum_init(&file_checksum,hash_seed);
+    checksum_init(&file_checksum, hash_seed, use_aesni);
     uint64_t file_size = 0;
     contents_t file_meta;
     uint64_t file_read = 0;   
@@ -2189,7 +2195,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 #if 1 // Detect files with identical payload, both within current backup set, and between full and diff sets
     if(file_size >= IDENTICAL_FILE_SIZE && input_file != L("-stdin")) {
         auto original = identical;
-        auto cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, const STRING& file) { identical += n; update_statusbar_backup(file); }, input_file, hash_seed);
+        auto cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, const STRING& file) { identical += n; update_statusbar_backup(file); }, input_file, hash_seed, use_aesni);
 
         if(cont.has_value()) {
             file_meta.payload = cont.value().payload;
@@ -2217,7 +2223,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     }
 #endif
 
-    checksum_init(&file_meta_ct, hash_seed);
+    checksum_init(&file_meta_ct, hash_seed, use_aesni);
 
     if(!diff_flag) {
         io.write("F", 1, ofile);
@@ -2788,6 +2794,7 @@ int main(int argc2, char *argv2[])
 #endif
 {
     int retval = 0;
+    use_aesni = dup_is_aesni_supported();
 
 #ifdef _WIN32
     _setmode(_fileno(stdin), _O_BINARY);

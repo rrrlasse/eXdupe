@@ -53,7 +53,7 @@ size_t dup_compress_hashtable(char*);
 int dup_decompress_hashtable(char* src);
 void dup_deinit(void);
 bool dup_is_avx2_supported();
-
+bool dup_is_aesni_supported();
 void fillratio(double* l, double* s);
 uint64_t dup_get_flushed(void);
 size_t flush_pend(uint64_t *payloadreturned, char*&retval_start);

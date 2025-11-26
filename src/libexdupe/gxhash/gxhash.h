@@ -2,6 +2,7 @@
 #define GXHASH_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 //#define GXHASH_NEON
 //#define GXHASH_VAES
@@ -22,6 +23,7 @@ typedef struct {
     gxhash_register finalized;
     size_t read;
     uint32_t seed;
+    bool use_aesni;
 } gxhash_state;
 
 
@@ -31,9 +33,9 @@ extern "C" {
 
 // Only last call is allowed to have unaligned size
 void gxhash_stream(const uint8_t *input, size_t len, gxhash_state *state);
-void gxhash(const uint8_t *input, size_t len, char *dst, size_t result_len, uint32_t hash_seed);
+void gxhash(const uint8_t *input, size_t len, char *dst, size_t result_len, uint32_t hash_seed, bool use_aesni);
 void gxhash_finish(gxhash_state *);
-void gxhash_init(gxhash_state *, uint32_t hash_seed);
+void gxhash_init(gxhash_state *, uint32_t hash_seed, bool use_aesni);
 
 #if defined (__cplusplus)
 }

@@ -111,10 +111,11 @@ struct checksum_t {
     std::array<char, 16> result();
     uint64_t result64();
     uint32_t hash_seed{};
+    bool use_aesni;
 };
 
 void checksum(const char *data, size_t len, checksum_t *t);
-void checksum_init(checksum_t *t, uint32_t hash_seed);
+void checksum_init(checksum_t *t, uint32_t hash_seed, bool use_aesni);
 STRING abs_path(const STRING& source);
 bool exists(const STRING& file);
 bool is_dir(const STRING& path);
