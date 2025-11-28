@@ -156,6 +156,28 @@ TEST_CASE("hash basic") {
 
 }
 
+TEST_CASE("hash streaming remainder bug") {
+    bool use_aesni = false;
+    checksum_t t1;
+    checksum_t t2;
+    checksum_init(&t1, 0, use_aesni);
+    checksum_init(&t2, 0, use_aesni);
+
+    std::string s1("a", 16 * 8);
+    std::string s2("b", 16 * 8);
+
+    checksum(s1.c_str(), s1.size(), &t1);
+    checksum((char *)"a", 1, &t1);
+    auto result1 = t1.result64();
+
+    checksum(s2.c_str(), s2.size(), &t2);
+    checksum((char *)"a", 1, &t2);
+    auto result2 = t2.result64();
+
+    REQUIRE(result1 != result2);
+}
+
+
 TEST_CASE("hash aes-ni emulation") {
 
     std::string buf(8*1024, ' ');
