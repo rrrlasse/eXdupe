@@ -338,7 +338,7 @@ void gxhash_stream(const uint8_t* input, size_t len, gxhash_state* state) {
     assert(len == 0 || state->read % (VECTOR_SIZE * UNROLL_FACTOR) == 0);
     state->read += len;
 
-    if (len <= VECTOR_SIZE) {
+    if (len <= VECTOR_SIZE && state->read == 0) {
         state->internal_state = get_partial(v, len);
         return;
     }
