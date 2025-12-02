@@ -324,6 +324,9 @@ pair<time_ms_t, time_ms_t> get_date(const STRING &file) {
         modified.HighPart = findData.ftLastWriteTime.dwHighDateTime;
         FindClose(hFind);
     }
+    if (created.QuadPart == 0) {
+        return {};
+    }
     return {static_cast<time_ms_t>((created.QuadPart - 116444736000000000ull) / 10000ull), static_cast<time_ms_t>((modified.QuadPart - 116444736000000000ull) / 10000ull)};
 #else
     struct stat attrib;

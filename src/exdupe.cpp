@@ -294,6 +294,7 @@ std::atomic<int> aborted = 0;
 
 #ifdef _WIN32
 void abort(bool b, retvals ret, const std::wstring &s) {
+    std::lock_guard<std::mutex> lg(abort_mutex);
     if (!aborted && b) {
         aborted = static_cast<int>(ret);
         statusbar.print(0, L("%s"), s.c_str());
@@ -304,6 +305,7 @@ void abort(bool b, retvals ret, const std::wstring &s) {
 #endif
 
 void abort(bool b, retvals ret, const std::string &s) {
+    std::lock_guard<std::mutex> lg(abort_mutex);
     if (!aborted && b) {
         aborted = static_cast<int>(ret);
         STRING w = STRING(s.begin(), s.end());
@@ -314,6 +316,7 @@ void abort(bool b, retvals ret, const std::string &s) {
 
 // todo, legacy
 void abort(bool b, const CHR *fmt, ...) {
+    std::lock_guard<std::mutex> lg(abort_mutex);
     if (!aborted && b) {
         aborted = 1;
         vector<CHR> buf;
@@ -515,18 +518,17 @@ uint64_t belongs_to(uint64_t offset) {
 
 uint64_t read_header(FILE *file, uint64_t *lastgood) {
     string header = io.read_bin_string(8, file);
-
+    abort(!header.starts_with("EXDUPE"), L("File is not an eXdupe archive, or archive is corrupted"));
     char major = io.read_ui<uint8_t>(file);
     char minor = io.read_ui<uint8_t>(file);
     char revision = io.read_ui<uint8_t>(file);
     char dev = io.read_ui<uint8_t>(file);
-    (void)dev;
 
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-    abort(major != VER_MAJOR, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}. Please use %d.x.x on it", major, minor, revision, major));
-    abort(dev != VER_DEV, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}.dev-{}. Please use the exact same version on it", major, minor, revision, dev));
+    abort(major != VER_MAJOR, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}. Please use {}.x.x on it", (int)major, (int)minor, (int)revision, major));
+    abort(dev != VER_DEV, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}.dev-{}. Please use the exact same version on it", (int)major, (int)minor, (int)revision, (int)dev));
 
     hash_seed = io.read_ui<uint32_t>(file);
 
@@ -944,6 +946,7 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
         f = io.open(file.c_str(), mode);
         abort(!f && abortfail && mode == 'w', L("Error creating file: %s"), slashify(file2).c_str());
         abort(!f && abortfail && mode == 'r', L("Error opening file for reading: %s"), slashify(file2).c_str());
+        abort(!f && abortfail && mode == 'a', L("Error opening file for append: %s"), slashify(file2).c_str());
     }
 
     return f;
@@ -2625,7 +2628,6 @@ void main_compress() {
     if (diff_flag) {
         output_file = full;
         ifile = try_open(full.c_str(), 'a', true);
-        abort(!ifile, L("Error opening archive file %s"), full.c_str());
         io.seek(ifile, 0, SEEK_END);
         original_file_size = io.tell(ifile);
         io.seek(ifile, 0, SEEK_SET);
@@ -2802,32 +2804,32 @@ int main(int argc2, char *argv2[])
     _setmode(_fileno(stderr), _O_U8TEXT);
 #endif
 
-    tidy_args(argc2, argv2);
-    parse_flags();
-    statusbar.m_verbose_level = verbose_level;
-
-    if (argc == 1) {
-        print_usage(false);
-        return 0;
-    }
-    if (usage_flag) {
-        print_usage(true);
-        return 0;
-    }
-    if (lua_help_flag) {
-        print_lua_help();
-        return 0;
-    }
-    if (e_help_flag) {
-        print_e_help();
-        return 0;
-    }
-    if (build_info_flag) {
-        print_build_info();
-        return 0;
-    }
-
     try {
+        tidy_args(argc2, argv2);
+        parse_flags();
+        statusbar.m_verbose_level = verbose_level;
+
+        if (argc == 1) {
+            print_usage(false);
+            return 0;
+        }
+        if (usage_flag) {
+            print_usage(true);
+            return 0;
+        }
+        if (lua_help_flag) {
+            print_lua_help();
+            return 0;
+        }
+        if (e_help_flag) {
+            print_e_help();
+            return 0;
+        }
+        if (build_info_flag) {
+            print_build_info();
+            return 0;
+        }
+
         parse_files();
 
         if (list_flag) {
