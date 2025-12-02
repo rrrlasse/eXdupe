@@ -1282,7 +1282,7 @@ void add_item(const STRING &item) {
 }
 
 void parse_files(void) {
-    if (compress_flag && !diff_flag) {
+    if (compress_flag) {
         for (int i = flags_exist + 1; i < argc - 1; i++) {
             add_item(argv.at(i));
         }
@@ -1296,29 +1296,7 @@ void parse_files(void) {
 
         abort(inputfiles.at(0) == L("-stdout") || name == L("-stdin") || full == L("-stdin") || (inputfiles.at(0) == L("-stdin") && argc < 3 + flags_exist) || (inputfiles.at(0) != L("-stdin") && argc < 3 + flags_exist),
               L("Syntax error in source or destination. "));
-    } else if (compress_flag && diff_flag) {
-        // exdupe -D -stdin full diff < payload.txt
-        for (int i = flags_exist + 1; i < argc - 1; i++) {
-            add_item(argv.at(i));
-        }
-
-        abort(argc - 1 < flags_exist + 2, L("Missing arguments. "));
-        full = argv.at(argc - 1);
-
-        if (inputfiles.at(0) == L("-stdin")) {
-            abort(argc - 1 < flags_exist + 3, L("Missing arguments. "));
-            name = argv.at(flags_exist + 1);
-        }
-        abort(inputfiles.at(0) == L("-stdin") && argc < 4 + flags_exist, L(".full file from -stdin not supported. "));
-
-        abort(full == L("-stdin"), L(".full file from -stdin not supported. "));
-
-        abort(full == L("-stdout") || (inputfiles.at(0) == L("-stdin") && argc < 2 + flags_exist) || (inputfiles.at(0) != L("-stdin") && argc < 3 + flags_exist),
-              L("Syntax error in source or destination. "));
-
-        abort(inputfiles.at(0) == L("-stdin") && argc - 1 > flags_exist + 3, L("Too many arguments. "));
-
-    } else if (!compress_flag && !diff_flag && !list_flag) {
+    } else if (!compress_flag && !list_flag) {
         abort(argc - 1 < flags_exist + 2, L("Missing arguments. "));
         full = argv.at(1 + flags_exist);
         directory = argv.at(2 + flags_exist);
@@ -1331,22 +1309,9 @@ void parse_files(void) {
 
         abort(directory == L("-stdout") && full == L("-stdin"), L("Restore with both -stdin and -stdout is not supported. One must be a seekable device. "));
         abort(full == L("-stdout") || directory == L("-stdin") || argc < 3 + flags_exist, L("Syntax error in source or destination. "));
-    } else if (!compress_flag && diff_flag && !list_flag) {
-        abort(argc - 1 < flags_exist + 3, L("Missing arguments. "));
-        full = argv.at(1 + flags_exist);
-        directory = argv.at(3 + flags_exist);
-
-        abort(full == L("-stdin"), L("-stdin is not supported for restoring differential backup. "));
-
-        for (int i = 0; i < argc - 4 - flags_exist; i++) {
-            restorelist.push_back(argv.at(i + 4 + flags_exist));
-        }
-
-        abort(full == L("-stdout") || (full == L("-stdin")) || (argc < 4 + flags_exist), L("Syntax error in source or destination. "));
     } else if (list_flag) {
-        abort(!diff_flag && argv.size() < 3, L("Specify a full file. "));
-        abort(!diff_flag && argv.size() > 4, L("Too many arguments. "));
-        abort(diff_flag && argv.size() != 4, L("Specify both a full and a diff file. "));
+        abort(argv.size() < 3, L("Specify a backup file. "));
+        abort(argv.size() > 3, L("Too many arguments. "));
         full = argv.at(1 + flags_exist);
     }
 
@@ -1381,7 +1346,7 @@ Create first backup:
   exdupe [flags] <sources | -stdin> <backup file | -stdout>
 
 Add incremental backup:
-  exdupe [flags] <sources> <backup file>
+  exdupe [flags] <sources | -stdin> <backup file>
 
 Show available backup sets:
   exdupe -L <backup file>
@@ -1390,7 +1355,8 @@ Show contents of backup set:
   exdupe -L# <backup file>
 
 Restore backup set:
-  exdupe -R# [flags] <backup file> <dest dir> [items]
+  exdupe -R# [flags] <backup file | -stdin> <dest dir> [items]
+  exdupe -R# [flags] <backup file> <dest dir | -stdout> [items]
 
 Show build info: -B
 
@@ -1404,8 +1370,8 @@ Flags:
        have changed (default is to look at timestamps only).
    -t# Use # threads (default = 8)
    -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per )" + std::to_string(max_payload) + R"( GB 
-       of data in a single backup set for best result. Use -m# to specify MB
-       instead. Differential backups will use the same memory as the initial
+       of data in one backup set for best result. Use -m# to specify MB
+       instead. Differential backups will use the same memory as the first
        backup
    -x# Use compression level # after deduplication (0, 1 = default, 2, 3). Level
        0 means no compression and lets you apply your own
@@ -1436,20 +1402,20 @@ More examples:
   exdupe [flags] <sources | -stdin> <backup file | -stdout>
 
 Add incremental backup:
-  exdupe [flags] <sources> <backup file>
+  exdupe [flags] <sources | -stdin> <backup file>
 
 Show available backup sets:
   exdupe -L <backup file>
 
 Restore backup set:
-  exdupe -R# [flags] <backup file> <dest dir>
+  exdupe -R# [flags] <backup file | -stdin> <dest dir>
+  exdupe -R# [flags] <backup file> <dest dir | -stdout>
 
 A few flags:
   -f Overwrite existing files
   -c Continue if a source file cannot be read (default is to abort)
  -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per )" + std::to_string(max_payload) + R"( GB of
-     data in a single backup set for best result. Differential backups 
-     will use the same memory as the initial backup
+     data in one backup set for best result
  -x# Use compression level # after deduplication (0, 1 = default, 2, 3)
   -? Show complete help)";
  
