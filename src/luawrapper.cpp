@@ -204,7 +204,7 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
     
 #ifdef _WIN32
     SetConsoleOutputCP(old_cp);
-    _setmode(_fileno(stderr), _O_U16TEXT);
+    _setmode(_fileno(stderr), _O_U8TEXT);
 #endif
 
     bool result = lua_toboolean(L, -1);

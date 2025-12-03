@@ -2808,24 +2808,22 @@ int main(int argc2, char *argv2[])
 
         parse_files();
 
+        if (directory == L("-stdout") || full == L("-stdout")) {
+            _setmode(_fileno(stdout), _O_BINARY);
+            statusbar.use_cerr();
+        }
+        else {
+            _setmode(_fileno(stdout), _O_U8TEXT);
+        }
+
         if (list_flag) {
             list_contents();
             return 0;
         } 
         
         if (restore_flag) {
-            if (directory == L("-stdout")) {
-                fflush(stdout);
-                _setmode(_fileno(stdout), _O_BINARY);
-                statusbar.use_cerr();
-            }
             main_restore();
         } else if (compress_flag) {
-            if (full == L("-stdout")) {
-                fflush(stdout);
-                _setmode(_fileno(stdout), _O_BINARY);
-                statusbar.use_cerr();
-            }
             main_compress();
         }
 
