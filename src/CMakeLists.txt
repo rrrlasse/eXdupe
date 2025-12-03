@@ -55,6 +55,13 @@ add_subdirectory(test)
 target_link_libraries(exdupe PRIVATE libexdupe)
 target_link_libraries(exdupe PRIVATE lua_static)
 
+target_compile_definitions(test PRIVATE
+    APP_PATH=\"$<TARGET_FILE:exdupe>\"
+)
+target_compile_definitions(test PRIVATE
+    SRC_PATH="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
 execute_process(
     COMMAND git rev-parse --abbrev-ref HEAD
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}

@@ -45,11 +45,9 @@ bool win = false;
 string nul = "2>/dev/null";
 #endif
 
-// Please customize, use "/" for path delimitors on Windows
-// Do NOT use the ~ character in any path
-string root = win ? "e:/exdupe" : "/mnt/hgfs/E/exdupe"; // the dir that contains README.md
-string work = win ? "e:/exdupe/tmp" : "/home/me/out/tmp"; // tests will read and write here, it must support symlinks
-string bin = win ? "e:/exdupe/exdupe.exe" : "/home/me/out/exdupe";
+string root = filesystem::path(APP_PATH).parent_path().string();
+string work = root + "tmp";
+string bin = APP_PATH;
 
 // No need to edit
 string tmp = work + "/tmp";
@@ -57,7 +55,7 @@ string in = tmp + "/in";
 string out = tmp + "/out";
 string full = tmp + "/full";
 string diff = tmp + "/diff";
-string testfiles = root + "/test/testfiles";
+string testfiles = string(SRC_PATH) + "/../test/testfiles";
 string diff_tool = win ? root + "/test/diffexe/diff.exe" : "diff";
 
 #ifdef _WIN32
@@ -157,7 +155,7 @@ string p(string path) {
 
 void rm(string path) {
     path = p(path);
-    REQUIRE((path.find("/tmp/") != string::npos || path.find("\\tmp\\") != string::npos));
+    REQUIRE((path.find("/tmp") != string::npos || path.find("\\tmp") != string::npos));
     if (win) {
         // fs::is_link() doesn't work for broken link to directory
         sys("rmdir /q/s", path, nul);
