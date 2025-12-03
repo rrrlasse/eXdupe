@@ -28,6 +28,7 @@ using std::string;
 #define STRLEN wcslen
 #define OSTREAM std::wostream
 #define CERR std::wcerr
+#define COUT std::wcout
 #define PATHDELIMS "/\\"
 #else
 #define SPRINTF sprintf
@@ -42,5 +43,6 @@ using std::string;
 #define STRLEN strlen
 #define OSTREAM std::ostream
 #define CERR std::cerr
+#define COUT std::cout
 #define PATHDELIMS "/"
 #endif

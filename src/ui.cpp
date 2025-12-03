@@ -12,6 +12,8 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <io.h>
+#include <fcntl.h>
 #else
 #include <termios.h>
 #include <unistd.h>
@@ -38,7 +40,7 @@ int GetHorizontalCursorPosition() {
 }
 }
 
-Statusbar::Statusbar(OSTREAM &os) : m_os(os), m_tmp(10000, CHR('c')) {}
+Statusbar::Statusbar(OSTREAM *os) : m_os(os), m_tmp(10000, CHR('c')) {}
 
 void Statusbar::clear_line() {
     std::lock_guard<std::recursive_mutex> lg(screen_mutex);
@@ -47,7 +49,7 @@ void Statusbar::clear_line() {
         cursor = m_term_width;
     }
     STRING blank_line(cursor, ' ');
-    m_os << L("\r") << blank_line << L("\r"); 
+    *m_os << L("\r") << blank_line << L("\r"); 
 };
 
 // If is_message, then treat path as a status message and don't prepend a path to it
@@ -99,7 +101,7 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
         if (v3 && m_lastpath != path) {
             m_lastpath = path;
             line += path;
-            m_os << (is_message ? L("") : L("  ")) << path << L("\n");
+            *m_os << (is_message ? L("") : L("  ")) << path << L("\n");
         } else if (!v3) {
             clear_line();
             if (path.size() > maxpath) {
@@ -109,7 +111,7 @@ void Statusbar::update(status_t status, uint64_t read, uint64_t written, STRING 
                 path = path.substr(0, maxpath - 2) + L("..");
             }
             line += path;
-            m_os << line;
+            *m_os << line;
         }
     }
     
@@ -126,7 +128,7 @@ void Statusbar::print(int verbosity, const CHR *fmt, ...) {
         STRING s = STRING(m_tmp.data());
         va_end(argv);
         clear_line();
-        m_os << s << L("\n");
+        *m_os << s << L("\n");
     }
 }
 
@@ -139,6 +141,14 @@ void Statusbar::print_no_lf(int verbosity, const CHR *fmt, ...) {
         rassert(printed < m_tmp.size() - 1);
         STRING s = STRING(m_tmp.data());
         va_end(argv);
-        m_os << s;
+        *m_os << s;
     }
+}
+
+void Statusbar::use_cerr() {
+    m_os = &CERR;
+}
+
+void Statusbar::use_cout() {
+    m_os = &COUT;
 }

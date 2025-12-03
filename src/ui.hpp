@@ -16,12 +16,14 @@
 
 class Statusbar {
   public:
-    Statusbar(OSTREAM& os = CERR);
+    Statusbar(OSTREAM* os = &CERR);
     void print(int verbosity, const CHR *fmt, ...);
     void print_no_lf(int verbosity, const CHR *fmt, ...);
     void update(status_t status, uint64_t read, uint64_t written, STRING path, bool no_delay = false, bool is_message = false);
     void print_abort_message(const CHR *fmt, ...);
     void clear_line();
+    void use_cerr();
+    void use_cout();
 
     int m_verbose_level{};
     STRING m_base_dir;
@@ -30,7 +32,7 @@ class Statusbar {
 private:
     STRING m_lastpath;
     uint64_t m_last_file_print{};
-    OSTREAM& m_os;
+    OSTREAM* m_os;
     std::vector<CHR> m_tmp;
     std::recursive_mutex screen_mutex;
 };
