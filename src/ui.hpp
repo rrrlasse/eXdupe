@@ -16,7 +16,7 @@
 
 class Statusbar {
   public:
-    Statusbar(OSTREAM* os = &CERR);
+    Statusbar(OSTREAM* os = &COUT);
     void print(int verbosity, const CHR *fmt, ...);
     void print_no_lf(int verbosity, const CHR *fmt, ...);
     void update(status_t status, uint64_t read, uint64_t written, STRING path, bool no_delay = false, bool is_message = false);
@@ -24,6 +24,7 @@ class Statusbar {
     void clear_line();
     void use_cerr();
     void use_cout();
+    std::recursive_mutex &get_screen_mutex();
 
     int m_verbose_level{};
     STRING m_base_dir;

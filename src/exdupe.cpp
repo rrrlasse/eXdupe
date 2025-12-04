@@ -2314,7 +2314,7 @@ bool lua_test(STRING path, const STRING &script, bool top_level) {
     } else {
         ext = L("");
     }
-    return execute(script, path, type, name, size, ext, attrib, date, top_level);
+    return execute(script, path, type, name, size, ext, attrib, date, top_level, statusbar);
 }
 
 bool include(const STRING &name, bool top_level) {
@@ -2777,8 +2777,6 @@ int main(int argc2, char *argv2[])
     _setmode(_fileno(stderr), _O_U8TEXT);
 #endif
 
-    statusbar.use_cout();
-
     try {
         tidy_args(argc2, argv2);
         parse_flags();
@@ -2809,11 +2807,15 @@ int main(int argc2, char *argv2[])
         parse_files();
 
         if (directory == L("-stdout") || full == L("-stdout")) {
+#ifdef _WIN32
             _setmode(_fileno(stdout), _O_BINARY);
+#endif
             statusbar.use_cerr();
         }
         else {
+#ifdef _WIN32
             _setmode(_fileno(stdout), _O_U8TEXT);
+#endif
         }
 
         if (list_flag) {

@@ -100,7 +100,7 @@ std::string utf8e(const STRING &str) {
 }
 
 
-bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t size, STRING ext2, [[maybe_unused]] uint32_t attrib, time_ms_t date, bool top_level) {
+bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t size, STRING ext2, [[maybe_unused]] uint32_t attrib, time_ms_t date, bool top_level, Statusbar& statusbar) {
     user_script = utf8e(user_script2);
     string path = utf8e(remove_delimitor(path2));
     string name = utf8e(name2);
@@ -145,67 +145,71 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
 
     }
 
+
+    {
 #ifdef _WIN32
-    _setmode(_fileno(stderr), _O_TEXT);
-    UINT old_cp = GetConsoleOutputCP();
-    SetConsoleOutputCP(65001);
+      //  std::lock_guard<std::recursive_mutex> lg(statusbar.get_screen_mutex());
+       // _setmode(_fileno(stderr), _O_TEXT);
+        //   UINT old_cp = GetConsoleOutputCP();
+        //   SetConsoleOutputCP(65001);
 #endif
 
-    lua_getglobal(L, "include");
-    lua_pushboolean(L, type == FILE_TYPE);
-    lua_pushboolean(L, type == SYMLINK_TYPE);
-    lua_pushboolean(L, type == DIR_TYPE);
-    lua_pushboolean(L, top_level);
-    lua_pushstring(L, escape_lua_string(path).c_str());
-    lua_pushstring(L, escape_lua_string(name).c_str());
-    lua_pushinteger(L, size);
-    lua_pushstring(L, escape_lua_string(ext).c_str());
-    
-    lua_pushinteger(L, date);
-    tm t = local_time_tm(date);
-    int year = t.tm_year + 1900;
-    int month = t.tm_mon;
-    int day = t.tm_wday;
-    int hour = t.tm_hour;
-    int min = t.tm_min;
-    int sec = t.tm_sec;
-    lua_pushinteger(L, year);
-    lua_pushinteger(L, month);
-    lua_pushinteger(L, day);
-    lua_pushinteger(L, hour);
-    lua_pushinteger(L, min);
-    lua_pushinteger(L, sec);
+        lua_getglobal(L, "include");
+        lua_pushboolean(L, type == FILE_TYPE);
+        lua_pushboolean(L, type == SYMLINK_TYPE);
+        lua_pushboolean(L, type == DIR_TYPE);
+        lua_pushboolean(L, top_level);
+        lua_pushstring(L, escape_lua_string(path).c_str());
+        lua_pushstring(L, escape_lua_string(name).c_str());
+        lua_pushinteger(L, size);
+        lua_pushstring(L, escape_lua_string(ext).c_str());
+
+        lua_pushinteger(L, date);
+        tm t = local_time_tm(date);
+        int year = t.tm_year + 1900;
+        int month = t.tm_mon;
+        int day = t.tm_wday;
+        int hour = t.tm_hour;
+        int min = t.tm_min;
+        int sec = t.tm_sec;
+        lua_pushinteger(L, year);
+        lua_pushinteger(L, month);
+        lua_pushinteger(L, day);
+        lua_pushinteger(L, hour);
+        lua_pushinteger(L, min);
+        lua_pushinteger(L, sec);
 
 #ifdef _WIN32
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_ARCHIVE);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_COMPRESSED);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_DEVICE);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_DIRECTORY);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_ENCRYPTED);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_HIDDEN);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_NORMAL);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_OFFLINE);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_READONLY);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_REPARSE_POINT);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_SPARSE_FILE);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_SYSTEM);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_TEMPORARY);
-    lua_pushboolean(L, attrib & FILE_ATTRIBUTE_VIRTUAL);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_ARCHIVE);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_COMPRESSED);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_DEVICE);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_DIRECTORY);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_ENCRYPTED);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_HIDDEN);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_NORMAL);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_OFFLINE);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_READONLY);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_REPARSE_POINT);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_SPARSE_FILE);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_SYSTEM);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_TEMPORARY);
+        lua_pushboolean(L, attrib & FILE_ATTRIBUTE_VIRTUAL);
 #endif
 
-    //lua_atpanic(L, lua_panic);
-    //lua_call(L, 0, 1);
+        // lua_atpanic(L, lua_panic);
+        // lua_call(L, 0, 1);
 
-    if (lua_pcall(L, 15 + winargs_count, 1, 0) != LUA_OK) {
-        abort(false, L("LUA error: %s"), s2w(lua_tostring(L, -1)).c_str());
-        return false;
+        if (lua_pcall(L, 15 + winargs_count, 1, 0) != LUA_OK) {
+            abort(false, L("LUA error: %s"), s2w(lua_tostring(L, -1)).c_str());
+            return false;
+        }
+
+#ifdef _WIN32
+        //   SetConsoleOutputCP(old_cp);
+       // _setmode(_fileno(stderr), _O_U8TEXT);
+#endif
     }
-    
-#ifdef _WIN32
-    SetConsoleOutputCP(old_cp);
-    _setmode(_fileno(stderr), _O_U8TEXT);
-#endif
 
     bool result = lua_toboolean(L, -1);
     lua_pop(L, 1);

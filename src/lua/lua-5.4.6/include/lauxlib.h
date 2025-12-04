@@ -255,6 +255,63 @@ typedef struct luaL_Stream {
 ** ===================================================================
 */
 
+#ifdef _WIN32
+#include <stdlib.h>
+#include <wchar.h>
+#include <windows.h>
+
+inline void writestring_win(char *s, int l, int flush) {
+    int len = MultiByteToWideChar(CP_UTF8, 0, s, l, NULL, 0);
+    if (len == 0)
+        return;
+
+    wchar_t *wbuf = (wchar_t *)malloc(len * sizeof(wchar_t));
+    if (!wbuf)
+        return;
+
+    if (MultiByteToWideChar(CP_UTF8, 0, s, l, wbuf, len) == 0) {
+        free(wbuf);
+        return;
+    }
+    fwrite(wbuf, sizeof(wchar_t), len, stderr);
+    free(wbuf);
+    if (flush) {
+        fflush(stderr);
+    }
+}
+
+inline void writeerr_win(const char *fmt, void *p) {
+    // first call: compute length
+    int len = snprintf(NULL, 0, fmt, p);
+    if (len < 0)
+        return;
+
+    char *out = (char *)malloc(len + 1);
+    if (!out)
+        return;
+
+    // second call: actually write the string
+    snprintf(out, len + 1, fmt, p);
+    writestring_win(out, len, 1);
+    free(out);
+}
+
+/* print a string */
+#if !defined(lua_writestring)
+#define lua_writestring(s, l) writestring_win((s), (l), 0)
+#endif
+
+/* print a newline and flush the output */
+#if !defined(lua_writeline)
+#define lua_writeline() (writestring_win("\n", 1, 1))
+#endif
+
+/* print an error message */
+#if !defined(lua_writestringerror)
+#define lua_writestringerror(s, p) (writeerr_win((s), (p)))
+#endif
+
+#else
 /* print a string */
 #if !defined(lua_writestring)
 #define lua_writestring(s,l)   fwrite((s), sizeof(char), (l), stderr)
@@ -270,7 +327,7 @@ typedef struct luaL_Stream {
 #define lua_writestringerror(s,p) \
         (fprintf(stderr, (s), (p)), fflush(stderr))
 #endif
-
+#endif
 /* }================================================================== */
 
 

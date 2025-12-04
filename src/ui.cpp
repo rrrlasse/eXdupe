@@ -152,3 +152,7 @@ void Statusbar::use_cerr() {
 void Statusbar::use_cout() {
     m_os = &COUT;
 }
+
+std::recursive_mutex& Statusbar::get_screen_mutex() {
+    return screen_mutex;
+}
