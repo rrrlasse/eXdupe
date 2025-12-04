@@ -297,6 +297,7 @@ void abort(bool b, retvals ret, const std::wstring &s) {
     std::lock_guard<std::mutex> lg(abort_mutex);
     if (!aborted && b) {
         aborted = static_cast<int>(ret);
+        statusbar.use_cerr();
         statusbar.print(0, L("%s"), s.c_str());
         CERR << std::endl << s << std::endl;
         cleanup_and_exit(ret); // todo, kill threads first
@@ -309,6 +310,7 @@ void abort(bool b, retvals ret, const std::string &s) {
     if (!aborted && b) {
         aborted = static_cast<int>(ret);
         STRING w = STRING(s.begin(), s.end());
+        statusbar.use_cerr();
         statusbar.print(0, L("%s"), w.c_str());
         cleanup_and_exit(ret); // todo, kill threads first
     }
@@ -326,6 +328,7 @@ void abort(bool b, const CHR *fmt, ...) {
         VSPRINTF(buf.data(), fmt, argv);
         va_end(argv);
         STRING s(buf.data());
+        statusbar.use_cerr();
         statusbar.print(0, L("%s"), s.c_str());
         cleanup_and_exit(retvals::err_other); // todo, kill threads first
     }
@@ -2765,8 +2768,9 @@ int main(int argc2, char *argv2[])
     use_aesni = dup_is_aesni_supported();
 
 #ifdef _WIN32
+    // Warning: Apparently you can only call _setmode once for a given stream, else it will assert
+    // because it still expects the old char width. So only call it from main where it's visible
     _setmode(_fileno(stdin), _O_BINARY);
-    _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_U8TEXT);
 #endif
 
@@ -2776,8 +2780,9 @@ int main(int argc2, char *argv2[])
         statusbar.m_verbose_level = verbose_level;
 
         if (argc == 1) {
+            statusbar.use_cerr();
             print_usage(false);
-            return 0;
+            return static_cast<int>(retvals::err_parameters);
         }
         if (usage_flag) {
             print_usage(true);
@@ -2798,9 +2803,24 @@ int main(int argc2, char *argv2[])
 
         parse_files();
 
+        if (directory == L("-stdout") || full == L("-stdout")) {
+#ifdef _WIN32
+            _setmode(_fileno(stdout), _O_BINARY);
+#endif
+            statusbar.use_cerr();
+        }
+        else {
+#ifdef _WIN32
+            _setmode(_fileno(stdout), _O_U8TEXT);
+#endif
+        }
+
         if (list_flag) {
             list_contents();
-        } else if (restore_flag) {
+            return 0;
+        } 
+        
+        if (restore_flag) {
             main_restore();
         } else if (compress_flag) {
             main_compress();
@@ -2810,7 +2830,7 @@ int main(int argc2, char *argv2[])
         retval = static_cast<int>(r);
     }
     catch (std::exception& e) {
-        std::wcerr << e.what();
+        CERR << e.what();
         retval = static_cast<int>(retvals::err_std_etc);
     }
     if (aborted.load()) {
