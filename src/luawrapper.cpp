@@ -145,12 +145,6 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
 
     }
 
-#ifdef _WIN32
-    _setmode(_fileno(stderr), _O_TEXT);
-    UINT old_cp = GetConsoleOutputCP();
-    SetConsoleOutputCP(65001);
-#endif
-
     lua_getglobal(L, "include");
     lua_pushboolean(L, type == FILE_TYPE);
     lua_pushboolean(L, type == SYMLINK_TYPE);
@@ -201,11 +195,6 @@ bool execute(STRING user_script2, STRING path2, int type, STRING name2, uint64_t
         abort(false, L("LUA error: %s"), s2w(lua_tostring(L, -1)).c_str());
         return false;
     }
-    
-#ifdef _WIN32
-    SetConsoleOutputCP(old_cp);
-    _setmode(_fileno(stderr), _O_U16TEXT);
-#endif
 
     bool result = lua_toboolean(L, -1);
     lua_pop(L, 1);
