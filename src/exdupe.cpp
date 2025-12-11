@@ -1465,7 +1465,7 @@ You can use multiple -e flags such as -e"rar" -e"flac".)del";
 
 void print_lua_help() {
     std::string lua_help = R"del(You can provide a Lua script that gets called for each item during backup:
-  exdupe -u"return true" . backup.full
+  exdupe -u"return true" . backup.exd
 
 If the script returns true the item will be added, else it will be skipped.
 

@@ -36,6 +36,7 @@ void gxhash_stream(const uint8_t *input, size_t len, gxhash_state *state);
 void gxhash(const uint8_t *input, size_t len, char *dst, size_t result_len, uint32_t hash_seed, bool use_aesni);
 void gxhash_finish(gxhash_state *);
 void gxhash_init(gxhash_state *, uint32_t hash_seed, bool use_aesni);
+gxhash_register create_empty(void);
 
 #if defined (__cplusplus)
 }

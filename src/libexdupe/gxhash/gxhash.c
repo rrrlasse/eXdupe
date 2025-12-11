@@ -166,7 +166,7 @@ static inline gxhash_register finalize(gxhash_register* hash, uint32_t hash_seed
 #elif defined(GXHASH_SSE2)
 
 
-gxhash_register create_empty() {
+gxhash_register create_empty(void) {
     return _mm_setzero_si128();
 }
 

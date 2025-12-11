@@ -15,6 +15,7 @@
 #include <assert.h>
 #include <tuple>
 #include <regex>
+#include <sstream>
 
 #include "unicode.h"
 #include "utilities.hpp"

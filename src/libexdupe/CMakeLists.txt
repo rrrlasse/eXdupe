@@ -42,6 +42,10 @@ add_subdirectory(zstd/build/cmake/lib)
 
 target_link_libraries(libexdupe PRIVATE libzstd_static)
 
+if(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
+    target_link_libraries (libexdupe PRIVATE "pthread")
+endif()
+
 if (MSVC)
 	target_link_libraries(libexdupe PRIVATE libpthreadVC3)
 	target_link_libraries(libexdupe PRIVATE vssapi.lib) # Volume Shadow Copy Service
