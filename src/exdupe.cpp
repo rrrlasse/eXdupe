@@ -159,7 +159,6 @@ bool no_recursion_flag = false;
 bool restore_flag = false;
 uint32_t threads = 8;
 int flags_exist = 0;
-bool diff_flag = false;
 bool compress_flag = false;
 bool list_flag = false;
 bool named_pipes = false;
@@ -192,6 +191,7 @@ uint64_t unchanged_files = 0;
 uint64_t contents_size = 0;
 uint32_t hash_seed;
 bool use_aesni = true;
+bool incremental = false;
 
 STRING full;
 STRING directory;
@@ -778,7 +778,7 @@ bool save_directory(STRING base_dir, STRING path, bool write = false) {
 
         backup_set.push_back(c.file_id);
 
-        if (write && !diff_flag) {
+        if (write && !incremental) {
             io.write("I", 1, ofile);
             write_contents_item(ofile, c);
         }
@@ -1267,7 +1267,6 @@ void parse_flags(void) {
     abort(restore_flag && (no_recursion_flag || continue_flag), L("-R flag not compatible with -n or -c"));
     abort(restore_flag && (megabyte_flag != 0 || gigabyte_flag != 0), L("-m and -t flags not applicable to restore (no memory required)"));
     abort(restore_flag && (threads_flag != 0), L("-t flag not supported for restore"));
-    abort(diff_flag && compress_flag && (megabyte_flag != 0 || gigabyte_flag != 0), L("-m and -t flags not applicable to differential backup (uses same memory as full)"));
 }
 
 void add_item(const STRING &item) {
@@ -1374,7 +1373,7 @@ Flags:
    -t# Use # threads (default = 8)
    -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per )" + std::to_string(max_payload) + R"( GB 
        of data in one backup set for best result. Use -m# to specify MB
-       instead. Differential backups will use the same memory as the first
+       instead. Incremental backups will use the same memory as the first
        backup
    -x# Use compression level # after deduplication (0, 1 = default, 2, 3). Level
        0 means no compression and lets you apply your own
@@ -1397,8 +1396,8 @@ Example of backup, incremental backups and restore:
   exdupe -R1 backup.exd restore_dir
 
 More examples:
-  exdupe -t12 -g8 dir1 dir2 backup.full
-  exdupe -R0 backup.full restore_dir dir2%/file.txt
+  exdupe -t12 -g8 dir1 dir2 backup.exd
+  exdupe -R0 backup.exd restore_dir dir2%/file.txt
   exdupe file.txt -stdout | exdupe -R0 -stdin restore_dir)";
 
     std::string short_help = R"(Create first backup:
@@ -1632,7 +1631,7 @@ void create_symlink(STRING path, contents_t c) {
 }
 
 void ensure_relative(const STRING &path) {
-    STRING s = STRING(L("Archive contains absolute paths. Add a [files] argument. ")) + STRING(diff_flag ? STRING() : STRING());
+    STRING s = STRING(L("Archive contains absolute paths. Add a [files] argument. ")) + STRING(incremental ? STRING() : STRING());
     // TODO: Not the best method
 #ifdef _WIN32
     bool b = (path.size() >= 2 && path.substr(0, 2) == L("\\\\")) || path.find_last_of(L(":")) != string::npos;
@@ -2097,7 +2096,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
     uint64_t file_read = 0;   
 
 #if 1 // Detect files that are unchanged between full and diff backup, by comparing created and last-modified timestamps
-    if (!no_timestamp_flag && diff_flag && input_file != L("-stdin")) {
+    if (!no_timestamp_flag && incremental && input_file != L("-stdin")) {
         auto c = untouched_files2.exists(input_file, filename, file_time);
         if(c) {
             auto _ = std::lock_guard(compress_file_mutex);
@@ -2174,7 +2173,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
             file_meta.hash = cont.value().hash;
             file_meta.duplicate = cont.value().file_id;
 
-            if (!diff_flag) {
+            if (!incremental) {
                 // todo clear abs_path?
                 io.write("U", 1, ofile);
                 write_contents_item(ofile, file_meta);
@@ -2197,7 +2196,7 @@ void compress_file(const STRING& input_file, const STRING& filename, int attribu
 
     checksum_init(&file_meta_ct, hash_seed, use_aesni);
 
-    if(!diff_flag) {
+    if(!incremental) {
         io.write("F", 1, ofile);
         contents_t tmp = file_meta;
         tmp.abs_path.clear(); // todo why is this cleared?
@@ -2534,7 +2533,7 @@ void print_statistics(uint64_t start_time, uint64_t end_time, uint64_t end_time_
     s << "Speed:                       " << w2s(del(backup_set_size() / ((end_time - start_time) + 1) * 1000 / 1024 / 1024)) << " MB/s\n";
     s << "Speed w/o init overhead:     " << w2s(del(backup_set_size() / ((end_time_without_overhead - start_time_without_overhead) + 1) * 1000 / 1024 / 1024)) << " MB/s\n";
 
-    if (diff_flag) {
+    if (incremental) {
         s << "Stored as untouched files:   " << suffix(unchanged) << "B in " << w2s(del(unchanged_files)) << " files\n";
     }
     s << "Stored as duplicated files:  " << suffix(identical) << "B in " << w2s(del(identical_files_count)) << " files\n";
@@ -2591,10 +2590,10 @@ void main_compress() {
     }
 
     if (full != L("-stdout") && !force_flag && std::filesystem::exists(full)) {
-        diff_flag = true;
+        incremental = true;
     }
 
-    if (diff_flag) {
+    if (incremental) {
         output_file = full;
         ifile = try_open(full.c_str(), 'a', true);
         io.seek(ifile, 0, SEEK_END);
@@ -2608,13 +2607,13 @@ void main_compress() {
         bool was_killed = !read_headers(ifile);
 
         hashtable = malloc(memory_usage);
-        abort(!hashtable, retvals::err_memory, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
+        abort(!hashtable, retvals::err_memory, format("Out of memory. This incremental backup requires {} MB. Try -t1 flag", memory_usage >> 20));
         //memset(hashtable, 0, memory_usage);
         pay_count = read_chunks(ifile); // read size in bytes of user payload in .full file
 
         int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_seed, pay_count);
-        abort(r == 1, retvals::err_memory, format("Out of memory. This differential backup requires {} MB. Try -t1 flag", memory_usage >> 20));
-        abort(r == 2, retvals::err_memory, format("Error creating threads. This differential backup requires {} MB memory. Try -t1 flag", memory_usage >> 20));
+        abort(r == 1, retvals::err_memory, format("Out of memory. This incremental backup requires {} MB. Try -t1 flag", memory_usage >> 20));
+        abort(r == 2, retvals::err_memory, format("Error creating threads. This incremental backup requires {} MB memory. Try -t1 flag", memory_usage >> 20));
 
         // Accumulated payload of initial backup + all incrementals
         basepay = pay_count;
@@ -2724,7 +2723,7 @@ void main_restore() {
     if (full != L("-stdin")) {
         // Restore from file.
         // =================================================================================================
-        if (diff_flag) {
+        if (incremental) {
             FILE *ffull = try_open(full, 'r', true);
             read_header(ffull, nullptr); // inits sets
             init_content_maps(ffull);
@@ -2747,7 +2746,7 @@ void main_restore() {
         io.read(tmp2, 8, ifile, true);
 
         restore::restore_from_stdin(s);
-        rassert(!diff_flag);
+        rassert(!incremental);
         wrote_message(io.write_count, files);
 
         // read remainder of file like content section, etc, to avoid error from OS
