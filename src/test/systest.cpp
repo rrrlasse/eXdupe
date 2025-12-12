@@ -46,7 +46,7 @@ string nul = "2>/dev/null";
 #endif
 
 string root = filesystem::path(APP_PATH).parent_path().string();
-string work = root + "tmp";
+string work = root + "/tmp";
 string bin = APP_PATH;
 
 // No need to edit
@@ -269,6 +269,11 @@ bool cmp_meta() {
         if (d == ".d..t...... ./\n") {
             d = "";
         }
+
+        if (d == ".d..t....... ./\n") {
+            d = "";
+        }
+
         if (!d.empty()) {
             cerr << "\n[" << d << "]\n";
         }
@@ -285,9 +290,6 @@ bool cmp(bool check = true) {
         ret = cmp_diff() && cmp_meta();
     }
     if (check) {
-        if (!ret) {
-            exit(1);
-        }
         REQUIRE(ret);
     }
     return ret;
@@ -863,6 +865,15 @@ TEST_CASE("absolute paths with -h flag") {
     }
 }
 
+TEST_CASE("add to aborted") {
+    clean();
+    pick("a");
+    ex("-m1", in, full);
+    ex("-m1", in, in + "/non-existant-to-trigger-abort", full);
+    ex("-m1", in, full);
+    ex("-R1", full, out);
+    cmp_diff();
+}
 
 #ifndef _WIN32
 TEST_CASE("lua unix filenames") {
