@@ -2480,9 +2480,8 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
                         newdirs.push_back(dir.first + entry->d_name);
                     }
                 }
+                closedir(dir2);
             }
-
-            closedir(dir2);
 #endif
             if (dir.first != L("")) {
                 dirs++;
@@ -2596,9 +2595,6 @@ void main_compress() {
     if (incremental) {
         output_file = full;
         ifile = try_open(full.c_str(), 'a', true);
-        io.seek(ifile, 0, SEEK_END);
-        original_file_size = io.tell(ifile);
-        io.seek(ifile, 0, SEEK_SET);
         ofile = ifile;
 
         memory_usage = read_header(ifile, &lastgood); // also inits hash_seed and sets
@@ -2626,6 +2622,8 @@ void main_compress() {
         }
 
         if (!was_killed) {
+            io.seek(ifile, 0, SEEK_END);
+            original_file_size = io.tell(ifile);
             read_hashtable(ifile);
             seek_to_header(ifile, hashtable_header);
             io.seek(ifile, -8, SEEK_CUR);
@@ -2634,6 +2632,7 @@ void main_compress() {
             // eXdupe was killed during last incremental backup
             io.seek(ifile, lastgood, SEEK_SET);
             io.truncate(ifile);
+            original_file_size = io.tell(ifile);
         }
 
     } else {

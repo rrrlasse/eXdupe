@@ -84,7 +84,9 @@ bool is_valid_utf8(const std::string& input) {
 
 std::string suffix(uint64_t size, bool column) {
     string ret;
-
+    if (size > 1ULL << 50) {
+        size = 0;
+    }
     if (size <= 999) {
         ret = std::to_string(size) + (!column ? " " : "");
         if (column && ret.size() < 6) {
