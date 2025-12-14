@@ -799,6 +799,7 @@ uint64_t checksum64(const void *src, size_t len, uint32_t hash_seed, int use_aes
 }
 
 size_t write_hashtable(FILE *file) {
+
     size_t t = dup_compress_hashtable(memory_begin);
     io.write(hashtable_header.c_str(), hashtable_header.size(), file);
     io.write_ui<uint64_t>(t, file);
@@ -813,11 +814,6 @@ size_t write_hashtable(FILE *file) {
 uint64_t read_hashtable(FILE *file) {
     uint64_t orig = seek_to_header(file, hashtable_header);
     uint64_t s = io.read_ui<uint64_t>(file);
-    if (verbose_level > 0) {
-        statusbar.clear_line();
-        statusbar.update(BACKUP, 0, 0, (STRING() + L("Reading hashtable from backup...\r")).c_str(), false, true);
-    }
-
     io.read(memory_end - s, s, file);
     uint64_t crc = io.read_ui<uint64_t>(file);
     uint64_t crc2 = checksum64(memory_end - s, s, hash_seed, use_aesni);
@@ -2596,7 +2592,10 @@ void main_compress() {
         output_file = full;
         ifile = try_open(full.c_str(), 'a', true);
         ofile = ifile;
-
+        if (verbose_level > 0) {
+            statusbar.clear_line();
+            statusbar.update(BACKUP, 0, 0, (STRING() + L("Reading metadata...\r")).c_str(), true, true);
+        }
         memory_usage = read_header(ifile, &lastgood); // also inits hash_seed and sets
         
         // todo, function names and what they return are not descriptive
@@ -2613,7 +2612,6 @@ void main_compress() {
 
         // Accumulated payload of initial backup + all incrementals
         basepay = pay_count;
-
         contents = read_contents(ifile);
         for (auto c : contents) {
             c.abs_path = CASESENSE(c.abs_path);
@@ -2682,6 +2680,11 @@ void main_compress() {
     write_contents_added(ofile);
 
     commit();
+
+    if (verbose_level > 0) {
+        statusbar.clear_line();
+        statusbar.update(BACKUP, backup_set_size(), io.write_count, (STRING() + L("Writing metadata...\r")).c_str(), true, true);
+    }
 
     if (!aborted) {
         time_ms_t d = cur_date();
