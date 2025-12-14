@@ -301,32 +301,38 @@ pair<time_ms_t, time_ms_t> get_date(const STRING &file) {
 #ifdef _WIN32
     ULARGE_INTEGER modified;
     ULARGE_INTEGER created;
-    HANDLE hFile = CreateFile(file.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
-    if (hFile != INVALID_HANDLE_VALUE) {
-        FILETIME fileTimeModified;
-        FILETIME fileTimeCreated;
-        if (GetFileTime(hFile, &fileTimeCreated, nullptr, &fileTimeModified)) {
-            created.LowPart = fileTimeCreated.dwLowDateTime;
-            created.HighPart = fileTimeCreated.dwHighDateTime;
-            modified.LowPart = fileTimeModified.dwLowDateTime;
-            modified.HighPart = fileTimeModified.dwHighDateTime;
-        } else {
+    WIN32_FIND_DATAW findData;
+    HANDLE hFind = FindFirstFileW(file.c_str(), &findData);
+
+    if (hFind == INVALID_HANDLE_VALUE) {
+        hFind = FindFirstFileW(remove_delimitor(file).c_str(), &findData);
+    }
+    if (hFind == INVALID_HANDLE_VALUE) {
+        HANDLE hFile = CreateFile(file.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+        if (hFile != INVALID_HANDLE_VALUE) {
+            FILETIME fileTimeModified;
+            FILETIME fileTimeCreated;
+            if (GetFileTime(hFile, &fileTimeCreated, nullptr, &fileTimeModified)) {
+                created.LowPart = fileTimeCreated.dwLowDateTime;
+                created.HighPart = fileTimeCreated.dwHighDateTime;
+                modified.LowPart = fileTimeModified.dwLowDateTime;
+                modified.HighPart = fileTimeModified.dwHighDateTime;
+            } else {
+                CloseHandle(hFile);
+                return {};
+            }
             CloseHandle(hFile);
+        } else {
             return {};
         }
-        CloseHandle(hFile);
-    } else {
-        WIN32_FIND_DATAW findData;
-        HANDLE hFind = FindFirstFileW(file.c_str(), &findData);
-        if (hFind == INVALID_HANDLE_VALUE) {
-            return {};
-        }
+    } else {    
         created.LowPart = findData.ftCreationTime.dwLowDateTime;
         created.HighPart = findData.ftCreationTime.dwHighDateTime;
         modified.LowPart = findData.ftLastWriteTime.dwLowDateTime;
         modified.HighPart = findData.ftLastWriteTime.dwHighDateTime;
         FindClose(hFind);
     }
+
     if (created.QuadPart == 0) {
         return {};
     }
