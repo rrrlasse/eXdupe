@@ -26,7 +26,7 @@ Incremental backup after some random work inside the virtual machine:
 | **Size** | 0.77 GB  | 2.42 GB | 1.78 GB | 3.10 GB   | 1.62 GB   |
 
 ## Download
-Please try the upcoming version 4 which will soon to be released:
+Please try the upcoming version 4 which will soon be released:
 
 [exdupe4.0.0.dev9.exe](https://github.com/rrrlasse/eXdupe/releases/download/v4/exdupe4.0.0.dev9.exe)<br>
 [exdupe_4.0.0_dev9_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/releases/download/v4/exdupe_4.0.0_dev9_linux_amd64.tar.gz)
