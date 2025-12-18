@@ -323,7 +323,8 @@ typedef struct {
 
     char* source;
     char* destination;
-    size_t source_capacity;
+    char *tmp_buffer;
+    size_t tmp_buffer_size;
 
     uint64_t payload;
     size_t size_source;
@@ -359,12 +360,11 @@ char *zstd_init() {
 }
 
 
-int64_t zstd_compress(char *inbuf, size_t insize, char *outbuf, size_t outsize, int level, char *workmem) {
+int64_t zstd_compress(char *inbuf, size_t insize, char *outbuf, int level, char *workmem) {
     int zstd_level = level == 1 ? 1 : level == 2 ? 10 : 19;
     zstd_params_s *zstd_params = (zstd_params_s *)workmem;
-    size_t ret = ZSTD_compressCCtx(zstd_params->cctx, outbuf, outsize, inbuf, insize, zstd_level);
+    size_t ret = ZSTD_compressCCtx(zstd_params->cctx, outbuf, ZSTD_compressBound(insize), inbuf, insize, zstd_level);
     hits1 += insize;
-
     return ret;
 }
 
@@ -661,16 +661,19 @@ static uint32_t window(const char *src, size_t len, const char **pos) {
     }
 }
 
-// there must be LARGE_BLOCK more valid data after src + len
 const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, uint64_t *payload_ref) {
     rassert(block == LARGE_BLOCK || block == SMALL_BLOCK);
     const char *w_pos;
     const char *orig_src = src;
+    const char *end = src + len;
     const char *last_src = src + len - 1;
+
+    rassert(src + block <= end);
+
     uint32_t w = window(src, block, &w_pos);
     const char* collision = 0;
 
-    while (src <= last_src) {
+    while (src + block <= end) {
         hash_t* e;
         // CAUTION: Outside mutex, assume reading garbage and that data changes between reads
         if (w != 0 && (e = lookup(w, block == LARGE_BLOCK))) {
@@ -688,7 +691,7 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
             // This condition will exclude identical blocks that are both within the same block. This allows
             // them to be compressed much better by the LZ compressor in later steps, while also passing larger
             // blocks to LZ due to less fragmentation of the packets
-            if (e && e_cpy.offset + block < pay) {
+            if (e && e_cpy.offset + block < pay && src + block <= end) {
 #else
             if (e && e_cpy.offset + block < pay + (src - orig_src)) {
 #endif
@@ -726,6 +729,10 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
         }
 
         src++;
+        
+        if (src + block > end) {
+            return 0;
+        }
 
         if (w_pos < src) {
             w = window(src, block, &w_pos);
@@ -828,31 +835,41 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
     const char* src_orig = src;
     char* dst_orig = dst;
     const char* last = src + length - 1;
+    const char *end = src + length;
+    size_t processed = 0;
 
-    while (src <= last) {
+    while (src <= end) {
+        rassert(src - src_orig == processed);
+
         uint64_t ref = 0;
         const char* match = 0;
 
-        if (src + LARGE_BLOCK - 1 <= last) {
-            match = dub(src, pay, last - src, LARGE_BLOCK, &ref);
+        if (src + LARGE_BLOCK <= end) {
+            match = dub(src, pay, end - src, LARGE_BLOCK, &ref);
+            rassert(match + LARGE_BLOCK <= end);
         }
         upto = (match == 0 ? last : match - 1);
 
         while (src <= upto) {
+            rassert(src - src_orig == processed);
+
             uint64_t ref_s = 0;
             const char* match_s = 0;
             size_t n = 0;
 
-            if (src + SMALL_BLOCK - 1 <= upto) {
+            if (src + SMALL_BLOCK <= upto) {
                 uint64_t first_ref = pay + (src - src_orig);
-                match_s = dub(src, pay, (upto - src), SMALL_BLOCK, &ref_s);
+                match_s = dub(src, pay, upto - src, SMALL_BLOCK, &ref_s);
+                rassert(match_s + SMALL_BLOCK < end);
 
                 if (match_s) {
                     n = 1;
 
                     while (true && match_s + (n + 1) * SMALL_BLOCK <= upto) {
                         uint64_t ref_s0 = 0;
-                        auto m = dub(match_s + n * SMALL_BLOCK, pay, 1, SMALL_BLOCK, &ref_s0);
+                        auto m = dub(match_s + n * SMALL_BLOCK, pay, SMALL_BLOCK, SMALL_BLOCK, &ref_s0);
+                        rassert(m + SMALL_BLOCK < end);
+
                         if (ref_s0 + SMALL_BLOCK < first_ref && m == match_s + n * SMALL_BLOCK && ref_s0 == ref_s + n * SMALL_BLOCK) {
                             n++;
                         }
@@ -865,27 +882,38 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
 
             if (n == 0) {
                 dst += write_literals(src, upto - src + 1, dst);
+                processed += upto - src + 1;
                 break;
             }
             else {
                 if (match_s - src > 0) {
                     dst += write_literals(src, match_s - src, dst);
+                    processed += match_s - src;
                 }
-                auto min = minimum<size_t>(n * SMALL_BLOCK, upto - match_s + 1);
-                dst += write_match(min, ref_s, dst);
-                src = match_s + min;
+                auto mi = minimum<size_t>(n * SMALL_BLOCK, upto - match_s + 1);
+                dst += write_match(mi, ref_s, dst);
+                processed += mi;
+                rassert(mi + ref_s < pay);
+                src = match_s + mi;
+                rassert(src - src_orig == processed);
             }
         }
 
         if (match == 0) {
+            rassert(processed == length);
             return dst - dst_orig;
         }
         else {
-            dst += write_match(minimum<size_t>(LARGE_BLOCK, last - match + 1), ref, dst);
-            src = match + LARGE_BLOCK;
+            auto mi = minimum<size_t>(LARGE_BLOCK, last - match + 1);
+            dst += write_match(mi, ref, dst);
+            processed += mi;
+            rassert(mi + ref < pay);
+            src = match + mi;
+            rassert(src - src_orig == processed);
         }
     }
 
+    rassert(processed == length);
     return dst - dst_orig;
 }
 
@@ -968,16 +996,20 @@ static void *compress_thread(void *arg) {
         pthread_mutex_unlock_wrapper(&me->jobmutex);
         chunk_t *c = (chunk_t *)me->destination;
 
+        // level 0: no LZ compression
+        // level 1: memlz - process_chunk performs it (streaming mode)
+        // level 2..4: zstd - performed here (block mode because zstd streaming mode seems to have a performance flaw)
+
         if(!me->entropy) {
-            hash_chunk(me->source, me->payload, me->size_source);            
+            hash_chunk(me->source, me->payload, me->size_source);
             me->size_destination = process_chunk(me->source, me->payload, me->size_source, c->payload);
             bool compressible = level > 0 && is_compressible(c->payload, me->size_destination);
             if (compressible) {
-                auto siz = zstd_compress(c->payload, me->size_destination, me->source, me->size_destination + 10000, level, me->zstd);
+                auto siz = zstd_compress(c->payload, me->size_destination, me->tmp_buffer, level, me->zstd);
                 stored_as_literals += me->size_destination;
                 literals_compressed_size += siz;
                 ll2str(me->size_destination, c->decompressed_size, 4);
-                memcpy(c->payload, me->source, siz);
+                memcpy(c->payload, me->tmp_buffer, siz);
                 me->size_destination = siz;
                 me->destination[0] = DUP_COMPRESSED_CHUNK;
 
@@ -996,6 +1028,9 @@ static void *compress_thread(void *arg) {
 
         }
         me->size_destination += sizeof(chunk_t);
+
+        rassert(me->size_destination <= dup_compressed_ubound(me->size_source));
+
         ll2str(me->size_destination, c->compressed_size, 4);
         pthread_mutex_lock_wrapper(&me->jobmutex);
         me->busy = false;
@@ -1077,7 +1112,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
 
         jobs[i].source = 0;
         jobs[i].destination = 0;
-        jobs[i].source_capacity = 0;
+        jobs[i].tmp_buffer_size = 0;
     }
 
     for (int i = 0; i < threads; i++) {
@@ -1109,6 +1144,12 @@ void dup_deinit(void) {
     if (jobs != 0) {
         free(jobs);
     }
+}
+
+size_t dup_compressed_ubound(size_t input) {
+    size_t zstd = ZSTD_compressBound(input);
+    size_t exdupe = 1.1 * zstd + 1024;
+    return exdupe;
 }
 
 size_t dup_size_compressed(const char *src) {
@@ -1155,7 +1196,10 @@ size_t dup_decompress_chunk(char *src, char *dst) {
     } else if (src[0] == DUP_COMPRESSED_CHUNK) {
         char *zstd_decompress_state = zstd_init();
         size_t decompressed_size = dup_chunk_size_decompressed(src);
-        char *buf = (char *)malloc(decompressed_size); // fixme err handling
+        char *buf = (char *)malloc(decompressed_size);
+        if (!buf) {
+            return dup_err_malloc;
+        }
         size_t s = zstd_decompress(src + DUP_CHUNK_HEADER_LEN, len - DUP_CHUNK_HEADER_LEN, buf, decompressed_size, 0, 0, zstd_decompress_state);
         rassert(s == decompressed_size);
         memmove(dst, buf, s);
@@ -1243,8 +1287,7 @@ uint64_t dup_get_flushed() { return flushed; }
 // dst: point to where you want the compressed result of this particular packet written to
 // if return value > 0: a compressed packet was finished and written to retval_start, and compressed
 // size equals return value. retval_start will equal one of the 'dst' pointers you passed earlier.
-// fixme: source data will be overwritten! maybe create internal buffer
-size_t dup_compress(void *src, char *dst, size_t size, uint64_t *payload_returned, bool entropy, char*&retval_start) {
+size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_returned, bool entropy, char*&retval_start) {
     size_t ret = 0;
     *payload_returned = 0;
 
@@ -1288,6 +1331,15 @@ size_t dup_compress(void *src, char *dst, size_t size, uint64_t *payload_returne
         jobs[f].entropy = entropy;
         jobs[f].source = (char*)src;
         jobs[f].destination = (char*)dst;
+        size_t ub = dup_compressed_ubound(size);
+        if (jobs[f].tmp_buffer_size < ub) {
+            free(jobs[f].tmp_buffer);
+            jobs[f].tmp_buffer = (char*)malloc(ub);
+            if (!jobs[f].tmp_buffer) {
+                return dup_err_malloc;
+            }
+            jobs[f].tmp_buffer_size = ub;
+        }
 
         pthread_cond_signal_wrapper(&jobs[f].cond);
         pthread_mutex_unlock_wrapper(&jobs[f].jobmutex);

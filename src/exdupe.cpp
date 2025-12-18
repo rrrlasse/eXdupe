@@ -657,6 +657,7 @@ vector<packet_t> get_packets(FILE* f, uint64_t base_payload, std::vector<char>& 
     size_t d = dup_chunk_size_decompressed(dst.data());
     ensure_size(dst, d);
     size_t s = dup_decompress_chunk(dst.data(), dst.data());
+    abort(s == dup_err_malloc, retvals::err_memory, "Out of memory.");
     dst.resize(s);
     auto packets = parse_packets(dst.data(), s, base_payload);
     return packets;
@@ -2056,6 +2057,7 @@ void empty_q(bool flush, bool entropy) {
 
     if (payload_queue_size[current_queue] > 0) {
         cc = dup_compress(payload_queue[current_queue].data(), out_payload_queue[out_current_queue].data(), payload_queue_size[current_queue], &pay, entropy, out_result);
+        abort(cc == dup_err_malloc, retvals::err_memory, "Out of memory. Reduce -m, -g or -t flag");
         write_result();
         current_queue = (current_queue + 1) % out_payload_queue.size();
         payload_queue_size[current_queue] = 0;
@@ -2578,9 +2580,10 @@ void main_compress() {
     file_types.add(entropy_ext);
 
     for (uint32_t i = 0; i < threads + 1; i++) {
-        compression::payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
+        size_t drc = DISK_READ_CHUNK;
+        compression::payload_queue.push_back(std::vector<char>(drc));
         compression::payload_queue_size.push_back(0);
-        compression::out_payload_queue.push_back(std::vector<char>(DISK_READ_CHUNK + M));
+        compression::out_payload_queue.push_back(std::vector<char>(dup_compressed_ubound(drc)));
         compression::out_payload_queue_size.push_back(0);
     }
 
