@@ -30,18 +30,20 @@ L cccc dddd pppppppp <data compressed with some traditional data compression>
 #define DUP_COMPRESSED_CHUNK 'C'
 #define DUP_CHUNK_HEADER_LEN 9
 
+const size_t dup_err_malloc = size_t(-1);
 
 uint64_t dup_memory(uint64_t bits);
 int dup_init(size_t large_block, size_t small_block, uint64_t memory_usage,
      int max_threadcount, void *memory, int compression_level,
      uint32_t hash_seed, uint64_t basepay);
 
-size_t dup_compress(void *src, char *dst, size_t size,
+size_t dup_compress(const void *src, char *dst, size_t size,
 		    uint64_t *payloadreturned, bool entropy, char*& retval_start);
 int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload);
 size_t dup_decompress_chunk(char *src, char *dst);
 int dup_packet_info(const char *src, size_t *length, uint64_t *payload, const char **literal);
 
+size_t dup_compressed_ubound(size_t input);
 size_t dup_size_compressed(const char *src);
 size_t dup_size_decompressed(const char *src);
 size_t dup_chunk_size_compressed(char *src);
