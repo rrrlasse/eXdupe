@@ -51,7 +51,7 @@ int Cio::close(FILE *_File) { return fclose(_File); }
 
 FILE *Cio::open(STRING file, char mode) {
     if (mode == 'r') {
-        STRING s = slashify(file);
+        STRING s = file;
         FILE *f = FOPEN(s.c_str(), L("rb"));
         return f;
     } else if (mode == 'w') {

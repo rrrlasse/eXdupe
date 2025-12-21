@@ -839,7 +839,7 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
     size_t processed = 0;
 
     while (src <= end) {
-        rassert(src - src_orig == processed);
+        rassert(size_t(src - src_orig) == processed);
 
         uint64_t ref = 0;
         const char* match = 0;
@@ -851,7 +851,7 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
         upto = (match == 0 ? last : match - 1);
 
         while (src <= upto) {
-            rassert(src - src_orig == processed);
+            rassert(size_t(src - src_orig) == processed);
 
             uint64_t ref_s = 0;
             const char* match_s = 0;
@@ -895,7 +895,7 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
                 processed += mi;
                 rassert(mi + ref_s < pay);
                 src = match_s + mi;
-                rassert(src - src_orig == processed);
+                rassert(size_t(src - src_orig) == processed);
             }
         }
 
@@ -909,7 +909,7 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
             processed += mi;
             rassert(mi + ref < pay);
             src = match + mi;
-            rassert(src - src_orig == processed);
+            rassert(size_t(src - src_orig) == processed);
         }
     }
 
@@ -1148,7 +1148,7 @@ void dup_deinit(void) {
 
 size_t dup_compressed_ubound(size_t input) {
     size_t zstd = ZSTD_compressBound(input);
-    size_t exdupe = 1.1 * zstd + 1024;
+    size_t exdupe = size_t(1.1 * zstd + 1024);
     return exdupe;
 }
 
