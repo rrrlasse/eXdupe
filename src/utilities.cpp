@@ -373,12 +373,16 @@ STRING abs_path(const STRING& source) {
 #endif
 }
 
-STRING slashify(STRING path) {
-#ifdef _WIN32
-    replace(path.begin(), path.end(), '/', '\\');
+STRING slashify(STRING path, bool wincreated) {
+#ifdef _WIN32    
+    if (!wincreated) {
+        replace(path.begin(), path.end(), '/', '\\');
+    }
     return path;
 #else
-    //replace(path.begin(), path.end(), '\\', '/');
+    if (wincreated) {
+        replace(path.begin(), path.end(), '\\', '/');
+    }
     return path;
 #endif
 }

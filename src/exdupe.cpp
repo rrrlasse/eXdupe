@@ -55,6 +55,7 @@ const bool WIN = true;
 #include <fcntl.h>
 #include <io.h>
 #include <windows.h>
+#include <cwctype>
 
 #define CURDIR L(".\\")
 #define DELIM_STR L("\\")
@@ -397,28 +398,45 @@ STRING date2str(time_ms_t date) {
     return STRING(dst);
 }
 
-STRING validchars(STRING filename) {
+STRING validchars(STRING path) {
 #ifdef _WIN32
-    std::wregex invalid(L("[<>:\"/\\|?*]"));
-    return std::regex_replace(filename, invalid, L("="));
+    const wchar_t replacement = L'\uFFFD'; // official Unicode replacement char
+
+    // Trim leading spaces
+    while (!path.empty() && path.front() == L' ')
+        path.erase(path.begin());
+
+    // Trim trailing spaces
+    while (!path.empty() && path.back() == L' ')
+        path.pop_back();
+
+    for (size_t i = 0; i < path.size(); ++i) {
+        wchar_t c = path[i];
+
+        // Illegal Windows path characters (colon always illegal per requirement)
+        if (c == L'<' || c == L'>' || c == L':' || c == L'"' || c == L'/' || c == L'|' || c == L'?' || c == L'*') {
+            path[i] = replacement;
+        }
+        // backslash '\' explicitly allowed
+    }
+
+    return path;
 #else
-    return filename;
+    return path;
 #endif
 }
 
 
-void read_content_item(FILE* file, contents_t& c) {
+void read_content_item(FILE *file, contents_t &c) {
     uint8_t type = io.read_ui<uint8_t>(file);
     c.directory = ((type >> 0) & 1) == 1;
     c.symlink = ((type >> 1) & 1) == 1;
-    c.windows = ((type >> 6) & 1) == 1;
-
+    c.windows = ((type >> 2) & 1) == 1;
     c.file_id = io.read_compact<uint64_t>(file);
-
-    c.abs_path = slashify(io.read_utf8_string(file));
+    c.abs_path = slashify(io.read_utf8_string(file), c.windows);
     c.payload = io.read_compact<uint64_t>(file);
-    c.name = slashify(io.read_utf8_string(file));
-    c.link = slashify(io.read_utf8_string(file));
+    c.name = slashify(io.read_utf8_string(file), c.windows);
+    c.link = slashify(io.read_utf8_string(file), c.windows);
     c.size = io.read_compact<uint64_t>(file);
     c.file_c_time = io.read_compact<uint64_t>(file);
     c.file_modified = io.read_compact<uint64_t>(file);
@@ -427,15 +445,14 @@ void read_content_item(FILE* file, contents_t& c) {
 
     read_hash(file, c);
 
-    if (!c.directory) {
-        STRING i = c.name;
-        c.name = slashify(validchars(c.name));
-        if (i != c.name) {
-            statusbar.print(2, L("*nix filename '%s' renamed to '%s'"), i.c_str(), c.name.c_str());
-        }
+#ifdef _WIN32
+    if (!c.windows) {
+        c.abs_path = validchars(c.abs_path);
+        c.name = validchars(c.name);
+        c.link = validchars(c.link);
     }
+#endif
 }
-
 
 vector<contents_t> read_contents(FILE *f) {
     vector<contents_t> ret;
@@ -459,7 +476,7 @@ vector<contents_t> read_contents(FILE *f) {
 
 void write_contents_item(FILE *file, const contents_t &c) {
     uint64_t written = io.write_count;
-    uint8_t type = ((c.directory ? 1 : 0) << 0) | ((c.symlink ? 1 : 0) << 1);
+    uint8_t type = ((c.directory ? 1 : 0) << 0) | ((c.symlink ? 1 : 0) << 1) | ((c.windows ? 1 : 0) << 2);
 
     io.write_ui<uint8_t>(type, file);
     io.write_compact<uint64_t>(c.file_id, file);
@@ -818,10 +835,10 @@ uint64_t read_hashtable(FILE *file) {
     io.read(memory_end - s, s, file);
     uint64_t crc = io.read_ui<uint64_t>(file);
     uint64_t crc2 = checksum64(memory_end - s, s, hash_seed, use_aesni);
-    abort(crc != crc2, L("'%s' is corrupted or not an archive (hashtable checksum)"), slashify(full).c_str());
+    abort(crc != crc2, L("'%s' is corrupted or not an archive (hashtable checksum)"), full.c_str());
     io.seek(file, orig, SEEK_SET);
     int i = dup_decompress_hashtable(memory_end - s);
-    abort(i != 0, L("'%s' is corrupted or not an archive (hashtable structure)"), slashify(full).c_str());
+    abort(i != 0, L("'%s' is corrupted or not an archive (hashtable structure)"), full.c_str());
     return 0;
 }
 
@@ -944,9 +961,9 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
         f = stdout;
     } else {
         f = io.open(file.c_str(), mode);
-        abort(!f && abortfail && mode == 'w', L("Error creating file: %s"), slashify(file2).c_str());
-        abort(!f && abortfail && mode == 'r', L("Error opening file for reading: %s"), slashify(file2).c_str());
-        abort(!f && abortfail && mode == 'a', L("Error opening file for append: %s"), slashify(file2).c_str());
+        abort(!f && abortfail && mode == 'w', L("Error creating file: %s"), file2.c_str());
+        abort(!f && abortfail && mode == 'r', L("Error opening file for reading: %s"), file2.c_str());
+        abort(!f && abortfail && mode == 'a', L("Error opening file for append: %s"), file2.c_str());
     }
 
     return f;
@@ -1092,7 +1109,7 @@ vector<STRING> wildcard_expand(vector<STRING> files) {
             vector<STRING> f;
             hFind = FindFirstFileW(files.at(i).c_str(), &FindFileData);
 
-            abort(!continue_flag && hFind == INVALID_HANDLE_VALUE, L("Source file(s) '%s' not found"), slashify(files.at(i)).c_str());
+            abort(!continue_flag && hFind == INVALID_HANDLE_VALUE, L("Source file(s) '%s' not found"), files.at(i).c_str());
 
             if (hFind != INVALID_HANDLE_VALUE) {
                 if (STRING(FindFileData.cFileName) != L(".") && STRING(FindFileData.cFileName) != L("..")) {
@@ -1319,8 +1336,8 @@ void parse_files(void) {
 
         for (uint32_t i = 0; i < inputfiles.size(); i++) {
             if (abs_path(inputfiles.at(i)) == STRING(L(""))) {
-                abort(!continue_flag, L("Aborted, does not exist: %s"), slashify(inputfiles.at(i)).c_str());
-                statusbar.print(2, L("Skipped, does not exist: %s"), slashify(inputfiles.at(i)).c_str());
+                abort(!continue_flag, L("Aborted, does not exist: %s"), inputfiles.at(i).c_str());
+                statusbar.print(2, L("Skipped, does not exist: %s"), inputfiles.at(i).c_str());
             } else {
                 inputfiles2.push_back(abs_path(inputfiles.at(i)));
 #ifdef _WIN32
@@ -1534,7 +1551,7 @@ pair<STRING, size_t> extract_to(STRING curdir, STRING curfile) {
         return make_pair(curdir, 0);
     }
 
-    STRING curdir_case = CASESENSE(slashify(curdir));
+    STRING curdir_case = CASESENSE(curdir);
     curfile = CASESENSE(curfile);
 
     STRING p = parent_path(restorelist);
@@ -1594,11 +1611,11 @@ void verify_restorelist(vector<STRING> restorelist, const vector<contents_t> &co
 
 void force_overwrite(const STRING &file) {
     if (file != L("-stdout") && exists(file)) {
-        abort(!force_flag, L("Destination file '%s' already exists"), slashify(file).c_str());
+        abort(!force_flag, L("Destination file '%s' already exists"), file.c_str());
         try {
             std::filesystem::remove(file);
         } catch (std::exception &) {
-            abort(true, L("Failed to overwrite file: %s"), slashify(file).c_str());
+            abort(true, L("Failed to overwrite file: %s"), file.c_str());
         }
     }
 }
@@ -1646,7 +1663,10 @@ namespace restore {
 
 void set_meta(STRING item, contents_t c) {
     set_date(item, c.file_modified);
-    set_attributes(item, c.attributes);
+    if (WIN == c.windows) {
+        set_attributes(item, c.attributes);
+    }
+
 }
 
 void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
@@ -1670,7 +1690,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
     vector<contents_t> content;
 
     for (uint32_t i = 0; i < restorelist.size(); i++) {
-        restorelist.at(i) = slashify(restorelist.at(i));
+        restorelist.at(i) = restorelist.at(i);
         restorelist.at(i) = remove_delimitor(restorelist.at(i));
         restorelist.at(i) = CASESENSE(restorelist.at(i));
     }
