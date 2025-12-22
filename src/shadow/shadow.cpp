@@ -133,6 +133,57 @@ STRING towide(STRING s)
     return str2;
 }
 
+STRING AddToSnapshotSetErr(HRESULT hr) {
+    switch (hr) {
+    case VSS_E_VOLUME_NOT_SUPPORTED:
+        return L("VSS_E_VOLUME_NOT_SUPPORTED");
+    case VSS_E_OBJECT_NOT_FOUND:
+        return L("VSS_E_OBJECT_NOT_FOUND");
+    case VSS_E_PROVIDER_VETO:
+        return L("VSS_E_PROVIDER_VETO");
+    case VSS_E_UNEXPECTED_PROVIDER_ERROR:
+        return L("VSS_E_UNEXPECTED_PROVIDER_ERROR");
+    case VSS_E_WRITERERROR_INCONSISTENTSNAPSHOT:
+        return L("VSS_E_WRITERERROR_INCONSISTENTSNAPSHOT");
+    default:
+        return L("Unknown VSS error");
+    }
+}
+
+STRING StartSnapshotSetErr(HRESULT hr) {
+    switch (hr) {
+    case S_OK:
+        return L("S_OK");
+    case VSS_S_ASYNC_PENDING:
+        return L("VSS_S_ASYNC_PENDING");
+    case VSS_E_BAD_STATE:
+        return L("VSS_E_BAD_STATE");
+    case VSS_E_PROVIDER_VETO:
+        return L("VSS_E_PROVIDER_VETO");        
+    case VSS_E_OBJECT_NOT_FOUND:
+        return L("VSS_E_OBJECT_NOT_FOUND");
+    case VSS_E_PROVIDER_NOT_REGISTERED:
+        return L("VSS_E_PROVIDER_NOT_REGISTERED");
+    case VSS_E_UNSUPPORTED_CONTEXT:
+        return L("VSS_E_UNSUPPORTED_CONTEXT");
+    case VSS_E_VOLUME_NOT_SUPPORTED:
+        return L("VSS_E_VOLUME_NOT_SUPPORTED");
+    case VSS_E_VOLUME_NOT_SUPPORTED_BY_PROVIDER:
+        return L("VSS_E_VOLUME_NOT_SUPPORTED_BY_PROVIDER");
+    case VSS_E_MAXIMUM_NUMBER_OF_VOLUMES_REACHED:
+        return L("VSS_E_MAXIMUM_NUMBER_OF_VOLUMES_REACHED");
+    case VSS_E_MAXIMUM_NUMBER_OF_SNAPSHOTS_REACHED:
+        return L("VSS_E_MAXIMUM_NUMBER_OF_SNAPSHOTS_REACHED");
+    case VSS_E_SNAPSHOT_SET_IN_PROGRESS:
+        return L("VSS_E_SNAPSHOT_SET_IN_PROGRESS");
+    case VSS_E_INSUFFICIENT_STORAGE:
+        return L("VSS_E_INSUFFICIENT_STORAGE");
+    case VSS_E_WRITER_INFRASTRUCTURE:
+        return L("VSS_E_WRITER_INFRASTRUCTURE");
+    default:
+        return L("UNKNOWN_HRESULT");
+    }
+}
 
 
 int shadow(vector<STRING> volumes) 
@@ -162,7 +213,7 @@ int shadow(vector<STRING> volumes)
         NULL);  //  Reserved parameter
   }
 
-  abort(FAILED(hr), L("Snapshot failed to initialize COM at CoInitializeSecurity()"));
+  abort(FAILED(hr), L("Volume Shadow Copy failed to initialize COM at CoInitializeSecurity()"));
 
 
   hr = ::CreateVssBackupComponents(&comp);
@@ -171,14 +222,14 @@ int shadow(vector<STRING> volumes)
   if (SUCCEEDED(hr))
     hr = comp->SetBackupState(true, true, VSS_BT_COPY, false);
 
-  abort(FAILED(hr), L("Snapshot failed at SetBackupState(). Please run eXdupe or Command Prompt as administrator."));
+  abort(FAILED(hr), L("Volume Shadow Copy failed at SetBackupState(). Please run eXdupe or Command Prompt as administrator."));
 
   hr = comp->GatherWriterMetadata(&async);
   if (SUCCEEDED(hr))
     hr = async->Wait();
 
 
-  abort(FAILED(hr), L("Snapshot failed to gather write data at GatherWriterMetadata()"));
+  abort(FAILED(hr), L("Volume Shadow Copy failed to gather write data at GatherWriterMetadata()"));
 
   VSS_ID id = {};
   hr = comp->StartSnapshotSet(&id);
@@ -192,29 +243,44 @@ int shadow(vector<STRING> volumes)
         {
             STRING v = volumes[i];
             hr = comp->AddToSnapshotSet(const_cast<LPWSTR>(towide(v).c_str()), GUID_NULL, &dummy);
-            abort(FAILED(hr), L("Snapshot failed to start at AddToSnapshotSet()"));
+            if (FAILED(hr)) {
+                comp->AbortBackup();
+                comp.Release();
+                CoUninitialize();
+                STRING msg = STRING(L("Volume Shadow Copy failed: AddToSnapshotSet() returned "));
+                msg += AddToSnapshotSetErr(hr);
+                abort(FAILED(hr), msg.c_str());
+            }            
             created.push_back(dummy.Data1);
-
         }
     }
-  abort(FAILED(hr), L("Snapshot failed to start at StartSnapshotSet(). Wait a few minutes. See interfering snapshots with 'vssadmin list writers' or 'vssadmin list shadows'"));
+
+    if (FAILED(hr)) {
+        comp->AbortBackup();
+        comp.Release();
+        CoUninitialize();
+    }
+
+    STRING msg = STRING(L("Volume Shadow Copy failed: StartSnapshotSet() returned "));
+    msg += StartSnapshotSetErr(hr);
+    abort(FAILED(hr), msg.c_str());
 
   async.Release();
   hr = comp->PrepareForBackup(&async);
   if (SUCCEEDED(hr))
     hr = async->Wait();
 
-  abort(FAILED(hr), L("Snapshot failed at PrepareForBackup(). Wait a few minutes. See interfering snapshots with 'vssadmin list writers' or 'vssadmin list shadows'"));
+  abort(FAILED(hr), L("Volume Shadow Copy failed at PrepareForBackup(). Wait a few minutes. See interfering snapshots with 'vssadmin list writers' or 'vssadmin list shadows'"));
 
   async.Release();
   hr = comp->DoSnapshotSet(&async);
   if (SUCCEEDED(hr))
     hr = async->Wait();
 
-  abort(FAILED(hr), L("Snapshot failed at DoSnapshotSet()"));
+  abort(FAILED(hr), L("Volume Shadow Copy failed at DoSnapshotSet()"));
 
   hr = comp->Query(GUID_NULL, VSS_OBJECT_NONE, VSS_OBJECT_SNAPSHOT, &enum_snapshots);
-  abort(FAILED(hr), L("Snapshot failed to query at Query()"));
+  abort(FAILED(hr), L("Volume Shadow Copy failed to query at Query()"));
 
   ULONG fetched = 0;
 
@@ -232,7 +298,7 @@ int shadow(vector<STRING> volumes)
 
   }
     
-  abort(created.size() != snaps.size(), L("Snapshot failed with unknown error"));
+  abort(created.size() != snaps.size(), L("Volume Shadow Copy failed with unknown error"));
 
   return 1;
 }
@@ -329,5 +395,6 @@ void unshadow(void)
       enum_snapshots->Next(1, &prop, &fetched);
       VssFreeSnapshotProperties(&prop.Obj.Snap);
   }  
+  comp.Release();
 }
 
