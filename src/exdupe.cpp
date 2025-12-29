@@ -2413,11 +2413,13 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
     std::atomic<size_t> ctr = 0;
     const int max_threads = 6;
     std::thread threads[max_threads];
-    std::atomic<bool> abort = false;
+    std::atomic<bool> abort_flag = false;
+    std::exception_ptr thread_exc = nullptr;
+    std::mutex thread_exc_mutex;
 
     auto compress_file_function = [&]() {
         size_t j = ctr.fetch_add(1);
-        while (!abort && j < files.size()) {
+        while (!abort_flag && j < files.size()) {
             rassert(j < files.size());
             STRING sub = base_dir + files.at(j).first;
             STRING L = files.at(j).first;
@@ -2426,7 +2428,9 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
             try {
                 compression::compress_file(sub, s, files.at(j).second);
             } catch (...) {
-                abort = true;
+                std::lock_guard<std::mutex> lg(thread_exc_mutex);
+                thread_exc = std::current_exception();
+                abort_flag = true;
                 return;
             }
             j = ctr.fetch_add(1);
@@ -2446,8 +2450,8 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
         compress_file_function();
     }
 
-    if (abort) {
-        throw std::exception();
+    if (abort_flag) {
+        std::rethrow_exception(thread_exc);
     }
 
     // then process symlinks (if followed, they will be contained in the files list above instead of here)
@@ -2690,8 +2694,20 @@ void main_compress() {
             compression::compress_file(L("-stdin"), name, 0);
             compression::compress_file_finalize();
         }
-    } catch (...) {
+    } catch (const retvals &e) {
+        // Thrown by abort() which has already printed the error message to the user and set aborted
     }
+    catch (const std::exception &e) {
+        // Some errors, like from std::filesystem, are not handled, so we catch them here.
+        CERR << std::endl << L("Error: ") << e.what() << std::endl;
+        aborted = static_cast<int>(retvals::err_other);
+    } catch (...) {
+        throw;
+    }
+
+    // If aborted, we chose to write the hashtable to the archive so that the next backup can benefit
+    // from deduplication. If killed or crashed, the archive is left with no hashtable at all; it will
+    // then be rebuilt gradually during the next backups.
 
     io.write("X", 1, ofile);
 
@@ -2706,7 +2722,8 @@ void main_compress() {
 
     if (verbose_level > 0) {
         statusbar.clear_line();
-        statusbar.update(BACKUP, backup_set_size(), io.write_count, (STRING() + L("Writing metadata...\r")).c_str(), true, true);
+        STRING msg = aborted ? L("Aborting, please wait...\r") : L("Writing metadata...\r");
+        statusbar.update(BACKUP, backup_set_size(), io.write_count, msg.c_str(), true, true);
     }
 
     if (!aborted) {
