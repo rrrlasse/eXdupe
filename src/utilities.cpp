@@ -24,6 +24,8 @@
 
 #ifdef _WIN32
 #include "Shlwapi.h"
+#include <aclapi.h>
+#include <sddl.h>
 #else
 #include <cpuid.h>
 uint64_t GetTickCount64() {
@@ -36,7 +38,10 @@ uint64_t GetTickCount64() {
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
+#include <sys/xattr.h>
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+#include <sys/xattr.h>
+#endif
 #endif
 
 #ifdef _WIN32
@@ -297,47 +302,41 @@ std::tm local_time_tm(const time_ms_t &t) {
     return localTime;
 }
 
-// Returns {created time, modified time} on Windows and {status change time, modified time} on nix
-pair<time_ms_t, time_ms_t> get_date(const STRING &file) {
+// "change time" must change when attributes, ACL or xattr changes
+filetimes get_date(const STRING &file) {
 #ifdef _WIN32
-    ULARGE_INTEGER modified;
+    ULARGE_INTEGER write;
+    ULARGE_INTEGER changed;
     ULARGE_INTEGER created;
-    WIN32_FIND_DATAW findData;
-    HANDLE hFind = FindFirstFileW(file.c_str(), &findData);
 
-    if (hFind == INVALID_HANDLE_VALUE) {
-        hFind = FindFirstFileW(remove_delimitor(file).c_str(), &findData);
-    }
-    if (hFind == INVALID_HANDLE_VALUE) {
-        HANDLE hFile = CreateFile(file.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
-        if (hFile != INVALID_HANDLE_VALUE) {
-            FILETIME fileTimeModified;
-            FILETIME fileTimeCreated;
-            if (GetFileTime(hFile, &fileTimeCreated, nullptr, &fileTimeModified)) {
-                created.LowPart = fileTimeCreated.dwLowDateTime;
-                created.HighPart = fileTimeCreated.dwHighDateTime;
-                modified.LowPart = fileTimeModified.dwLowDateTime;
-                modified.HighPart = fileTimeModified.dwHighDateTime;
-            } else {
-                CloseHandle(hFile);
-                return {};
-            }
-            CloseHandle(hFile);
+    HANDLE hFile = CreateFile(file.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (hFile != INVALID_HANDLE_VALUE) {
+        FILETIME fileTimeModified;
+        FILETIME fileTimeCreated;
+        FILE_BASIC_INFO fbi;
+        if (GetFileInformationByHandleEx(hFile, FileBasicInfo, &fbi, sizeof(fbi))) {
+            created.LowPart = fbi.CreationTime.LowPart;
+            created.HighPart = fbi.CreationTime.HighPart;
+            changed.HighPart = fbi.ChangeTime.HighPart;
+            changed.LowPart = fbi.ChangeTime.LowPart;
+            write.LowPart = fbi.LastWriteTime.LowPart;
+            write.HighPart = fbi.LastWriteTime.HighPart;
+            
         } else {
+            CloseHandle(hFile);
             return {};
         }
-    } else {    
-        created.LowPart = findData.ftCreationTime.dwLowDateTime;
-        created.HighPart = findData.ftCreationTime.dwHighDateTime;
-        modified.LowPart = findData.ftLastWriteTime.dwLowDateTime;
-        modified.HighPart = findData.ftLastWriteTime.dwHighDateTime;
-        FindClose(hFind);
+        CloseHandle(hFile);
+    } else {
+        return {};
     }
 
     if (created.QuadPart == 0) {
         return {};
     }
-    return {static_cast<time_ms_t>((created.QuadPart - 116444736000000000ull) / 10000ull), static_cast<time_ms_t>((modified.QuadPart - 116444736000000000ull) / 10000ull)};
+    return {static_cast<time_ms_t>((created.QuadPart - 116444736000000000ull) / 10000ull),
+        static_cast<time_ms_t>((write.QuadPart - 116444736000000000ull) / 10000ull),
+        static_cast<time_ms_t>((changed.QuadPart - 116444736000000000ull) / 10000ull)};
 #else
     struct stat attrib;
 
@@ -346,7 +345,11 @@ pair<time_ms_t, time_ms_t> get_date(const STRING &file) {
     } else {
         stat(file.c_str(), &attrib);
     }
-    return {attrib.st_ctime * 1000, attrib.st_mtime * 1000};
+    return {
+        0,
+        attrib.st_mtime * 1000,
+        attrib.st_ctime * 1000
+    };
 #endif
 }
 
@@ -615,6 +618,7 @@ int get_attributes(STRING path, bool follow) {
 bool set_attributes([[maybe_unused]] const STRING &path, [[maybe_unused]] int attributes) {
     if (attributes == 0) {
         // Data from stdin is assigned 0
+        // FIXME, can't they be 0 on *nix?
         return true;
     }
 #ifdef _WIN32
@@ -856,3 +860,5 @@ bool is_symlink_consistent(const std::wstring &symlinkPath) {
     return linkSaysDirectory == targetIsDirectory;
 }
 #endif
+
+
