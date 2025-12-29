@@ -20,7 +20,8 @@ public:
     uint64_t size = 0;
     uint64_t payload = 0;
     time_ms_t file_modified = 0;
-    time_ms_t file_c_time = 0; // created on Windows, status change on nix
+    time_ms_t file_c_time = 0;
+    time_ms_t file_change_time = 0;
     int attributes = 0;
     bool directory = false;
     bool symlink = false;
@@ -32,6 +33,7 @@ public:
     std::array<char, 16> hash{};
     uint64_t first = 0;
     uint8_t last = 0;
+    std::string xattr_acl; // ACL on Windows, xattr on *nix
 #ifdef _WIN32
     bool windows = true;
 #else

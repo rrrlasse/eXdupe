@@ -13,11 +13,11 @@ class UntouchedFiles
 {
 public:
     // todo, remove name_part and extract it from fullpath
-	std::optional<contents_t> exists(STRING fullpath, STRING name_part, std::pair<time_ms_t, time_ms_t>& t) {
+	std::optional<contents_t> exists(STRING fullpath, STRING name_part, filetimes& t) {
         auto it = contents_full.find(CASESENSE(abs_path(fullpath)));
         // The "it->second.name == filename" is for Windows where we decide to do a full backup of a file even if its only change was a case-rename. Note that
         // drive-letter casing can apparently fluctuate randomly on Windows, so don't compare full paths
-        bool ret = (it != contents_full.end() && it->second.file_c_time == t.first && it->second.file_modified == t.second && it->second.name == name_part);
+        bool ret = (it != contents_full.end() && it->second.file_change_time == t.changed && it->second.file_c_time == t.created && it->second.file_modified == t.written && it->second.name == name_part);
         if(ret) {
             return it->second;
         }
