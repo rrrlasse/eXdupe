@@ -1,5 +1,4 @@
-﻿
-#pragma execution_character_set("utf-8")
+﻿#pragma execution_character_set("utf-8")
 
 #include <chrono>
 #include <thread>
@@ -104,27 +103,34 @@ template<typename... Args> std::string conc(const Args&... args) {
     return cmd2;
 }
 
-template<typename... Args> std::string sys(const Args&... args) {
+
+
+
+// 1. Definition af den faktiske implementering
+template <typename... Args> std::string sys_impl(int *ret, const Args &...args) {
 #ifdef _WIN32
     std::vector<wchar_t> buffer;
     buffer.resize(1000000);
     STRING result;
     string cmd2 = conc(args...);
     wstring cmd = utf8w(cmd2);
-    std::unique_ptr<FILE, decltype(&_pclose)> pipe(_wpopen(wstring(cmd.begin(), cmd.end()).c_str(), L"r"), _pclose);
+    FILE *pipe = _wpopen(wstring(cmd.begin(), cmd.end()).c_str(), L"r");
     if (!pipe) {
         throw std::runtime_error("popen() failed!");
     }
-    while (fgetws(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr) {
+    while (fgetws(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
         result += buffer.data();
     }
-
+    int r = _pclose(pipe);
+    if (ret) {
+        *ret = r;
+    }
     return w2utf8(result);
 #else
     std::string result;
     char buffer[128];
     string cmd = conc(args...);
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE *pipe = popen(cmd.c_str(), "r");
     if (!pipe) {
         throw "Error executing command (at popen())";
     }
@@ -152,6 +158,18 @@ string p(string path) {
 #endif
     return path;
 }
+
+// 2. Overload der tager imod ret-pointeren eksplicit
+template <typename... Args> std::string sys(int *ret, const Args &...args) { return sys_impl(ret, args...); }
+
+// 3. Overload der mangler ret-pointeren (kalder den ovenover med nullptr)
+template <typename... Args> std::string sys(const Args &...args) {
+    // Ved at bruge sys<Args...>(nullptr, args...) undgår vi tvivl,
+    // men det sikreste er at have forskellige navne eller tydelige typer.
+    return sys_impl(nullptr, args...);
+}
+
+
 
 void rm(string path) {
     path = p(path);
@@ -526,14 +544,14 @@ TEST_CASE("diff size") {
 
 TEST_CASE("w flag") {
     {
-        // Diff must be smaller without -w than with
+        // Diff must be smaller without -w than with. Use -t1 for determinism
         clean();
         pick("high_entropy_a");
-        ex("-m1", in, full);
+        ex("-m1t1", in, full);
         auto s1 = siz(full);
         ex(in, full);
         auto s2 = siz(full);
-        ex("-w", in, full);
+        ex("-wt1", in, full);
         auto s3 = siz(full);
         CHECK(s3 - s2 > (s2 - s1) + 50);
         ex("-R1", full, out);
@@ -824,7 +842,7 @@ TEST_CASE("test of tests") {
     ex("-m1", in, full);
     ex("-R0", full, out);
     CHECK(set_date(s2w(in + "/a"), 946684800'000));
-    time_ms_t modified = get_date(s2w(in + "/a")).second;
+    time_ms_t modified = get_date(s2w(in + "/a")).written;
     CHECK(modified == 946684800'000);
     CHECK(!cmp(false));
 }
@@ -973,3 +991,275 @@ TEST_CASE("skip link to domain socket") {
 TEST_CASE("buildinfo2") {
     ex("-B");
 }
+
+TEST_CASE("acl_roundtrip_verify") {
+    clean();
+    string src = tmp + "/acl_src";
+    string dest = tmp + "/acl_dst";
+
+    rm(src);
+    rm(dest);
+    md(src);
+
+    std::filesystem::create_directories(p(src));
+    {
+        std::ofstream f(p(src + "/f1.txt"));
+        f << "hello acl test\n";
+    }
+    md(src + "/d1");
+    {
+        std::ofstream f(p(src + "/d1/f2.txt"));
+        f << "inner file\n";
+    }
+
+    lf(src + "/link_to_f1", src + "/f1.txt");
+    ld(src + "/link_to_d1", src + "/d1");
+
+#ifdef _WIN32
+    auto set_acl = [](const std::string &path, const std::string &aceString) {
+        size_t colon = aceString.find(':');
+        if (colon == std::string::npos) {
+            return 1;
+        }
+        std::string principal = aceString.substr(0, colon);
+        std::string rights = aceString.substr(colon + 1);
+        std::string cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"";
+        cmd += "$acl = Get-Acl -LiteralPath '" + path + "'; ";
+        cmd += "$rule = New-Object System.Security.AccessControl.FileSystemAccessRule('" + principal + "', '" + rights + "', 'Allow'); ";
+        cmd += "$acl.AddAccessRule($rule); ";
+        cmd += "Set-Acl -LiteralPath '" + path + "' $acl";
+        cmd += "\"";
+        cmd += " 2>&1";
+        int ret = 1;
+        auto s = sys(&ret, cmd);
+        return ret;
+    };
+
+    CHECK(set_acl(src + "/non-existant", "Everyone:ReadAndExecute")); // test the system test
+    CHECK(!set_acl(src + "/f1.txt", "Everyone:ReadAndExecute"));
+    CHECK(!set_acl(src + "/d1", "Everyone:FullControl"));
+    CHECK(!set_acl(src + "/d1/f2.txt", "Everyone:Modify"));
+    CHECK(!set_acl(src + "/link_to_f1", "Everyone:ChangePermissions"));
+    CHECK(!set_acl(src + "/link_to_d1", "Everyone:Traverse"));
+
+#else
+    chmod(p(src + "/d1").c_str(), S_IRWXU);
+    chmod(p(src + "/d1/f2.txt").c_str(), S_IRUSR | S_IWUSR);
+    chmod(p(src + "/f1.txt").c_str(), S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    chmod(p(src + "/link_to_d1").c_str(), S_IRWXU); // no effect on Linux
+    chmod(p(src + "/link_to_f1").c_str(), S_IRUSR | S_IWUSR); // no effect on Linux
+#endif
+
+    ex("-m1C", src, full);
+    ex("-R0C", full, dest);
+
+    // Wait for FS operations to settle
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    auto read_file = [](const string &path) -> string {
+        std::ifstream in(p(path), std::ios::binary);
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        return ss.str();
+    };
+
+#ifdef _WIN32
+    // Read icacls for a path and normalize it for comparison, don't follow links
+    auto read_sddl = [&](const string &path) -> string {
+        string cmd = "powershell.exe -NoProfile -Command \"(Get-Acl -LiteralPath '" + path + "').Sddl\"";
+        string sddl = sys(cmd);
+        sddl.erase(sddl.find_last_not_of("\r\n") + 1);
+        return sddl;
+    };
+#endif
+
+    auto is_symlink_local = [](const string &path) -> bool {
+#ifdef _WIN32
+        return is_symlink(s2w(path));
+#else
+        return std::filesystem::is_symlink(std::filesystem::path(p(path)));
+#endif
+    };
+
+    vector<string> items = {"/f1.txt", "/d1", "/d1/f2.txt", "/link_to_f1", "/link_to_d1"};
+
+    for (auto &rel : items) {
+        string sitem = src + rel;
+        string ditem = dest + rel;
+
+        REQUIRE(std::filesystem::exists(p(ditem)));
+
+        bool s_is_symlink = is_symlink_local(sitem);
+        bool d_is_symlink = is_symlink_local(ditem);
+        CHECK(s_is_symlink == d_is_symlink);
+
+        bool s_is_dir = std::filesystem::is_directory(std::filesystem::path(p(sitem)));
+        bool d_is_dir = std::filesystem::is_directory(std::filesystem::path(p(sitem)));
+        CHECK(s_is_dir == d_is_dir);
+
+        if (!s_is_dir && !s_is_symlink) {
+            if (std::filesystem::is_regular_file(std::filesystem::path(p(ditem)))) {
+                string scont = read_file(sitem);
+                string dcont = read_file(ditem);
+                CHECK(scont == dcont);
+            }
+        }
+
+#ifdef _WIN32
+        string s_acl = read_sddl(sitem);
+        string d_acl = read_sddl(ditem);
+        CHECK((!s_acl.empty()) == (!d_acl.empty()));
+        if (!s_acl.empty() && !d_acl.empty()) {
+            CHECK(s_acl == d_acl);
+        }
+#else
+        struct stat st_s, st_d;
+        int rc_s = lstat(p(sitem).c_str(), &st_s);
+        int rc_d = lstat(p(ditem).c_str(), &st_d);
+        REQUIRE(rc_s == 0);
+        REQUIRE(rc_d == 0);
+        int perms_s = st_s.st_mode & 07777;
+        int perms_d = st_d.st_mode & 07777;
+        CHECK(perms_s == perms_d);
+#endif
+    }
+}
+
+
+#ifndef _WIN32
+TEST_CASE("xattr_roundtrip") {
+    clean();
+    string src = tmp + "/xattr_src";
+    string dest = tmp + "/xattr_dst";
+
+    rm(src);
+    rm(dest);
+    md(src);
+
+    {
+        std::ofstream f(p(src + "/f1.txt"));
+        f << "hello xattr\n";
+    }
+    md(src + "/d1");
+    {
+        std::ofstream f(p(src + "/d1/f2.txt"));
+        f << "inner\n";
+    }
+
+    lf(src + "/link_to_f1", src + "/f1.txt");
+    ld(src + "/link_to_d1", src + "/d1");
+
+    auto set_xattr_cmd = [&](const string &path, const string &name, const string &value, bool follow) {
+        string q = string("\"") + p(path) + "\"";
+        string hflag = follow ? "" : "-h";
+
+        if (hflag.empty())
+            sys("setfattr", "-n", name, "-v", value, q);
+        else
+            sys("setfattr", hflag, "-n", name, "-v", value, q);
+    };
+
+    auto get_xattr_hex = [&](const string &path, const string &name, bool follow) -> string {
+        string q = string("\"") + p(path) + "\"";
+        string hflag = follow ? "" : "-h";
+        string out;
+        if (hflag.empty())
+            out = sys("getfattr", "-n", name, "-e", "hex", "-d", q, "2>/dev/null");
+        else
+            out = sys("getfattr", hflag, "-n", name, "-e", "hex", "-d", q, "2>/dev/null");
+
+        std::istringstream iss(out);
+        string line;
+        while (std::getline(iss, line)) {
+            auto eq = line.find('=');
+            if (eq != string::npos && line.rfind("#", 0) != 0) {
+                string val = line.substr(eq + 1);
+                auto first = val.find_first_not_of(" \r\n\t");
+                if (first == string::npos)
+                    return string();
+                auto last = val.find_last_not_of(" \r\n\t");
+                return val.substr(first, last - first + 1);
+            }
+        }
+        return string();
+    };
+
+    // two attributes
+    set_xattr_cmd(src + "/f1.txt", "user.f1", "hello", true);
+    set_xattr_cmd(src + "/f1.txt", "user.f2", "goodbye", true);
+
+    // single attribute
+    set_xattr_cmd(src + "/d1", "user.dir", "dirval", true);
+
+    // no attributes
+    ex("-m1X", src, full);
+    ex("-R0Xc", full, dest); // -c flag because xattrs on symlinks are platform dependent
+
+    string s_f1_a = get_xattr_hex(src + "/f1.txt", "user.f1", true);
+    string d_f1_a = get_xattr_hex(dest + "/f1.txt", "user.f1", true);
+    REQUIRE(!s_f1_a.empty());
+    REQUIRE(!d_f1_a.empty());
+    CHECK(s_f1_a == d_f1_a);
+
+    string s_f1_b = get_xattr_hex(src + "/f1.txt", "user.f2", true);
+    string d_f1_b = get_xattr_hex(dest + "/f1.txt", "user.f2", true);
+    REQUIRE(!s_f1_b.empty());
+    REQUIRE(!d_f1_b.empty());
+    CHECK(s_f1_b == d_f1_b);
+
+    string s_d1_a = get_xattr_hex(src + "/d1", "user.dir", true);
+    string d_d1_a = get_xattr_hex(dest + "/d1", "user.dir", true);
+    REQUIRE(!s_d1_a.empty());
+    REQUIRE(!d_d1_a.empty());
+    CHECK(s_d1_a == d_d1_a);
+
+    string s_inner_none = get_xattr_hex(src + "/d1/f2.txt", "user.f2", true);
+    string d_inner_none = get_xattr_hex(dest + "/d1/f2.txt", "user.f2", true);
+    CHECK(s_inner_none.empty());
+    CHECK(d_inner_none.empty());
+}
+
+#endif
+
+#ifdef _WIN32
+TEST_CASE("windows_file_attributes") {
+    clean();
+    string src = tmp + "/attr_src";
+    string dest = tmp + "/attr_dst";
+
+    rm(src);
+    rm(dest);
+    md(src);
+
+    string file = src + "/file.txt";
+    {
+        std::ofstream f(p(file), std::ios::binary);
+        f << "attribute test\n";
+    }
+
+    string qfile = string("\"") + p(file) + "\"";
+    sys("attrib", "+R", "+H", "+S", "+A", qfile);
+    sys("compact", "/c", qfile);
+    ex("-m1C", src, full);
+    ex("-R0C", full, dest);
+
+    // allow FS operations to settle
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    string dfile = dest + "/file.txt";
+    string dqfile = string("\"") + p(dfile) + "\"";
+
+    REQUIRE(std::filesystem::exists(p(dfile)));
+
+    string attrib_out = sys("attrib", dqfile);
+    CHECK(attrib_out.find('R') != string::npos);
+    CHECK(attrib_out.find('H') != string::npos);
+    CHECK(attrib_out.find('S') != string::npos);
+    CHECK(attrib_out.find('A') != string::npos);
+
+    string compact_out = sys("compact", dqfile);
+    bool compressed = (compact_out.find("Compressed") != string::npos) || (compact_out.find("is compressed") != string::npos) || (compact_out.find("compressed") != string::npos);
+    CHECK(compressed);
+}
+#endif
+
