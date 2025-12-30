@@ -28,8 +28,8 @@ Incremental backup after some random work inside the virtual machine:
 ## Download
 Please try the upcoming version 4 which will soon be released:
 
-[exdupe4.0.0.dev10.exe](https://github.com/rrrlasse/eXdupe/releases/download/v4/exdupe4.0.0.dev10.exe)<br>
-[exdupe_4.0.0_dev10_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/releases/download/v4/exdupe_4.0.0_dev10_linux_amd64.tar.gz)
+[exdupe4.0.0.dev11.exe](https://github.com/rrrlasse/eXdupe/releases/download/v4/exdupe4.0.0.dev11.exe)<br>
+[exdupe_4.0.0_dev11_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/releases/download/v4/exdupe_4.0.0_dev11_linux_amd64.tar.gz)
 
 Stable version that only supports differential backups:
 
