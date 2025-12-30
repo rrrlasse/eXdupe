@@ -1335,11 +1335,17 @@ void parse_files(void) {
         vector<STRING> inputfiles2;
 
         for (uint32_t i = 0; i < inputfiles.size(); i++) {
-            if (abs_path(inputfiles.at(i)) == STRING(L(""))) {
-                abort(!continue_flag, L("Aborted, does not exist: %s"), inputfiles.at(i).c_str());
-                statusbar.print(2, L("Skipped, does not exist: %s"), inputfiles.at(i).c_str());
+            STRING f = inputfiles.at(i);
+#ifdef _WIN32
+            if (f.size() == 2 && f[1] == L':') {
+                f += L"\\";
+            }
+#endif
+            if (abs_path(f) == STRING(L(""))) {
+                abort(!continue_flag, L("Aborted, does not exist: %s"), f.c_str());
+                statusbar.print(2, L("Skipped, does not exist: %s"), f.c_str());
             } else {
-                inputfiles2.push_back(abs_path(inputfiles.at(i)));
+                inputfiles2.push_back(abs_path(f));
 #ifdef _WIN32
                 inputfiles2.back() = snap(inputfiles2.back());
 #endif
