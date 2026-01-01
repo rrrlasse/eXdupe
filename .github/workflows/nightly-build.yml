@@ -29,7 +29,7 @@ jobs:
           sudo apt-get install -y build-essential cmake
 
       - name: Configure
-        run: cmake -S . -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S src -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build ${{ env.BUILD_DIR }} --config Release -- -j$(nproc)
@@ -57,7 +57,7 @@ jobs:
 
       - name: Configure (MSVC)
         run: |
-          cmake -S . -B "%BUILD_DIR%" -G "__Visual Studio 17 2022__" -A x64 -DCMAKE_BUILD_TYPE=Release
+          cmake -S src -B "%BUILD_DIR%" -G "__Visual Studio 17 2022__" -A x64 -DCMAKE_BUILD_TYPE=Release
         shell: cmd
 
       - name: Build (MSVC)
