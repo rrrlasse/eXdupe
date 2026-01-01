@@ -127,7 +127,9 @@ void Statusbar::print(int verbosity, const CHR *fmt, ...) {
         rassert(printed < m_tmp.size() - 1);
         STRING s = STRING(m_tmp.data());
         va_end(argv);
-        clear_line();
+        if (m_verbose_level != 3) {
+            clear_line();
+        }
         *m_os << s << L("\n");
     }
 }

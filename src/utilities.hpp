@@ -124,7 +124,7 @@ bool is_dir(const STRING& path);
 uint64_t GetTickCount64();
 #endif
 
-STRING del(int64_t l, size_t width = 0);
+STRING del(int64_t l, size_t width = 0, bool delim = true);
 void *tmalloc(size_t size);
 void set_bold(bool bold);
 

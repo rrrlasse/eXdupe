@@ -88,7 +88,8 @@ std::string suffix(uint64_t size, bool column) {
         size = 0;
     }
     if (size <= 999) {
-        ret = std::to_string(size) + (!column ? " " : "");
+        ret = std::to_string(size) + " ";
+        //(!column ? " " : "");
         if (column && ret.size() < 6) {
             ret = string(6 - ret.size(), ' ') + ret;
         }
@@ -690,7 +691,7 @@ bool same2(char *src, size_t len) {
     return true;
 }
 
-STRING del(int64_t l, size_t width) {
+STRING del(int64_t l, size_t width, bool delim) {
     CHR s[50], d[50];
     unsigned int i, j = 0;
 
@@ -708,8 +709,10 @@ STRING del(int64_t l, size_t width) {
 #endif
     for (i = 0; i < STRLEN(s); i++) {
         if ((STRLEN(s) - i) % 3 == 0 && i != 0) {
-            d[j] = ',';
-            j++;
+            if (delim) {
+                d[j] = ',';
+                j++;
+            }
         }
         d[j] = s[i];
         j++;

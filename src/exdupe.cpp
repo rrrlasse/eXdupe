@@ -858,7 +858,7 @@ size_t write_contents_added(FILE *file) {
 
 
 
-void read_backup_set(FILE *f, uint64_t filepos, time_ms_t &date, uint64_t &size, uint64_t &files, vector<uint64_t>* ret) {
+void read_backup_set(FILE *f, uint64_t filepos, time_ms_t &date, uint64_t &size, uint64_t &files, vector<uint64_t>* ret, vector<STRING>* cmd) {
     uint64_t id;
     uint64_t orig = io.seek(f, filepos, SEEK_SET);
     uint64_t n = io.read_ui<uint64_t>(f);
@@ -874,10 +874,18 @@ void read_backup_set(FILE *f, uint64_t filepos, time_ms_t &date, uint64_t &size,
     date = io.read_ui<uint64_t>(f);
     size = io.read_ui<uint64_t>(f);
     files = io.read_ui<uint64_t>(f);
+
+    if (cmd) {
+        uint64_t cmdn = io.read_ui<uint64_t>(f);
+        for (uint64_t i = 0; i < cmdn; i++) {
+            cmd->push_back(io.read_utf8_string(f));
+        }
+    }
+
     io.seek(f, orig, SEEK_SET);
 }
 
-size_t write_backup_set(FILE *file, time_ms_t date, uint64_t size, uint64_t files) {
+size_t write_backup_set(FILE *file, time_ms_t date, uint64_t size, uint64_t files, const std::vector<STRING>& cmd) {
     io.write(backup_set_header.c_str(), backup_set_header.size(), file);
     uint64_t w = io.write_count;
     io.write_ui<uint64_t>(backup_set.size(), file);
@@ -888,6 +896,11 @@ size_t write_backup_set(FILE *file, time_ms_t date, uint64_t size, uint64_t file
     io.write_ui<uint64_t>(date, file);
     io.write_ui<uint64_t>(size, file);
     io.write_ui<uint64_t>(files, file);
+
+    io.write_ui<uint64_t>(cmd.size(), file);
+    for (auto& c : cmd) {
+        io.write_utf8_string(c, file);
+    }
     
     io.write_ui<uint64_t>(io.write_count - w, file);
     return io.write_count - w;
@@ -998,7 +1011,7 @@ contents_t get_contents_from_id2(vector<contents_t>& cont, uint64_t id) {
         }
     }
     abort(true, L("No such id"));
-    return {}; // todo fix error handling
+    return {};
 }
 
 void list_contents() {
@@ -1036,16 +1049,44 @@ void list_contents() {
 
     if (set_flag == static_cast<uint32_t>(-1)) {
         uint64_t prev_c = 0;
-        statusbar.print(0, L("   Set                 Date            Files                 Size      Compressed size"));
-        //                    000001  dddd-dd-dd dd:dd:dd  999,999,999,999  999,999,999,999,999  999,999,999,999,999
+        uint64_t total_uncompressed = 0;
+        uint64_t total_files = 0;
+
+        auto mbround = [](uint64_t s) {
+            return static_cast<uint64_t>(s == 0 ? 0 : s < 512 * 1024 ? 1 : std::round(s / 1024. / 1024.)); };
+
+        statusbar.print(0, L("  Set              Date         Files          Size    Compressed  Command line sources"));
+        statusbar.print(0, L("---------------------------------------------------------------------------------------"));
+        //                    99999  dddd-dd-dd dd:dd 9,999,999,999 99,999,999 MB       xxxxxxx  xxxxxxxxxxxxxxxxxxxxxxxxxxxx
         for (size_t set = 0; set < sets.size(); set++) {
             uint64_t c = sets.at(set) - prev_c;
-            prev_c = sets.at(set);            
-            read_backup_set(ffile, sets.at(set), d, s, f, nullptr);
+            prev_c = sets.at(set);
+            vector<STRING> cmd;
+            read_backup_set(ffile, sets.at(set), d, s, f, nullptr, &cmd);
+            STRING cmdline;
+            for (auto &c : cmd) {
+                cmdline += L("") + c + L("; ");
+            }
+            if (cmdline.size() > 2) {
+                cmdline = cmdline.substr(0, cmdline.size() - 2);
+            }
+            if (cmdline.size() > 80) {
+                cmdline = cmdline.substr(0, cmdline.size() - 3) + L("..."); }
+                
             auto ds = date2str(d);
-            statusbar.print(0, L("%s  %s  %s  %s  %s"), del(set, 6).c_str(), ds.c_str(), del(f, 15).c_str(), del(s, 19).c_str(), del(c, 19).c_str());
+            ds = ds.substr(0, ds.size() - 3);
+            total_uncompressed += s;
+            total_files += f;
+            s = mbround(s);
+            c = mbround(c);
+            statusbar.print(0, L("%s  %s %s %s MB  %s MB  %s"), del(set, 5).c_str(), ds.c_str(), del(f, 13).c_str(), del(s, 10).c_str(), del(c, 9).c_str(), cmdline.c_str());
         }
-        statusbar.print(0, L("\nUsing %sB memory during backups, suitable for backup sets of %sB each"), s2w(suffix(mem)).c_str(), s2w(suffix(max_payload * mem)).c_str());
+        statusbar.print(0, L("---------------------------------------------------------------------------------------"));
+        size_t total_compressed = filesize(full.c_str(), false);
+        total_compressed = mbround(total_compressed);
+        total_uncompressed = mbround(total_uncompressed);
+        statusbar.print(0, L("  Total                 %s %s MB  %s MB"), del(total_files, 13).c_str(), del(total_uncompressed, 10).c_str(), del(total_compressed, 9).c_str());
+        statusbar.print(0, L("\nUsing %sB memory during backups, suitable for backup sets of %sB each (set with\n-g flag on initial backup)."), s2w(suffix(mem)).c_str(), s2w(suffix(max_payload * mem)).c_str());
 #if 0
         statusbar.print(0, L("\nA few files:"));
         read_content_map(ffile);
@@ -1065,7 +1106,7 @@ void list_contents() {
     } else {
         abort(set_flag >= sets.size(), L("Backup set does not exist")); // fixme, allows you to specify the last set even if its corrupted?
         vector<uint64_t> set;
-        read_backup_set(ffile, sets.at(set_flag), d, s, f, &set);
+        read_backup_set(ffile, sets.at(set_flag), d, s, f, &set, nullptr);
 
         read_content_map(ffile);
 
@@ -1709,7 +1750,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
     time_ms_t d;
     uint64_t s;
     uint64_t f;
-    read_backup_set(ffull, backup_set_offset, d, s, f, &backup_set);
+    read_backup_set(ffull, backup_set_offset, d, s, f, &backup_set, nullptr);
 
     read_content_map(ffull);
 
@@ -2626,11 +2667,11 @@ void main_compress() {
         ifile = try_open(full.c_str(), 'a', true);
         ofile = ifile;
         if (verbose_level > 0) {
-            statusbar.clear_line();
             statusbar.update(BACKUP, 0, 0, (STRING() + L("Reading metadata...\r")).c_str(), true, true);
         }
-        memory_usage = read_header(ifile, &lastgood); // also inits hash_seed and sets
-        
+        uint64_t memory_usage_from_file = read_header(ifile, &lastgood); // also inits hash_seed and sets
+        abort(memory_usage != memory_usage_from_file, retvals::err_other, "Skip the -m or -g flag or use the same value as during the initial backup");
+
         // todo, function names and what they return are not descriptive
         bool was_killed = !read_headers(ifile);
 
@@ -2700,7 +2741,7 @@ void main_compress() {
             compression::compress_file(L("-stdin"), name, 0);
             compression::compress_file_finalize();
         }
-    } catch (const retvals &e) {
+    } catch (const retvals&) {
         // Thrown by abort() which has already printed the error message to the user and set aborted
     }
     catch (const std::exception &e) {
@@ -2727,7 +2768,7 @@ void main_compress() {
     commit();
 
     if (verbose_level > 0) {
-        statusbar.clear_line();
+        //statusbar.clear_line();
         STRING msg = aborted ? L("Aborting, please wait...\r") : L("Writing metadata...\r");
         statusbar.update(BACKUP, backup_set_size(), io.write_count, msg.c_str(), true, true);
     }
@@ -2736,7 +2777,7 @@ void main_compress() {
         time_ms_t d = cur_date();
         uint64_t s = backup_set_size();
         uint64_t f = files;
-        write_backup_set(ofile, d, s, f);
+        write_backup_set(ofile, d, s, f, inputfiles);
         commit();
     }
 
@@ -2863,6 +2904,7 @@ int main(int argc2, char *argv2[])
         }
 
         if (list_flag) {
+            statusbar.m_verbose_level = 3;
             list_contents();
             return 0;
         } 
