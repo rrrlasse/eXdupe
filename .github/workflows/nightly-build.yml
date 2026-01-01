@@ -1,0 +1,134 @@
+name: CI & Releases
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+env:
+  BUILD_DIR: build
+  RELEASE_NAME_PREFIX: nightly
+
+jobs:
+  build-linux:
+    name: Build (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake
+
+      - name: Configure
+        run: cmake -S src -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build ${{ env.BUILD_DIR }} --config Release -- -j$(nproc)
+
+      - name: Package
+        run: |
+          TAR=exdupe-linux.tar.gz
+          tar -C ${{ env.BUILD_DIR }} -czf $TAR .
+          ls -l $TAR
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: exdupe-linux
+          path: exdupe-linux.tar.gz
+
+  build-windows:
+    name: Build (windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure (MSVC)
+        run: cmake -S src -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=Release
+        shell: cmd
+
+      - name: Build (MSVC)
+        run: cmake --build "%BUILD_DIR%" --config Release -- /m
+        shell: cmd
+
+      - name: Package (zip)
+        run: |
+          powershell -Command "Compress-Archive -Path '${{ env.BUILD_DIR }}\\*' -DestinationPath exdupe-windows.zip -Force"
+          dir exdupe-windows.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: exdupe-windows
+          path: exdupe-windows.zip
+
+  publish-release:
+    name: Publish release
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up date + tag
+        id: tag
+        run: |
+          DATE=$(date -u +"%Y%m%d%H%M")
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            SHORT_SHA=${GITHUB_SHA:0:7}
+            TAG="${RELEASE_NAME_PREFIX}"
+          else
+            TAG="${RELEASE_NAME_PREFIX}"
+          fi
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          echo "TAG=$TAG"
+
+      - name: Download linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: exdupe-linux
+          path: artifacts
+
+      - name: Download windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: exdupe-windows
+          path: artifacts
+
+      - name: Create GitHub release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.TAG }}
+          release_name: ${{ env.TAG }}
+          body: "Automated build: ${{ env.TAG }} (built on ubuntu-latest and windows-latest)."
+          draft: false
+          prerelease: true
+
+      - name: Upload linux asset to release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/exdupe-linux.tar.gz
+          asset_name: exdupe-linux.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload windows asset to release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/exdupe-windows.zip
+          asset_name: exdupe-windows.zip
+          asset_content_type: application/zip
