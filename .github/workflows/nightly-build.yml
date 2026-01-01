@@ -1,12 +1,10 @@
-name: CI & Nightly builds
+name: CI & Releases
 
 on:
   push:
     branches:
       - master
       - main
-  schedule:
-    - cron: '0 2 * * *' # nightly at 02:00 UTC
   workflow_dispatch: {}
 
 env:
@@ -17,8 +15,6 @@ jobs:
   build-linux:
     name: Build (linux)
     runs-on: ubuntu-latest
-    outputs:
-      artifact-name: exdupe-linux
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,15 +45,12 @@ jobs:
   build-windows:
     name: Build (windows)
     runs-on: windows-latest
-    outputs:
-      artifact-name: exdupe-windows
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure (MSVC)
-        run: |
-          cmake -S src -B "%BUILD_DIR%" -G "__Visual Studio 17 2022__" -A x64 -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S src -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=Release
         shell: cmd
 
       - name: Build (MSVC)
@@ -75,8 +68,8 @@ jobs:
           name: exdupe-windows
           path: exdupe-windows.zip
 
-  publish-nightly:
-    name: Publish nightly release
+  publish-release:
+    name: Publish release
     needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
     steps:
