@@ -2670,7 +2670,8 @@ void main_compress() {
             statusbar.update(BACKUP, 0, 0, (STRING() + L("Reading metadata...\r")).c_str(), true, true);
         }
         uint64_t memory_usage_from_file = read_header(ifile, &lastgood); // also inits hash_seed and sets
-        abort(memory_usage != memory_usage_from_file, retvals::err_other, "Skip the -m or -g flag or use the same value as during the initial backup");
+        abort((gigabyte_flag || megabyte_flag) && memory_usage != memory_usage_from_file, retvals::err_other, "Skip the -m or -g flag or use the same value as during the initial backup");
+        memory_usage = memory_usage_from_file;
 
         // todo, function names and what they return are not descriptive
         bool was_killed = !read_headers(ifile);
