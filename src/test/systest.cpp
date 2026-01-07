@@ -482,6 +482,16 @@ TEST_CASE("simple backup, diff backup and restore") {
     cmp();
 }
 
+TEST_CASE("no -g or -m flag during incremental backup") {
+    clean();
+    pick("a");
+    ex("-m1", in, full);
+    ex(in, full);
+    rm(out);
+    ex("-R1", full, out);
+    cmp();
+}
+
 TEST_CASE("diff size") {
     // Diff must be tiny without -w
     clean();
