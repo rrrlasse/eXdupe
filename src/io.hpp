@@ -25,11 +25,11 @@
 class Cio {
   public:
     Cio();
-    int close(FILE *_File);
+    int close(FILE *_File, bool sparse = false);
     FILE *open(STRING file, char mode);
     uint64_t tell(FILE *_File);
     int seek(FILE *_File, int64_t _Offset, int Origin);
-    size_t write(const void *Str, size_t Count, FILE *_File);
+    size_t write(const void *Str, size_t Count, FILE *_File, bool sparse = false);
     size_t read(void *DstBuf, size_t Count, FILE *_File, bool read_exact = true);
     size_t read_vector(std::vector<char>& dst, size_t count, size_t offset, FILE* f, bool read_exact);
     STRING read_utf8_string(FILE *_File);

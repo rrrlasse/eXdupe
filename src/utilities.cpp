@@ -564,7 +564,7 @@ bool ISSOCK(int attributes) {
 #endif
 }
 
-int get_attributes(STRING path, bool follow) {
+int get_attributes(STRING path, bool follow, bool* is_sparse) {
 #ifdef _WIN32
     if (PathIsRootW(path.c_str())) {
         // GetFileAttributesW() would return +H +S attr which restore would then apply to dst dir
@@ -594,6 +594,10 @@ int get_attributes(STRING path, bool follow) {
         return -1;
     }
 
+    if (is_sparse) {
+        *is_sparse = attributes & FILE_ATTRIBUTE_SPARSE_FILE;
+    }
+
     return attributes;
 
 #else
@@ -606,6 +610,10 @@ int get_attributes(STRING path, bool follow) {
         if (lstat(path.c_str(), &s) < 0) {
             return -1;
         }
+    }
+
+    if (is_sparse) {
+        *is_sparse = s.st_blocks * 512 < s.st_size;
     }
 
     return s.st_mode;
