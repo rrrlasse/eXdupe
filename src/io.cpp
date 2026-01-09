@@ -47,7 +47,12 @@ bool Cio::stdin_tty() {
 #endif
 }
 
-int Cio::close(FILE *_File) { return fclose(_File); }
+int Cio::close(FILE *_File, bool sparse) {
+    if (sparse) {
+        truncate(_File);
+    }
+    return fclose(_File); 
+}
 
 FILE *Cio::open(STRING file, char mode) {
     if (mode == 'r') {
@@ -68,14 +73,44 @@ uint64_t Cio::tell(FILE *_File) { return _ftelli64(_File); }
 
 int Cio::seek(FILE *_File, int64_t _Offset, int Origin) { return _fseeki64(_File, _Offset, Origin); }
 
-size_t Cio::write(const void *Str, size_t Count, FILE *_File) {
+size_t Cio::write(const void *Str, size_t Count, FILE *_File, bool sparse) {
     size_t c = 0;
+
+    if (!sparse) {
+        while (c < Count) {
+            size_t w = Count - c;
+            size_t r = fwrite((char *)Str + c, 1, w, _File);
+            write_count += r;
+            abort(r != w, retvals::err_write, "Disk full or write denied while writing destination file");
+            c += r;
+        }
+        return Count;
+    }
+
     while (c < Count) {
-        size_t w = Count - c;
-        size_t r = fwrite((char*)Str + c, 1, w, _File);
-        write_count += r;
-        abort(r != w, retvals::err_write, "Disk full or write denied while writing destination file");
-        c += r;
+        size_t run_start = c;
+        const char *ptr = static_cast<const char *>(Str);
+        while (c < Count && ptr[c] == 0) {
+            c++;
+        }
+        size_t zero_run_len = c - run_start;
+        if (zero_run_len > 0) {
+            seek(_File, static_cast<off_t>(zero_run_len), SEEK_CUR);
+            if (c == Count)
+                break;
+        }
+        run_start = c;
+        while (c < Count && ptr[c] != 0) {
+            c++;
+        }
+        size_t data_run_len = c - run_start;
+        if (data_run_len > 0) {
+            size_t r = std::fwrite(ptr + run_start, 1, data_run_len, _File);
+            if (r != data_run_len) {
+                abort(true, retvals::err_write, L("Write failed")); // FIXME show filename to user
+            }
+            write_count += r;
+        }
     }
     return Count;
 }
