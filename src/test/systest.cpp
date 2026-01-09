@@ -1,5 +1,8 @@
 ﻿#pragma execution_character_set("utf-8")
 
+#include <string>
+#include <vector>
+
 #include <chrono>
 #include <thread>
 #include <array>
@@ -15,6 +18,8 @@
 #include <Windows.h>
 #include <shellapi.h>
 #include <shlobj_core.h>
+#include <windows.h>
+#include <winioctl.h>
 #else
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -28,8 +33,12 @@
 
 #include "catch.hpp"
 #include "../utilities.hpp"
+#include "../io.hpp"
+
 
 using namespace std;
+
+#define TEST_LEVEL 1 // 1...2
 
 namespace {
 
@@ -56,6 +65,13 @@ string full = tmp + "/full";
 string diff = tmp + "/diff";
 string testfiles = string(SRC_PATH) + "/../test/testfiles";
 string diff_tool = win ? root + "/test/diffexe/diff.exe" : "diff";
+
+int rnd(int max) {
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> distrib(0, max);
+    return distrib(gen);
+}
 
 #ifdef _WIN32
 
@@ -973,6 +989,7 @@ TEST_CASE("buildinfo2") {
     ex("-B");
 }
 
+
 TEST_CASE("acl_roundtrip_verify") {
     clean();
     string src = tmp + "/acl_src";
@@ -1026,7 +1043,6 @@ TEST_CASE("acl_roundtrip_verify") {
     chmod(p(src + "/f1.txt").c_str(), S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
     chmod(p(src + "/link_to_d1").c_str(), S_IRWXU); // no effect on Linux
     chmod(p(src + "/link_to_f1").c_str(), S_IRUSR | S_IWUSR); // no effect on Linux
-    exit(1);
 #endif
 
     ex("-m1C", src, full);
@@ -1242,3 +1258,155 @@ TEST_CASE("windows_file_attributes") {
 }
 #endif
 
+unsigned long long physical(const std::string &filePath) {
+
+#ifdef _WIN32
+    // Convert string to wide string for Windows API
+    std::wstring wPath(filePath.begin(), filePath.end());
+
+    // 1. Open the file handle
+    // Using 0 for access or FILE_READ_ATTRIBUTES is sufficient for querying ranges
+    HANDLE hFile = CreateFileW(wPath.c_str(), GENERIC_READ | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+    if (hFile == INVALID_HANDLE_VALUE)
+        return 0;
+
+    // 2. Define the query range (the whole file)
+    LARGE_INTEGER fileSize;
+    if (!GetFileSizeEx(hFile, &fileSize)) {
+        CloseHandle(hFile);
+        return 0;
+    }
+
+    FILE_ALLOCATED_RANGE_BUFFER queryRange;
+    queryRange.FileOffset.QuadPart = 0;
+    queryRange.Length.QuadPart = fileSize.QuadPart;
+
+    // 3. Query allocated ranges (Looping to handle fragmented files)
+    std::vector<FILE_ALLOCATED_RANGE_BUFFER> results(1024);
+    DWORD bytesReturned = 0;
+    unsigned long long totalAllocated = 0;
+
+    // We use a loop because extremely fragmented files may return ERROR_MORE_DATA
+    while (true) {
+        BOOL success = DeviceIoControl(hFile, FSCTL_QUERY_ALLOCATED_RANGES, &queryRange, sizeof(queryRange), results.data(), (DWORD)(results.size() * sizeof(FILE_ALLOCATED_RANGE_BUFFER)), &bytesReturned, NULL);
+
+        DWORD lastError = GetLastError();
+        if (!success && lastError != ERROR_MORE_DATA)
+            break;
+
+        int numRanges = bytesReturned / sizeof(FILE_ALLOCATED_RANGE_BUFFER);
+        for (int i = 0; i < numRanges; ++i) {
+            totalAllocated += results[i].Length.QuadPart;
+        }
+
+        if (success)
+            break; // Finished all ranges
+
+        // If ERROR_MORE_DATA, update offset to continue where we left off
+        queryRange.FileOffset.QuadPart = results[numRanges - 1].FileOffset.QuadPart + results[numRanges - 1].Length.QuadPart;
+        queryRange.Length.QuadPart = fileSize.QuadPart - queryRange.FileOffset.QuadPart;
+    }
+
+    CloseHandle(hFile);
+    return totalAllocated;
+#else
+    struct stat st;
+    if (stat(filePath.c_str(), &st) == 0) {
+        return (unsigned long long)st.st_blocks * 512;
+    }
+    return 0;
+#endif
+}
+
+// Needed by io.cpp
+void abort(bool b, retvals ret, const std::string &s) { CHECK(b); };
+void abort(bool b, retvals ret, const std::wstring &s) { CHECK(b); };
+void abort(bool b, const CHR *fmt, ...) { CHECK(b); }
+
+TEST_CASE("sparse") { 
+    clean();
+    Cio cio;
+    FILE *f;
+    string sparse_file = p(in + "/sparse_file");
+    string restored_file = p(out + "/sparse_file");
+    
+    auto create = [&]() {
+        rm(sparse_file);
+        f = cio.open(s2w(sparse_file), 'w');
+#ifdef _WIN32
+        DWORD dwTemp;
+        int n = _fileno(f);
+        HANDLE h = (HANDLE)_get_osfhandle(n);
+        DeviceIoControl(h, FSCTL_SET_SPARSE, NULL, 0, NULL, 0, &dwTemp, NULL);
+#endif
+    };
+    
+    auto write = [&](int siz, bool sparse) { 
+        vector<char> buffer(siz, sparse ? 0 : 'A');
+        cio.write(buffer.data(), siz, f, true); 
+    };
+
+    auto close = [&]() { 
+        cio.close(f, true); 
+    };
+
+    auto sequence = [&](vector<int> v) {
+        int data = 0;
+        int space = 0;
+        clean();
+        create();
+        for (auto s : v) {
+            if (s > 0) {
+                write(s, false);
+                data += s;
+            } else if (s < 0) {
+                write(-s, true);
+                space += -s;
+            }
+        }
+        close();
+
+        ex("-m1", in, full);
+        ex("-R0", full, out);
+        cmp();
+
+        int slack = int(v.size() * 64 * 1024);
+        int p = (int)physical(restored_file);
+        int l = (int)filesize(s2w(restored_file), false);
+        REQUIRE(l == data + space);
+        REQUIRE(p >= data);
+        REQUIRE(p <= data + slack);
+    };
+
+    int mb = 1024 * 1024;
+
+    sequence({});
+    sequence({mb});
+    sequence({-mb});
+    sequence({mb, mb});
+    sequence({-mb, -mb});
+    sequence({mb, -mb});
+    sequence({-mb, mb});
+    sequence({mb, -mb, mb});
+    sequence({-mb, mb, -mb});
+
+#if TEST_LEVEL > 1
+    for (int i = 0; i < 100; i++) {
+        if (i % 12 == 0) {
+            cerr << i << " ";
+        }
+#else
+    for (int i = 0; i < 20; i++) {
+#endif
+        vector<int> v;
+        for (int j = 0; j < 10; j++) {
+            int s = rnd(10 * mb);
+            if (rnd(1) == 0) {
+                s = -s;
+            }
+            v.push_back(s);
+        }
+        sequence(v);
+    }
+}

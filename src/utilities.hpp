@@ -100,7 +100,7 @@ bool ISLINK(int attributes);
 bool ISREG(int attributes);
 bool ISSOCK(int attributes);
 
-int get_attributes(STRING path, bool follow);
+int get_attributes(STRING path, bool follow, bool *is_sparse = nullptr);
 bool set_attributes(const STRING& path, int attributes);
 
 bool create_directory(const STRING& path);
