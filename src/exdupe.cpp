@@ -5,10 +5,10 @@
 // Copyrights:
 // 2010 - 2025: Lasse Mikkel Reinhold
 
-#define VER_MAJOR 4
+#define VER_MAJOR 5
 #define VER_MINOR 0
 #define VER_REVISION 0
-#define VER_DEV 12
+#define VER_DEV 1
 
 #define Q(x) #x
 #define QUOTE(x) Q(x)
