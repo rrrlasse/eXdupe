@@ -268,7 +268,8 @@ vector<chunk_t> chunks_added;
 
 struct attr_t {
     int attr = 0;
-    std::string xattr; // acl/xattr    
+    std::string xattr; // acl/xattr
+    bool sparse = false;
 };
 
 struct {
@@ -458,6 +459,7 @@ void read_content_item(FILE *file, contents_t &c) {
     c.directory = ((type >> 0) & 1) == 1;
     c.symlink = ((type >> 1) & 1) == 1;
     c.windows = ((type >> 2) & 1) == 1;
+    c.sparse = ((type >> 3) & 1) == 1;
     c.file_id = io.read_compact<uint64_t>(file);
     c.abs_path = slashify(io.read_utf8_string(file), c.windows);
     c.payload = io.read_compact<uint64_t>(file);
@@ -505,7 +507,7 @@ vector<contents_t> read_contents(FILE *f) {
 
 void write_contents_item(FILE *file, const contents_t &c) {
     uint64_t written = io.write_count;
-    uint8_t type = ((c.directory ? 1 : 0) << 0) | ((c.symlink ? 1 : 0) << 1) | ((c.windows ? 1 : 0) << 2);
+    uint8_t type = ((c.directory ? 1 : 0) << 0) | ((c.symlink ? 1 : 0) << 1) | ((c.windows ? 1 : 0) << 2) | ((c.sparse ? 1 : 0) << 3);
 
     io.write_ui<uint8_t>(type, file);
     io.write_compact<uint64_t>(c.file_id, file);
@@ -1720,9 +1722,20 @@ void force_overwrite(const STRING &file) {
     }
 }
 
-FILE *create_file(const STRING &file) {
+FILE *create_file(const STRING &file, [[maybe_unused]] bool sparse = false) {
     force_overwrite(file);
     FILE *ret = try_open(file.c_str(), 'w', true);
+#ifdef _WIN32
+    if (sparse) {
+        DWORD dwTemp;
+        int fd = _fileno(ret);
+        HANDLE hFile = (HANDLE)_get_osfhandle(fd);
+        bool b = DeviceIoControl(hFile, FSCTL_SET_SPARSE, NULL, 0, NULL, 0, &dwTemp, NULL);
+        if (!b) {        
+           statusbar.print(3, L("Warning: Failed to set file to be sparse: %s"), file.c_str());
+        }
+    }
+#endif
     return ret;
 }
 
@@ -1886,7 +1899,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
                 checksum_init(&t, hash_seed, use_aesni);
                 STRING outfile = remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
                 update_statusbar_restore(outfile);
-                ofile = pipe_out ? stdout : create_file(outfile);
+                ofile = pipe_out ? stdout : create_file(outfile, c.sparse);
                 resolved = 0;
 
                 while (resolved < c.size) {
@@ -1894,12 +1907,12 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
                     resolve(c.payload + resolved, process, restore_buffer.data(), ffull);
                     chunk_cache.trim();
                     checksum(restore_buffer.data(), process, &t);
-                    io.write(restore_buffer.data(), process, ofile);
+                    io.write(restore_buffer.data(), process, ofile, c.sparse);
                     update_statusbar_restore(outfile);
                     resolved += process;
                 }
                 if (!pipe_out) {
-                    fclose(ofile);
+                    io.close(ofile, c.sparse);
                     set_meta(dstdir + DELIM_STR + c.name, c);
                 }
                 
@@ -1970,7 +1983,7 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
 
     while (c.size() > 0 && src_consumed < chunkdata.size()) {
         if (ofile == 0) {
-            ofile = create_file(c.at(0).extra);
+            ofile = create_file(c.at(0).extra, c.at(0).sparse);
             destfile = c.at(0).extra;
             checksum_init(&decompress_checksum, hash_seed, use_aesni);
             {
@@ -1992,14 +2005,14 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
             update_statusbar_restore(destfile);
         }
 
-        io.write(&chunkdata[src_consumed], has, ofile);
+        io.write(&chunkdata[src_consumed], has, ofile, c.at(0).sparse);
 
         checksum(&chunkdata[src_consumed], has, &decompress_checksum);
         payload_written += has;
         src_consumed += has;
 
         if (curfile_written == c.at(0).size) {
-            io.close(ofile);
+            io.close(ofile, c.at(0).sparse);
             set_meta(c.at(0).extra, c.at(0));
             ofile = 0;
             curfile_written = 0;
@@ -2061,9 +2074,9 @@ void restore_from_stdin(const STRING& extract_dir) {
 
             if (c.size == 0) {
                 // May not have a corresponding data chunk ('A' block) to trigger decompress_files()
-                FILE* h = create_file(buf2);
+                FILE* h = create_file(buf2, c.sparse);
                 files++;
-                io.close(h);
+                io.close(h, c.sparse);
                 set_meta(buf2, c);
             }
             else {
@@ -2107,15 +2120,15 @@ void restore_from_stdin(const STRING& extract_dir) {
         auto r = written.find(i.duplicate);
         auto src = r->second;
 
-        auto ofile = create_file(dst);
+        auto ofile = create_file(dst, i.sparse);
         auto ifile = try_open(src, 'r', true);
         for (size_t r; (r = io.read(buf.data(), DISK_READ_CHUNK, ifile, false));) {
-            io.write(buf.data(), r, ofile);
+            io.write(buf.data(), r, ofile, i.sparse);
             // fixme dates?
             update_statusbar_restore(dst);
         }
         io.close(ifile);
-        io.close(ofile);
+        io.close(ofile, i.sparse);
         set_meta(dst, i);
     }
 
@@ -2323,6 +2336,7 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
     file_meta.directory = false;
     file_meta.symlink = false;
     file_meta.xattr_acl = attributes.xattr;
+    file_meta.sparse = attributes.sparse;
 
     // compress_file() now synchronized
     auto _ = std::lock_guard(compress_file_mutex);
@@ -2523,7 +2537,8 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     for (auto& item : items2) {
         STRING sub = base_dir + item;
-        int type = get_attributes(sub, follow_symlinks);
+        bool is_sparse = false;
+        int type = get_attributes(sub, follow_symlinks, &is_sparse);
 
         if (type == -1) {
             if (continue_flag) {
@@ -2565,7 +2580,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
             }
 #endif
 
-            attr_t a = {type, xattr_acl};
+            attr_t a = {type, xattr_acl, is_sparse};
 
             // avoid including archive itself when compressing
             if ((output_file == L("-stdout") || !same_path(sub, full)) && include(sub, top_level)) {
