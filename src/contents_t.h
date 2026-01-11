@@ -33,7 +33,7 @@ public:
     std::array<char, 16> hash{};
     uint64_t first = 0;
     uint8_t last = 0;
-    std::string xattr_acl; // ACL on Windows, xattr on *nix
+    std::string xattr_acl; // ACL+ADS on Windows, xattr on *nix
     bool sparse = false;
 #ifdef _WIN32
     bool windows = true;

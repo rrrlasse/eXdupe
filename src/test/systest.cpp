@@ -1235,7 +1235,41 @@ TEST_CASE("xattr_roundtrip") {
 #endif
 
 #ifdef _WIN32
+
+TEST_CASE("alternate data stream") {
+    bool pipe = GENERATE(true, false);
+    string c_flag = GENERATE("", "C");
+
+    clean();
+    md(in);
+    
+    std::string file = in + "/test.txt";
+    std::string ads = file + ":stream";
+
+    std::ofstream f(file);
+    f.close();
+
+    std::ofstream a(ads);
+    a << "data";
+    a.close();
+
+    if (pipe) {
+        ex(string("-m1") + c_flag, in, "-stdout", ">", full);
+        ex(string("-R0") + c_flag, "-stdin", out, "<", full);
+    } else {
+        ex(string("-m1") + c_flag, in, full);
+        ex(string("-R0") + c_flag, full, out);
+    }
+
+    std::ifstream verify(ads, std::ios::binary);
+    std::string content((std::istreambuf_iterator<char>(verify)), std::istreambuf_iterator<char>());
+    verify.close();
+    CHECK(content == "data");
+}
+
 TEST_CASE("windows_file_attributes") {
+    string c_flag = GENERATE("", "C");
+
     clean();
     md(in);
 
@@ -1248,8 +1282,8 @@ TEST_CASE("windows_file_attributes") {
     string qfile = string("\"") + p(file) + "\"";
     sys("attrib", "+R", "+H", "+S", "+A", qfile);
     sys("compact", "/c", qfile);
-    ex("-m1C", in, full);
-    ex("-R0C", full, out);
+    ex(string("-m1") + c_flag, in, full);
+    ex(string("-R0") + c_flag, full, out);
 
     // allow FS operations to settle
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
