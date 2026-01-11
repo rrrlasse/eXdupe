@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <filesystem>
+#include <ranges>
 
 #ifdef _WIN32
 #include <Winnt.h>
@@ -229,56 +230,99 @@ int set_xattr(const std::string &path, const std::string &pattern, const std::st
 #endif
 
 #ifdef _WIN32
-bool get_acl(const std::wstring &path, std::string &result, bool follow_symlinks) {
+
+bool get_property(const std::wstring &path, std::string &result, std::vector<int> streams, bool follow_symlinks) {
     result.clear();
     DWORD flags = FILE_FLAG_BACKUP_SEMANTICS;
-
-    if (!follow_symlinks) {
+    if (!follow_symlinks)
         flags |= FILE_FLAG_OPEN_REPARSE_POINT;
-    }
-    HANDLE hFile = CreateFileW(path.c_str(), READ_CONTROL | ACCESS_SYSTEM_SECURITY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, flags, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) {
+
+    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ | READ_CONTROL | ACCESS_SYSTEM_SECURITY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, flags, NULL);
+
+    if (hFile == INVALID_HANDLE_VALUE)
         return false;
-    }
 
     LPVOID context = NULL;
     WIN32_STREAM_ID sid;
     DWORD bytesRead = 0;
+    const DWORD sidHeaderSize = offsetof(WIN32_STREAM_ID, cStreamName);
 
     while (true) {
-        if (!BackupRead(hFile, (LPBYTE)&sid, sizeof(WIN32_STREAM_ID), &bytesRead, FALSE, TRUE, &context) || bytesRead == 0)
+        if (!BackupRead(hFile, (LPBYTE)&sid, sidHeaderSize, &bytesRead, FALSE, TRUE, &context) || bytesRead == 0)
             break;
 
-        if (sid.dwStreamId == BACKUP_SECURITY_DATA) {
-            std::vector<char> aclBuffer(sid.Size.LowPart);
-            if (BackupRead(hFile, (LPBYTE)aclBuffer.data(), sid.Size.LowPart, &bytesRead, FALSE, TRUE, &context)) {
-                result.append(reinterpret_cast<char *>(&sid), sizeof(WIN32_STREAM_ID));
-                result.append(aclBuffer.data(), bytesRead);
+        std::vector<char> nameBuffer;
+        if (sid.dwStreamNameSize > 0) {
+            nameBuffer.resize(sid.dwStreamNameSize);
+            BackupRead(hFile, (LPBYTE)nameBuffer.data(), sid.dwStreamNameSize, &bytesRead, FALSE, TRUE, &context);
+        }
+
+        if (std::ranges::any_of(streams, [&](int s) { return (DWORD)s == sid.dwStreamId; })) {
+            result.append(reinterpret_cast<const char *>(&sid), sidHeaderSize);
+            if (!nameBuffer.empty()) {
+                result.append(nameBuffer.data(), nameBuffer.size());
+            }
+
+            if (sid.Size.QuadPart > 0) {
+                std::vector<char> dataBuffer(sid.Size.LowPart);
+                if (BackupRead(hFile, (LPBYTE)dataBuffer.data(), sid.Size.LowPart, &bytesRead, FALSE, TRUE, &context)) {
+                    result.append(dataBuffer.data(), bytesRead);
+                }
             }
         } else {
             DWORD lowSeek = 0, highSeek = 0;
             BackupSeek(hFile, sid.Size.LowPart, sid.Size.HighPart, &lowSeek, &highSeek, &context);
         }
     }
+
     BackupRead(hFile, NULL, 0, &bytesRead, TRUE, FALSE, &context);
     CloseHandle(hFile);
     return true;
 }
 
 // Never follows symlinks
-bool set_acl(const std::wstring &path, const std::string &data) {
-    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE | WRITE_OWNER | WRITE_DAC, 0, NULL, OPEN_EXISTING,  FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) {
+bool set_property(const std::wstring &path, const std::string &data, std::vector<int> streams) {
+    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE | WRITE_OWNER | WRITE_DAC | ACCESS_SYSTEM_SECURITY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+
+    if (hFile == INVALID_HANDLE_VALUE)
         return false;
-    }
+
     LPVOID context = NULL;
     DWORD bytesWritten = 0;
-    BOOL success = BackupWrite(hFile, (LPBYTE)data.data(), (DWORD)data.size(), &bytesWritten, FALSE, TRUE, &context);
+    const DWORD sidHeaderSize = offsetof(WIN32_STREAM_ID, cStreamName);
+
+    size_t offset = 0;
+    bool overallSuccess = true;
+
+    while (offset + sidHeaderSize <= data.size()) {
+        // 1. Læs header fra bufferen
+        WIN32_STREAM_ID *sid = (WIN32_STREAM_ID *)&data[offset];
+        size_t totalBlockSize = sidHeaderSize + sid->dwStreamNameSize + (size_t)sid->Size.QuadPart;
+
+        // 2. Tjek om denne stream-type skal restores
+        bool shouldRestore = std::ranges::any_of(streams, [&](int s) { return (DWORD)s == sid->dwStreamId; });
+
+        if (shouldRestore) {
+            // Skriv hele blokken (Header + Navn + Data) til filen
+            if (!BackupWrite(hFile, (LPBYTE)&data[offset], (DWORD)totalBlockSize, &bytesWritten, FALSE, TRUE, &context)) {
+                overallSuccess = false;
+                break;
+            }
+        }
+
+        // Flyt offset til næste stream i bufferen
+        offset += totalBlockSize;
+    }
+
+    // Ryd op i context (Vigtigt: bAbort = TRUE hvis vi fejlede undervejs)
     DWORD dummy;
-    BackupWrite(hFile, NULL, 0, &dummy, TRUE, FALSE, &context);
+    BackupWrite(hFile, NULL, 0, &dummy, overallSuccess ? FALSE : TRUE, FALSE, &context);
+
     CloseHandle(hFile);
-    return (success != 0);
+    return overallSuccess;
 }
+
+
 
 // intentional soft failure; if this fails, just attempt to set/get acls anyway
 void set_privilege(const std::vector<std::wstring> &priv, bool enable) {
@@ -299,5 +343,28 @@ void set_privilege(const std::vector<std::wstring> &priv, bool enable) {
         AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), NULL, NULL);
         CloseHandle(hToken);
     }
+}
+
+bool has_ads(const std::wstring &path) {
+    WIN32_FIND_STREAM_DATA streamData;
+    HANDLE hStream = FindFirstStreamW(path.c_str(), FindStreamInfoStandard, &streamData, 0);
+
+    if (hStream == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    bool foundADS = false;
+    // Vi skal loope, fordi den første stream altid er "::$DATA"
+    do {
+        // En ADS har altid et navn i formatet ":navn:$DATA"
+        // Vi tjekker om navnet er noget andet end standard-streamen
+        if (std::wstring(streamData.cStreamName) != L"::$DATA") {
+            foundADS = true;
+            break;
+        }
+    } while (FindNextStreamW(hStream, &streamData));
+
+    FindClose(hStream);
+    return foundADS;
 }
 #endif

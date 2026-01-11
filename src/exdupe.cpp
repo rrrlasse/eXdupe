@@ -1752,23 +1752,16 @@ void set_meta(STRING item, contents_t c) {
     set_date(item, c.file_modified);
 
     if (WIN == c.windows) {
-
-#if _WIN32
-        set_attributes(item, c.attributes);
-#else
-        if (!c.symlink) {
-            // FIXME, check what systems don't fix to 0777 and use no-follow chmod() there
-            set_attributes(item, c.attributes);        
-        }
-#endif
-
 #ifdef _WIN32
+        std::vector<int> streams{BACKUP_ALTERNATE_DATA};
         if (acl_flag) {
-            bool b = set_acl(item, c.xattr_acl);
-            if (!b) {
-                abort(!continue_flag, L("Failed to restore ACLs for %s"), item.c_str());
-                statusbar.print(2, L("Failed to restore ACLs for %s"), item.c_str());
-            }
+            streams.push_back(BACKUP_SECURITY_DATA);
+        }
+
+        bool b = set_property(item, c.xattr_acl, streams);
+        if (!b) {
+            abort(!continue_flag, L("Failed to restore ACL or ADS for %s"), item.c_str());
+            statusbar.print(2, L("Failed to restore ACL or ADS for %s"), item.c_str());
         }
 #else
         if (!xattr_pattern.empty()) {
@@ -1785,6 +1778,16 @@ void set_meta(STRING item, contents_t c) {
     } else {
         // cannot set linux xattr on windows and vice versa
     }
+
+    // Set attributes last because read-only attributes would make above fail
+#if _WIN32
+    set_attributes(item, c.attributes);
+#else
+    if (!c.symlink) {
+        // FIXME, check what systems don't fix to 0777 and use no-follow chmod() there
+        set_attributes(item, c.attributes);
+    }
+#endif
 
 }
 
@@ -1914,7 +1917,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
                 }
                 if (!pipe_out) {
                     io.close(ofile, c.sparse);
-                    set_meta(dstdir + DELIM_STR + c.name, c);
+                    set_meta(remove_delimitor(dstdir) + DELIM_STR + c.name, c);
                 }
                 
                 abort(c.hash != t.result(), retvals::err_other, format(L("File checksum error {}"), c.name));
@@ -2561,8 +2564,16 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
             std::string xattr_acl;
 #ifdef _WIN32
+            vector<int> streams;
             if (acl_flag) {
-                bool b = get_acl(sub, xattr_acl, follow_symlinks);
+                streams.push_back(BACKUP_SECURITY_DATA);
+            }
+            if (has_ads(sub)) {
+                streams.push_back(BACKUP_ALTERNATE_DATA);
+            }
+
+            if (!streams.empty()){
+                bool b = get_property(sub, xattr_acl, streams, follow_symlinks);
                 if (!b && continue_flag) {
                     statusbar.print(2, L("Skipped, error reading ACLs for: %s"), sub.c_str());
                 } 
@@ -2601,7 +2612,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // First process files
     std::atomic<size_t> ctr = 0;
-    const int max_threads = 1;
+    const int max_threads = 6;
     std::thread threads[max_threads];
     std::atomic<bool> abort_flag = false;
     std::exception_ptr thread_exc = nullptr;
@@ -3054,9 +3065,7 @@ int main(int argc2, char *argv2[])
         } 
         
 #ifdef _WIN32
-        if (acl_flag) {
-            set_privilege({SE_BACKUP_NAME, SE_RESTORE_NAME, SE_SECURITY_NAME}, true);
-        }
+        set_privilege({SE_BACKUP_NAME, SE_RESTORE_NAME, SE_SECURITY_NAME}, true);
 #endif
 
         if (restore_flag) {
