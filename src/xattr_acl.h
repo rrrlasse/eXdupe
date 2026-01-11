@@ -13,8 +13,8 @@ int set_xattr(const std::string &path, const std::string &pattern, const std::st
 
 #else
 
-bool get_acl(const STRING &path, std::string &result, bool follow_symlinks);
-bool set_acl(const STRING &path, const std::string &data);
+bool get_property(const std::wstring &path, std::string &result, std::vector<int> streams, bool follow_symlinks);
+bool set_property(const STRING &path, const std::string &data);
 void set_privilege(const std::vector<std::wstring> &priv, bool enable);
-
+bool has_ads(const std::wstring &path);
 #endif

@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <filesystem>
+#include <ranges>
 
 #ifdef _WIN32
 #include <Winnt.h>
@@ -229,7 +230,7 @@ int set_xattr(const std::string &path, const std::string &pattern, const std::st
 #endif
 
 #ifdef _WIN32
-bool get_acl(const std::wstring &path, std::string &result, bool follow_symlinks) {
+bool get_property(const std::wstring &path, std::string &result, std::vector<int> streams, bool follow_symlinks) {
     result.clear();
     DWORD flags = FILE_FLAG_BACKUP_SEMANTICS;
 
@@ -249,7 +250,7 @@ bool get_acl(const std::wstring &path, std::string &result, bool follow_symlinks
         if (!BackupRead(hFile, (LPBYTE)&sid, sizeof(WIN32_STREAM_ID), &bytesRead, FALSE, TRUE, &context) || bytesRead == 0)
             break;
 
-        if (sid.dwStreamId == BACKUP_SECURITY_DATA) {
+        if(std::ranges::any_of(streams, [&](int s) { return s == sid.dwStreamId; })) {        
             std::vector<char> aclBuffer(sid.Size.LowPart);
             if (BackupRead(hFile, (LPBYTE)aclBuffer.data(), sid.Size.LowPart, &bytesRead, FALSE, TRUE, &context)) {
                 result.append(reinterpret_cast<char *>(&sid), sizeof(WIN32_STREAM_ID));
@@ -266,7 +267,7 @@ bool get_acl(const std::wstring &path, std::string &result, bool follow_symlinks
 }
 
 // Never follows symlinks
-bool set_acl(const std::wstring &path, const std::string &data) {
+bool set_property(const std::wstring &path, const std::string &data) {
     HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE | WRITE_OWNER | WRITE_DAC, 0, NULL, OPEN_EXISTING,  FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
         return false;
@@ -299,5 +300,15 @@ void set_privilege(const std::vector<std::wstring> &priv, bool enable) {
         AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), NULL, NULL);
         CloseHandle(hToken);
     }
+}
+
+bool has_ads(const std::wstring &path) {
+    WIN32_FIND_STREAM_DATA streamData;
+    HANDLE a = FindFirstStreamW(path.c_str(), FindStreamInfoStandard, &streamData, 0);
+    if (a) {
+        FindClose(a);
+        return true;
+    }
+    return false;
 }
 #endif
