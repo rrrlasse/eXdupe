@@ -35,6 +35,11 @@ public:
     uint8_t last = 0;
     std::string xattr_acl; // ACL+ADS on Windows, xattr on *nix
     bool sparse = false;
+
+    uint64_t volume = 0;
+    uint64_t inode = 0;
+    bool is_hardlink = false;
+
 #ifdef _WIN32
     bool windows = true;
 #else

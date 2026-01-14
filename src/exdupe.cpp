@@ -190,6 +190,8 @@ uint64_t dirs = 0;
 
 uint64_t unchanged = 0; // payload of unchanged files between a full and diff backup
 uint64_t identical = 0;
+uint64_t hardlinked = 0;
+
 uint64_t identical_files_count = 0;
 uint64_t high_entropy_files;
 uint64_t unchanged_files = 0;
@@ -269,6 +271,7 @@ struct attr_t {
     int attr = 0;
     std::string xattr; // acl/xattr
     bool sparse = false;
+    uint64_t assigned_id = 0;
 };
 
 struct {
@@ -349,9 +352,40 @@ void abort(bool b, const CHR *fmt, ...) {
     }
 }
 
+struct FileId {
+    uint64_t device_id;  // Volume Serial Number (Win) or st_dev (Linux)
+    uint64_t file_index; // File Index (Win) or st_ino (Linux)
+};
+
+FileId file_id(const STRING &path) {
+    FileId id = {0, 0};
+
+#ifdef _WIN32
+    // Use Backup Semantics to open directories as well as files
+    HANDLE hFile = CreateFileW(path.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (hFile != INVALID_HANDLE_VALUE) {
+        BY_HANDLE_FILE_INFORMATION info;
+        if (GetFileInformationByHandle(hFile, &info)) {
+            id.device_id = info.dwVolumeSerialNumber;
+            // Combine high and low parts into a 64-bit index
+            id.file_index = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+        }
+        CloseHandle(hFile);
+    }
+#else
+    struct stat info;
+    if (stat(path.c_str(), &info) == 0) {
+        id.device_id = static_cast<uint64_t>(info.st_dev);
+        id.file_index = static_cast<uint64_t>(info.st_ino);
+    }
+#endif
+
+    return id;
+}
+
 uint64_t backup_set_size() {
     // unchanged and identical are not sent to libexdupe
-    return dup_counter_payload() + unchanged + identical;
+    return dup_counter_payload() + unchanged + identical + hardlinked;
 }
 
 // todo, move
@@ -443,10 +477,13 @@ STRING validchars(STRING path) {
 
 void read_content_item(FILE *file, contents_t &c) {
     uint8_t type = io.read_ui<uint8_t>(file);
+
     c.directory = ((type >> 0) & 1) == 1;
     c.symlink = ((type >> 1) & 1) == 1;
     c.windows = ((type >> 2) & 1) == 1;
     c.sparse = ((type >> 3) & 1) == 1;
+    c.is_hardlink = ((type >> 4) & 1) == 1;
+
     c.file_id = io.read_compact<uint64_t>(file);
     c.abs_path = slashify(io.read_utf8_string(file), c.windows);
     c.payload = io.read_compact<uint64_t>(file);
@@ -457,7 +494,11 @@ void read_content_item(FILE *file, contents_t &c) {
     c.file_modified = io.read_compact<uint64_t>(file);
     c.file_change_time = io.read_compact<uint64_t>(file);
     c.attributes = io.read_ui<uint32_t>(file);
-    c.duplicate = io.read_compact<uint64_t>(file);   
+    c.duplicate = io.read_compact<uint64_t>(file);
+
+    c.volume = io.read_compact<uint64_t>(file);
+    c.inode = io.read_compact<uint64_t>(file);
+
     read_hash(file, c);
 
     size_t xattr_acl_size = io.read_compact<uint64_t>(file);
@@ -494,7 +535,9 @@ vector<contents_t> read_contents(FILE *f) {
 
 void write_contents_item(FILE *file, const contents_t &c) {
     uint64_t written = io.write_count;
-    uint8_t type = ((c.directory ? 1 : 0) << 0) | ((c.symlink ? 1 : 0) << 1) | ((c.windows ? 1 : 0) << 2) | ((c.sparse ? 1 : 0) << 3);
+
+    uint8_t type = ((c.directory ? 1 : 0) << 0) | ((c.symlink ? 1 : 0) << 1) | ((c.windows ? 1 : 0) << 2) | ((c.sparse ? 1 : 0) << 3)
+        | ((c.is_hardlink ? 1 : 0) << 4);
 
     io.write_ui<uint8_t>(type, file);
     io.write_compact<uint64_t>(c.file_id, file);
@@ -508,6 +551,10 @@ void write_contents_item(FILE *file, const contents_t &c) {
     io.write_compact<uint64_t>(c.file_change_time, file);
     io.write_ui<uint32_t>(c.attributes, file);
     io.write_compact<uint64_t>(c.duplicate, file);
+
+    io.write_compact<uint64_t>(c.volume, file);
+    io.write_compact<uint64_t>(c.inode, file);
+
     write_hash(file, c);
     
     io.write_compact(c.xattr_acl.size(), file);
@@ -814,7 +861,7 @@ bool save_directory(STRING base_dir, STRING path, bool write, attr_t a) {
         c.file_c_time = d.created;
         c.file_modified = d.written;
         c.file_change_time = d.changed;
-        c.file_id = file_id_counter++;
+        c.file_id = a.assigned_id;
 
         contents.push_back(c);
         contents_added.push_back(c);
@@ -1823,6 +1870,8 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
     statusbar.m_base_dir = base_dir;
 
     vector<contents_t> dir_meta;
+    vector<pair<STRING, STRING>> hardlinks;
+
     vector<contents_t> content;
 
     for (uint32_t i = 0; i < restorelist.size(); i++) {
@@ -1842,6 +1891,8 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
     read_backup_set(ffull, backup_set_offset, d, s, f, &backup_set, nullptr);
 
     read_content_map(ffull);
+
+   // std::sort(backup_set.begin(), backup_set.end());
 
     for (uint32_t i = 0; i < backup_set.size(); i++) {
         uint64_t id = backup_set.at(i);
@@ -1885,33 +1936,51 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
                 create_symlink(dstdir + c.name, c);
             } else if (!c.directory) {
                 files++;
-                checksum_t t;
-                checksum_init(&t, hash_seed, use_aesni);
-                STRING outfile = remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
-                update_statusbar_restore(outfile);
-                ofile = pipe_out ? stdout : create_file(outfile, c.sparse);
-                resolved = 0;
 
-                while (resolved < c.size) {
-                    size_t process = minimum(c.size - resolved, RESTORE_CHUNKSIZE);
-                    resolve(c.payload + resolved, process, restore_buffer.data(), ffull);
-                    checksum(restore_buffer.data(), process, &t);
-                    io.write(restore_buffer.data(), process, ofile, c.sparse);
+                if (c.is_hardlink) {
+                    STRING from = remove_delimitor(dstdir) + DELIM_STR + c.name;
+                    force_overwrite(remove_delimitor(dstdir) + DELIM_STR + c.name);
+                    auto to = content_map[c.duplicate];
+                    hardlinks.push_back(make_pair(from, remove_delimitor(dstdir) + DELIM_STR + to.name));
+                    hardlinked += to.size;
+                } else {
+                    checksum_t t;
+                    checksum_init(&t, hash_seed, use_aesni);
+                    STRING outfile = remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
                     update_statusbar_restore(outfile);
-                    resolved += process;
+                    ofile = pipe_out ? stdout : create_file(outfile, c.sparse);
+                    resolved = 0;
+
+                    while (resolved < c.size) {
+                        size_t process = minimum(c.size - resolved, RESTORE_CHUNKSIZE);
+                        resolve(c.payload + resolved, process, restore_buffer.data(), ffull);
+                        checksum(restore_buffer.data(), process, &t);
+                        io.write(restore_buffer.data(), process, ofile, c.sparse);
+                        update_statusbar_restore(outfile);
+                        resolved += process;
+                    }
+                    if (!pipe_out) {
+                        io.close(ofile, c.sparse);
+                        set_meta(remove_delimitor(dstdir) + DELIM_STR + c.name, c);
+                    }
+
+                    abort(c.hash != t.result(), retvals::err_other, format(L("File checksum error {}"), c.name));
                 }
-                if (!pipe_out) {
-                    io.close(ofile, c.sparse);
-                    set_meta(remove_delimitor(dstdir) + DELIM_STR + c.name, c);
-                }
-                
-                abort(c.hash != t.result(), retvals::err_other, format(L("File checksum error {}"), c.name));
+
             }
         }
     }
+
+
     for (auto &c : dir_meta) {
         set_meta(c.extra2, c);
     }
+
+    for (auto &h : hardlinks) {
+        update_statusbar_restore(h.first + L(" -> ") + h.second);
+        std::filesystem::create_hard_link(h.second, h.first);        
+    }
+
 }
 
 uint64_t payload_written = 0;
@@ -2028,6 +2097,7 @@ void restore_from_stdin(const STRING& extract_dir) {
     save_directory(L(""), curdir + DELIM_STR, false, {}); // initial root
 
     vector<contents_t> identicals_queue;
+    vector<contents_t> hardlink_queue;
     std::map<uint64_t, STRING> written;
     std::vector<contents_t> dir_meta;
 
@@ -2053,7 +2123,12 @@ void restore_from_stdin(const STRING& extract_dir) {
             read_content_item(ifile, c);
             STRING buf2 = remove_delimitor(curdir) + DELIM_STR + c.name;
             c.extra = buf2;
-            identicals_queue.push_back(c);
+            if (c.is_hardlink) {
+                hardlink_queue.push_back(c);
+            } else {
+                identicals_queue.push_back(c);
+            }
+
         }
         else if (w == 'F') {
             contents_t c;
@@ -2104,6 +2179,16 @@ void restore_from_stdin(const STRING& extract_dir) {
 
     vector<char> buf;
     buf.resize(DISK_READ_CHUNK);
+
+    for (auto& i : hardlink_queue) {
+        auto dst = i.extra;
+        auto r = written.find(i.duplicate);
+        auto src = r->second;
+        update_statusbar_restore(dst);
+        std::filesystem::create_hard_link(src, dst);
+        hardlinked += i.size;
+    }
+
     for (auto& i : identicals_queue) {
         auto dst = i.extra;
         auto r = written.find(i.duplicate);
@@ -2160,7 +2245,7 @@ void compress_symlink(const STRING &link, const STRING &target, attr_t a) {
     c.file_modified = times.written;
     c.file_c_time = times.created;
     c.file_change_time = times.changed;
-    c.file_id = file_id_counter++;
+    c.file_id = a.assigned_id;
     
     c.attributes = a.attr;
     c.xattr_acl = a.xattr;
@@ -2331,7 +2416,7 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
     auto _ = std::lock_guard(compress_file_mutex);
 
     file_meta.payload = payload_read + basepay;
-    file_meta.file_id = file_id_counter++;
+    file_meta.file_id = attributes.assigned_id;
 
     files++;
 
@@ -2514,11 +2599,13 @@ void fail_list_dir(const STRING &dir) {
     }
 }
 
+std::map<std::pair<uint64_t, uint64_t>, uint64_t> hardlinks;
+
 void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_level) {
 
     using item = pair<STRING, attr_t>;
 
-    vector<item> files;
+    vector<item> files2;
     vector<item> symlinks;
     vector<item> directories;
 
@@ -2528,6 +2615,37 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
         STRING sub = base_dir + item;
         bool is_sparse = false;
         int type = get_attributes(sub, follow_symlinks, &is_sparse);
+
+
+        if (std::filesystem::hard_link_count(sub) > 1) {
+            update_statusbar_backupv3(sub);
+            auto i = file_id(sub);
+            auto key = std::make_pair(i.device_id, i.file_index);
+            auto it = hardlinks.find(key);
+            if (it != hardlinks.end()) {
+                // already seen this file, create a duplicate entry
+                contents_t c;
+                c.is_hardlink = true;               
+                c.abs_path = abs_path(sub);
+                STRING s = right(item) == L("") ? item : right(item);
+                c.name = s;
+                c.file_id = file_id_counter++;
+                c.duplicate = it->second;
+                io.write("U", 1, ofile);
+                write_contents_item(ofile, c);
+                contents.push_back(c);
+                contents_added.push_back(c);
+                backup_set.push_back(c.file_id);
+                files++;
+                hardlinked += filesize(sub, false);
+                continue;
+            } else {
+                // first time seeing this file
+                hardlinks[key] = file_id_counter;
+            }
+        }
+
+
 
         if (type == -1) {
             if (continue_flag) {
@@ -2577,12 +2695,13 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
             }
 #endif
 
-            attr_t a = {type, xattr_acl, is_sparse};
+            attr_t a = {type, xattr_acl, is_sparse, file_id_counter};
+            file_id_counter++;
 
             // avoid including archive itself when compressing
             if ((output_file == L("-stdout") || !same_path(sub, full)) && include(sub, top_level)) {
                 if ((!ISDIR(type) && !ISSOCK(type)) && !(ISLINK(type) && !follow_symlinks)) {
-                    files.emplace_back(item, a);
+                    files2.emplace_back(item, a);
                 }
                 else if(ISLINK(type) && !follow_symlinks) {
                     symlinks.emplace_back(item, a);
@@ -2605,14 +2724,14 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     auto compress_file_function = [&]() {
         size_t j = ctr.fetch_add(1);
-        while (!abort_flag && j < files.size()) {
-            rassert(j < files.size());
-            STRING sub = base_dir + files.at(j).first;
-            STRING L = files.at(j).first;
+        while (!abort_flag && j < files2.size()) {
+            rassert(j < files2.size());
+            STRING sub = base_dir + files2.at(j).first;
+            STRING L = files2.at(j).first;
             STRING s = right(L) == L("") ? L : right(L);
 
             try {
-                compression::compress_file(sub, s, files.at(j).second);
+                compression::compress_file(sub, s, files2.at(j).second);
             } catch (...) {
                 std::lock_guard<std::mutex> lg(thread_exc_mutex);
                 thread_exc = std::current_exception();
@@ -2623,8 +2742,8 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
         }
     };
 
-    if(files.size() > 1) {
-        size_t thread_count = minimum(files.size(), max_threads);
+    if(files2.size() > 1) {
+        size_t thread_count = minimum(files2.size(), max_threads);
         for (size_t t = 0; t < thread_count; t++) {
             threads[t] = std::thread(compress_file_function);
         }
@@ -2963,7 +3082,7 @@ void main_restore() {
             read_headers(ifile);
             restore::restore_from_file(ifile, set_flag == static_cast<uint32_t>(-1) ? 0 : set_flag);
         }
-        wrote_message(io.write_count, files);
+        wrote_message(io.write_count + hardlinked, files);
     } else if ((full == L("-stdin")) && restorelist.size() == 0) {
         // fixme, only archives containing 1 set can be restored this way; add detection+error handling
         // Restore from stdin. Only entire archive can be restored this way
@@ -2977,7 +3096,7 @@ void main_restore() {
 
         restore::restore_from_stdin(s);
         rassert(!incremental);
-        wrote_message(io.write_count, files);
+        wrote_message(io.write_count + hardlinked, files);
 
         // read remainder of file like content section, etc, to avoid error from OS
         vector<std::byte> tmp(32 * 1024, {});
