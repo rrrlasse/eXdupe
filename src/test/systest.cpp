@@ -1305,15 +1305,11 @@ TEST_CASE("windows_file_attributes") {
 }
 #endif
 
-unsigned long long physical(const std::string &filePath) {
-
 #ifdef _WIN32
-    // Convert string to wide string for Windows API
-    std::wstring wPath(filePath.begin(), filePath.end());
-
+unsigned long long physical(const std::string &wPath) {
     // 1. Open the file handle
     // Using 0 for access or FILE_READ_ATTRIBUTES is sufficient for querying ranges
-    HANDLE hFile = CreateFileW(wPath.c_str(), GENERIC_READ | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hFile = CreateFileA(wPath.c_str(), GENERIC_READ | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
     if (hFile == INVALID_HANDLE_VALUE)
         return 0;
