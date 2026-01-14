@@ -76,6 +76,8 @@ time_ms_t cur_date();
 bool is_symlink(const STRING& file);
 bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir);
 bool is_named_pipe(const STRING& file);
+bool is_hardlink(const STRING &file, int attrib);
+
 bool set_date(const STRING& file, time_ms_t date);
 filetimes get_date(const STRING &file);
 STRING slashify(STRING path, bool wincreated);

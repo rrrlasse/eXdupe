@@ -869,3 +869,19 @@ bool is_symlink_consistent(const std::wstring &symlinkPath) {
 #endif
 
 
+bool is_hardlink(const STRING &file, int attrib) {
+    int count = 0;
+#ifdef _WIN32
+    bool may_be_hardlink = !(attrib & FILE_ATTRIBUTE_DIRECTORY);
+#else
+    bool may_be_hardlink = ISREG(attrib);
+#endif
+    if (may_be_hardlink) {
+        try {
+            count = std::filesystem::hard_link_count(file);
+        } catch (...) {
+            // broken link to file, etc
+        }
+    }
+    return count > 1;
+}
