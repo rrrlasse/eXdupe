@@ -2632,8 +2632,12 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
         bool is_sparse = false;
         int type = get_attributes(sub, follow_symlinks, &is_sparse);
 
-
-        if (std::filesystem::hard_link_count(sub) > 1) {
+#ifdef _WIN32
+        bool may_be_hardlink = !(type & FILE_ATTRIBUTE_DIRECTORY);
+#else
+        bool may_be_hardlink = ISREG(type);
+#endif
+        if (may_be_hardlink && std::filesystem::hard_link_count(sub) > 1) {
             update_statusbar_backupv3(sub);
             auto i = file_id(sub);
             auto key = std::make_pair(i.device_id, i.file_index);
