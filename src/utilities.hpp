@@ -136,6 +136,7 @@ void set_bold(bool bold);
 
 #ifdef _WIN32
 bool is_symlink_consistent(const std::wstring &symlinkPath);
+int create_junction(std::wstring source, std::wstring destination);
 #endif
 
 typedef struct {
