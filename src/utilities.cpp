@@ -866,6 +866,60 @@ bool is_symlink_consistent(const std::wstring &symlinkPath) {
     return linkSaysDirectory == targetIsDirectory;
 }
 
+typedef struct _REPARSE_DATA_BUFFER {
+    ULONG ReparseTag;
+    USHORT ReparseDataLength;
+    USHORT Reserved;
+    struct {
+        USHORT SubstituteNameOffset;
+        USHORT SubstituteNameLength;
+        USHORT PrintNameOffset;
+        USHORT PrintNameLength;
+        WCHAR PathBuffer[1];
+    } MountPointReparseBuffer;
+} REPARSE_DATA_BUFFER;
+
+int create_junction(std::wstring source, std::wstring destination) {
+    std::wstring sub_name = L"\\??\\" + destination;
+    std::wstring print_name = destination;
+
+    size_t sub_len = sub_name.length() * sizeof(WCHAR);
+    size_t print_len = print_name.length() * sizeof(WCHAR);
+    size_t data_length = FIELD_OFFSET(REPARSE_DATA_BUFFER, MountPointReparseBuffer.PathBuffer) - FIELD_OFFSET(REPARSE_DATA_BUFFER, MountPointReparseBuffer) + sub_len + sizeof(WCHAR) + print_len + sizeof(WCHAR);
+    size_t buffer_size = data_length + FIELD_OFFSET(REPARSE_DATA_BUFFER, MountPointReparseBuffer);
+
+    std::vector<BYTE> buffer(buffer_size, 0);
+    REPARSE_DATA_BUFFER *rdb = reinterpret_cast<REPARSE_DATA_BUFFER *>(buffer.data());
+
+    rdb->ReparseTag = IO_REPARSE_TAG_MOUNT_POINT;
+    rdb->ReparseDataLength = static_cast<USHORT>(data_length);
+
+    rdb->MountPointReparseBuffer.SubstituteNameOffset = 0;
+    rdb->MountPointReparseBuffer.SubstituteNameLength = static_cast<USHORT>(sub_len);
+
+    rdb->MountPointReparseBuffer.PrintNameOffset = static_cast<USHORT>(sub_len + sizeof(WCHAR));
+    rdb->MountPointReparseBuffer.PrintNameLength = static_cast<USHORT>(print_len);
+
+    wcsncpy(rdb->MountPointReparseBuffer.PathBuffer, sub_name.c_str(), sub_name.length());
+    wcsncpy(rdb->MountPointReparseBuffer.PathBuffer + (rdb->MountPointReparseBuffer.PrintNameOffset / sizeof(WCHAR)), print_name.c_str(), print_name.length());
+
+    if (!CreateDirectoryW(source.c_str(), NULL) && GetLastError() != ERROR_ALREADY_EXISTS) {
+        return 100;
+    }
+
+    HANDLE h_dir = CreateFileW(source.c_str(), GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+
+    if (h_dir == INVALID_HANDLE_VALUE) {
+        return 200;
+    }
+
+    DWORD bytes_returned;
+    BOOL success = DeviceIoControl(h_dir, FSCTL_SET_REPARSE_POINT, rdb, static_cast<DWORD>(buffer_size), NULL, 0, &bytes_returned, NULL);
+
+    CloseHandle(h_dir);
+    return success ? 0 : 300;
+}
+
 #endif
 
 

@@ -25,6 +25,7 @@ public:
     int attributes = 0;
     bool directory = false;
     bool symlink = false;
+    bool junction = false; // Windows only
     STRING extra;
     STRING extra2;
     STRING abs_path;
