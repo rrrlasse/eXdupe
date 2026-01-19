@@ -497,7 +497,7 @@ void read_content_item(FILE *file, contents_t &c) {
     c.windows = ((type >> 2) & 1) == 1;
     c.sparse = ((type >> 3) & 1) == 1;
     c.is_hardlink = ((type >> 4) & 1) == 1;
-
+    c.junction = ((type >> 5) & 1) == 1;
     c.file_id = io.read_compact<uint64_t>(file);
     c.abs_path = slashify(io.read_utf8_string(file), c.windows);
     c.payload = io.read_compact<uint64_t>(file);
@@ -550,8 +550,7 @@ vector<contents_t> read_contents(FILE *f) {
 void write_contents_item(FILE *file, const contents_t &c) {
     uint64_t written = io.write_count;
 
-    uint8_t type = ((c.directory ? 1 : 0) << 0) | ((c.symlink ? 1 : 0) << 1) | ((c.windows ? 1 : 0) << 2) | ((c.sparse ? 1 : 0) << 3)
-        | ((c.is_hardlink ? 1 : 0) << 4);
+    uint8_t type = ((c.directory ? 1 : 0) << 0) | ((c.symlink ? 1 : 0) << 1) | ((c.windows ? 1 : 0) << 2) | ((c.sparse ? 1 : 0) << 3) | ((c.is_hardlink ? 1 : 0) << 4) | ((c.junction ? 1 : 0) << 5);
 
     io.write_ui<uint8_t>(type, file);
     io.write_compact<uint64_t>(c.file_id, file);
@@ -1841,21 +1840,25 @@ void set_meta(STRING item, contents_t c) {
 }
 
 void create_symlink(STRING path, contents_t c) {
+    int ret = 0;
     force_overwrite(path);
 #ifdef _WIN32
-    int ret = CreateSymbolicLink(path.c_str(), c.link.c_str(), SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE | (c.directory ? SYMBOLIC_LINK_FLAG_DIRECTORY : 0));
+    if (c.junction) {
+        ret = create_junction(path, c.link) == 0;
+    } else {
+        ret = CreateSymbolicLink(path.c_str(), c.link.c_str(), SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE | (c.directory ? SYMBOLIC_LINK_FLAG_DIRECTORY : 0));
+    }
     if (ret == 0) {
         int e = GetLastError();
-        abort(GetLastError() == ERROR_PRIVILEGE_NOT_HELD, L("Plase run eXdupe as administrator to restore symlinks: %s -> %s"), path.c_str(), c.link.c_str());
-        abort(true, L("Unknown error (GetLastError() = %d) restoring symlink: %s -> %s"), e, path.c_str(), c.link.c_str());
+        abort(GetLastError() == ERROR_PRIVILEGE_NOT_HELD, L("Plase run as administrator to restore symlinks and junctions: %s -> %s"), path.c_str(), c.link.c_str());
+        abort(true, L("Unknown error (GetLastError() = %d) restoring symlink or junction: %s -> %s"), e, path.c_str(), c.link.c_str());
     }
-    ret = 0;
-
 #else
-    int ret = symlink(c.link.c_str(), path.c_str());
+    ret = symlink(c.link.c_str(), path.c_str());
+    abort(ret != 0, L("Error creating symlink: %s -> %s"), path.c_str(), c.link.c_str());
 #endif
     set_meta(path, c);
-    abort(ret != 0, L("Error creating symlink: %s -> %s"), path.c_str(), c.link.c_str());
+
 }
 
 void ensure_relative(const STRING &path) {
@@ -2267,15 +2270,27 @@ void restore_from_stdin(const STRING& extract_dir) {
 
 void compress_symlink(const STRING &link, const STRING &target, attr_t a) {
     bool is_dir;
+    bool junction = false;
     STRING tmp;
 
     bool ok = symlink_target(link.c_str(), tmp, is_dir);
 
+#ifdef _WIN32
+    WIN32_FIND_DATAW findData;
+    HANDLE hFind = FindFirstFileW(link.c_str(), &findData);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        ok = true;
+        junction = (findData.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT);
+    } else {
+        ok = false;
+    }
+#endif
+
     if (!ok) {
         if (continue_flag) {
-            statusbar.print(2, L("Skipped, error by readlink(): %s"), link.c_str());
+            statusbar.print(2, L("Skipped, error reading symlink: %s"), link.c_str());
         } else {
-            abort(true, L("Aborted, error by readlink(): %s"), link.c_str());
+            abort(true, L("Aborted, error reading symlink: %s"), link.c_str());
         }
         return;
     }
@@ -2289,6 +2304,7 @@ void compress_symlink(const STRING &link, const STRING &target, attr_t a) {
 
     contents_t c;
     c.directory = is_dir;
+    c.junction = junction;
     c.symlink = true;
     c.link = STRING(tmp);
     c.name = target;
@@ -2713,8 +2729,6 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
                 hardtarget = a;
             }
         }
-
-
 
         if (type == -1) {
             if (continue_flag) {
