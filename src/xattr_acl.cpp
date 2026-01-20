@@ -347,11 +347,24 @@ void set_privilege(const std::vector<std::wstring> &priv, bool enable) {
 
 bool has_ads(const std::wstring &path) {
     WIN32_FIND_STREAM_DATA streamData;
-    HANDLE a = FindFirstStreamW(path.c_str(), FindStreamInfoStandard, &streamData, 0);
-    if (a) {
-        FindClose(a);
-        return true;
+    HANDLE hStream = FindFirstStreamW(path.c_str(), FindStreamInfoStandard, &streamData, 0);
+
+    if (hStream == INVALID_HANDLE_VALUE) {
+        return false;
     }
-    return false;
+
+    bool foundADS = false;
+    // Vi skal loope, fordi den første stream altid er "::$DATA"
+    do {
+        // En ADS har altid et navn i formatet ":navn:$DATA"
+        // Vi tjekker om navnet er noget andet end standard-streamen
+        if (std::wstring(streamData.cStreamName) != L"::$DATA") {
+            foundADS = true;
+            break;
+        }
+    } while (FindNextStreamW(hStream, &streamData));
+
+    FindClose(hStream);
+    return foundADS;
 }
 #endif
