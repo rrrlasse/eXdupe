@@ -2734,7 +2734,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
 
     // First process files
     std::atomic<size_t> ctr = 0;
-    const int max_threads = 1;
+    const int max_threads = 6;
     std::thread threads[max_threads];
     std::atomic<bool> abort_flag = false;
     std::exception_ptr thread_exc = nullptr;
