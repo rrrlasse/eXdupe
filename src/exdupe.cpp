@@ -8,7 +8,7 @@
 #define VER_MAJOR 4
 #define VER_MINOR 0
 #define VER_REVISION 0
-#define VER_DEV 11
+#define VER_DEV 12
 
 #define Q(x) #x
 #define QUOTE(x) Q(x)
@@ -48,6 +48,7 @@
 #include <map>
 #include <atomic>
 #include <mutex>
+#include <list>
 
 #ifdef _WIN32
 const bool WIN = true;
@@ -260,19 +261,32 @@ vector<chunk_t> chunks;
 vector<chunk_t> chunks_added;
 
 struct {
-    void add(uint64_t id, const vector<char> &v) {
+    void trim() {
         while (size > RESTORE_BUFFER) {
-            size -= chunks.at(0).second.size();
+            size -= chunks.begin()->second.size();
             chunks.erase(chunks.begin());
+        }
+    }
+    void add(uint64_t id, const vector<char> &v) {
+        auto r = std::find_if(chunks.begin(), chunks.end(), [&](auto &p) { return p.first == id; });
+        if (r != chunks.end()) {
+            return;
         }
         size += v.size();
         chunks.emplace_back(id, v);
     }
 
     auto find(uint64_t id) {
-        return std::find_if(chunks.begin(), chunks.end(), [&](auto &p) { return p.first == id; });
+        auto r = std::find_if(chunks.begin(), chunks.end(), [&](auto &p) { return p.first == id; });
+#if 0
+        // Move to end so it stays longer in cache
+        if (r != chunks.end()) {
+            chunks.splice(chunks.end(), chunks, r);
+        }
+#endif
+        return r;
     }
-    std::vector<pair<uint64_t, vector<char>>> chunks;
+    std::list<pair<uint64_t, vector<char>>> chunks;
     uint64_t size = 0;
 } chunk_cache;
 
@@ -681,7 +695,7 @@ vector<packet_t> get_packets(FILE* f, uint64_t base_payload, std::vector<char>& 
 }
 
 
-bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
+void resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
     size_t bytes_resolved = 0;
     while (bytes_resolved < size) {
         uint64_t rr = find_chunk(payload + bytes_resolved);
@@ -690,7 +704,8 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
         vector<packet_t> packets;
         vector<char> chunk_buffer;
 
-        // note lifetime issue: packets point into chunk_buffer or into chunk_cache
+        // note lifetime issue: packets point into chunk_buffer or into chunk_cache, so it's
+        // important not to delete from chunk_cache - do not call trim()!
         if (auto it = chunk_cache.find(rr); it != chunk_cache.chunks.end()) {
             packets = parse_packets(it->second.data(), it->second.size(), chunk.payload);
         } else {
@@ -726,7 +741,6 @@ bool resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
             }
         }
     }
-    return false;
 }
 
 // clang-format off
@@ -1806,6 +1820,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
                 while (resolved < c.size) {
                     size_t process = minimum(c.size - resolved, RESTORE_CHUNKSIZE);
                     resolve(c.payload + resolved, process, restore_buffer.data(), ffull);
+                    chunk_cache.trim();
                     checksum(restore_buffer.data(), process, &t);
                     io.write(restore_buffer.data(), process, ofile);
                     update_statusbar_restore(outfile);
