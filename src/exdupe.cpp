@@ -1870,7 +1870,92 @@ void ensure_relative(const STRING &path) {
     abort(b, s.c_str());
 }
 
+void validate_file(FILE *ffull) {
+    std::vector<char> restore_buffer(RESTORE_CHUNKSIZE, 'c');
+
+    if (!exists(directory)) {
+        create_directories(directory, 0);
+    }
+
+    contents_t c;
+    uint64_t resolved = 0;
+
+    STRING curdir = L("");
+    STRING base_dir = abs_path(directory);
+    statusbar.m_base_dir = base_dir;
+
+    vector<contents_t> dir_meta;
+    vector<pair<STRING, STRING>> hardlinks;
+
+    vector<contents_t> content;
+
+    basepay = read_chunks(ffull); // fixme basepay still needed?
+
+    read_content_map(ffull);
+
+    for (auto const &cc : content_map) {
+        contents_t c = cc.second;
+        if (c.directory && !c.symlink) {
+            curdir = remove_delimitor(c.name);
+        }
+
+        pair<STRING, size_t> p = extract_to(curdir, c.name);
+        STRING s = p.first;
+
+        STRING dstdir;
+        STRING x = s;
+
+        ensure_relative(x);
+
+        if (x.substr(0, 1) != L("\\") && x.substr(0, 1) != L("/")) {
+            dstdir = remove_delimitor(base_dir + DELIM_STR + x) + DELIM_STR;
+        } else {
+            dstdir = remove_delimitor(base_dir + x) + DELIM_STR;
+        }
+
+        if (c.directory && !c.symlink) {
+            c.extra2 = abs_path(dstdir);
+            dir_meta.push_back(c);
+        }
+
+        if (c.symlink) {
+            files++;
+            update_statusbar_restore(c.name + L(" -> ") + c.link);
+        } else if (!c.directory) {
+            files++;
+
+            if (c.is_hardlink) {
+                STRING from = remove_delimitor(dstdir) + DELIM_STR + c.name;
+                auto to = content_map[c.duplicate];
+                hardlinks.push_back(make_pair(from, remove_delimitor(dstdir) + DELIM_STR + to.name));
+                hardlinked += to.size;
+            } else {
+                checksum_t t;
+                checksum_init(&t, hash_seed, use_aesni);
+                STRING outfile = remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
+                update_statusbar_restore(outfile);
+                resolved = 0;
+
+                if (c.duplicate == 0) {
+                    while (resolved < c.size) {
+                        size_t process = minimum(c.size - resolved, RESTORE_CHUNKSIZE);
+                        resolve(c.payload + resolved, process, restore_buffer.data(), ffull);
+                        checksum(restore_buffer.data(), process, &t);
+                        update_statusbar_restore(outfile);
+                        resolved += process;
+                    }
+                    abort(c.hash != t.result(), retvals::err_other, format(L("File checksum error {}"), c.name));
+                }
+            }
+        }        
+    }
+
+}
+
 void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
+//    validate_file(ffull);
+//    return ;
+
     abort(backup_set_number >= sets.size(), L("Backup set does not exist"));
     bool pipe_out = directory == L("-stdout");
     std::vector<char> restore_buffer(RESTORE_CHUNKSIZE, 'c');
