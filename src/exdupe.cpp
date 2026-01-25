@@ -130,13 +130,12 @@ size_t DEDUPE_LARGE = 128 * K;
 const size_t DISK_READ_CHUNK = 1 * M;
 
 // Restore takes part by resolving a tree structure of backwards references in
-// past data. Resolve RESTORE_CHUNKSIZE bytes of payload at a time (too large
-// value can potentially expand a too huge tree; too small value can be slow)
+// past data. Resolve RESTORE_CHUNKSIZE bytes of payload at a time. Be very careful
+// if increasing this value because you can expand a huge tree using much memory
 const size_t RESTORE_CHUNKSIZE = 1 * M;
 
-// Keep the last RESTORE_BUFFER bytes of decompressed chunks, so that we
-// don't have to seek on the disk while building above mentioned tree. Todo,
-// this was benchmarked in 2010, test if still valid today
+// Keep the last RESTORE_BUFFER bytes of decompressed chunks in memory to save LZ
+// decompression and disk I/O
 const size_t RESTORE_BUFFER = 2 * G;
 
 const size_t IDENTICAL_FILE_SIZE = 1;
@@ -276,35 +275,6 @@ struct attr_t {
     STRING hardtarget;
 };
 
-struct {
-    void trim() {
-        while (size > RESTORE_BUFFER) {
-            size -= chunks.begin()->second.size();
-            chunks.erase(chunks.begin());
-        }
-    }
-    void add(uint64_t id, const vector<char> &v) {
-        auto r = std::find_if(chunks.begin(), chunks.end(), [&](auto &p) { return p.first == id; });
-        if (r != chunks.end()) {
-            return;
-        }
-        size += v.size();
-        chunks.emplace_back(id, v);
-    }
-
-    auto find(uint64_t id) {
-        auto r = std::find_if(chunks.begin(), chunks.end(), [&](auto &p) { return p.first == id; });
-#if 0
-        // Move to end so it stays longer in cache
-        if (r != chunks.end()) {
-            chunks.splice(chunks.end(), chunks, r);
-        }
-#endif
-        return r;
-    }
-    std::list<pair<uint64_t, vector<char>>> chunks;
-    uint64_t size = 0;
-} chunk_cache;
 
 vector<uint64_t> backup_set; // file_id;
 uint64_t original_file_size = 0;
@@ -762,6 +732,77 @@ vector<packet_t> get_packets(FILE* f, uint64_t base_payload, std::vector<char>& 
     return packets;
 }
 
+class ChunkCache {
+  private:
+    struct Entry {
+        uint64_t id = 0;
+        uint64_t version = 0;
+        std::vector<char> data;
+    };
+
+    size_t head = 0;
+    uint64_t current_version = 1;
+    std::vector<std::unique_ptr<Entry>> buffer;
+    std::unordered_map<uint64_t, size_t> index_map;
+
+    void expand(size_t count) {
+        buffer.reserve(buffer.size() + count);
+        for (size_t i = 0; i < count; ++i) {
+            buffer.push_back(std::make_unique<Entry>());
+        }
+    }
+
+  public:
+    explicit ChunkCache(size_t initial_size) { 
+        rassert(initial_size > 0);
+        expand(initial_size);
+    }
+
+    const std::vector<char> *find_and_lock(uint64_t id) {
+        auto it = index_map.find(id);
+        if (it != index_map.end()) {
+            buffer[it->second]->version = current_version;
+            hits1++;
+            return &buffer[it->second]->data;
+        }
+        hits2++;
+        return nullptr;
+    }
+
+    std::vector<char> *get_free_and_lock(uint64_t id) {
+        size_t start_index = head;
+        size_t current_size = buffer.size();
+
+        while (buffer[head]->version == current_version) {
+            head = (head + 1) % current_size;
+            if (head == start_index) {
+                expand(current_size / 8 > 0 ? current_size / 8 : 1);
+                head = current_size;
+                break;
+            }
+        }
+
+        auto &entry = buffer[head];
+        if (entry->id != 0) {
+            index_map.erase(entry->id);
+        }
+
+        entry->id = id;
+        entry->version = current_version;
+        index_map[id] = head;
+
+        std::vector<char> *ptr = &entry->data;
+        head = (head + 1) % buffer.size();
+        return ptr;
+    }
+
+    void release_all() {
+        current_version++;
+    }
+
+};
+
+ChunkCache chunk_cache(RESTORE_BUFFER / RESTORE_CHUNKSIZE);
 
 void resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
     size_t bytes_resolved = 0;
@@ -770,16 +811,14 @@ void resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
         rassert(rr != std::numeric_limits<uint64_t>::max());
         chunk_t chunk = chunks.at(rr);
         vector<packet_t> packets;
-        vector<char> chunk_buffer;
 
-        // note lifetime issue: packets point into chunk_buffer or into chunk_cache, so it's
-        // important not to delete from chunk_cache - do not call trim()!
-        if (auto it = chunk_cache.find(rr); it != chunk_cache.chunks.end()) {
-            packets = parse_packets(it->second.data(), it->second.size(), chunk.payload);
+        // note lifetime issue: packets point into chunk_cache
+        if (auto it = chunk_cache.find_and_lock(rr); it) {
+            packets = parse_packets(it->data(), it->size(), chunk.payload);
         } else {
             io.seek(ifile, chunk.archive_offset, SEEK_SET);
-            packets = get_packets(ifile, chunk.payload, chunk_buffer);
-            chunk_cache.add(rr, chunk_buffer);
+            auto f = chunk_cache.get_free_and_lock(rr);
+            packets = get_packets(ifile, chunk.payload, *f);
         }
 
         size_t packet_payload_start = chunk.payload;
