@@ -1470,7 +1470,7 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
         archive_file = ffull;
     }
 
-    if (!exists(directory)) {
+    if (!pipe_out && !exists(directory)) {
         create_directories(directory, 0);
     }
 
@@ -1549,7 +1549,7 @@ void restore_from_file(FILE *ffull, FILE *fdiff) {
                 files++;
                 checksum_t t;
                 checksum_init(&t);
-                STRING outfile = remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
+                STRING outfile = pipe_out ? L("-stdout") : remove_delimitor(abs_path(dstdir)) + DELIM_STR + c.name;
                 update_statusbar_restore(outfile);
                 ofile = pipe_out ? stdout : create_file(outfile);
                 resolved = 0;
