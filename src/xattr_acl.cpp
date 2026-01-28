@@ -237,7 +237,7 @@ bool get_property(const std::wstring &path, std::string &result, std::vector<int
     if (!follow_symlinks)
         flags |= FILE_FLAG_OPEN_REPARSE_POINT;
 
-    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ | READ_CONTROL | ACCESS_SYSTEM_SECURITY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, flags, NULL);
+    HANDLE hFile = CreateFileW(lp(path).c_str(), GENERIC_READ | READ_CONTROL | ACCESS_SYSTEM_SECURITY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, flags, NULL);
 
     if (hFile == INVALID_HANDLE_VALUE)
         return false;
@@ -286,10 +286,10 @@ bool set_property(const std::wstring &path, const std::string &data, std::vector
     // various BACKUP streams, are not trivial to verify. So we simply try CreateFile with high
     // security flags first, then lower, and then just attept to set the stream types and see
     // if it worked out.
-    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE | WRITE_OWNER | WRITE_DAC | ACCESS_SYSTEM_SECURITY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    HANDLE hFile = CreateFileW(lp(path).c_str(), GENERIC_WRITE | WRITE_OWNER | WRITE_DAC | ACCESS_SYSTEM_SECURITY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
 
     if (hFile == INVALID_HANDLE_VALUE) {
-        hFile = CreateFileW(path.c_str(), GENERIC_WRITE | WRITE_DAC, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+        hFile = CreateFileW(lp(path).c_str(), GENERIC_WRITE | WRITE_DAC, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
     }
     
     if (hFile == INVALID_HANDLE_VALUE) {

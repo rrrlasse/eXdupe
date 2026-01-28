@@ -1082,14 +1082,7 @@ void init_content_maps(FILE* ffull) {
     }
 }
 
-FILE *try_open(STRING file2, char mode, bool abortfail) {
-    auto file = file2;
-#ifdef _WIN32
-    // todo fix properly. A long *relative* path wont work
-    if (file.size() > 250) {
-        file = wstring(L("\\\\?\\")) + file;
-    }
-#endif
+FILE *try_open(STRING file, char mode, bool abortfail) {
     FILE *f;
     rassert(mode == 'r' || mode == 'w' || mode == 'a');
     if (file == L("-stdin")) {
@@ -1098,9 +1091,9 @@ FILE *try_open(STRING file2, char mode, bool abortfail) {
         f = stdout;
     } else {
         f = io.open(file.c_str(), mode);
-        abort(!f && abortfail && mode == 'w', L("Error creating file: %s"), file2.c_str());
-        abort(!f && abortfail && mode == 'r', L("Error opening file for reading: %s"), file2.c_str());
-        abort(!f && abortfail && mode == 'a', L("Error opening file for append: %s"), file2.c_str());
+        abort(!f && abortfail && mode == 'w', L("Error creating file: %s"), file.c_str());
+        abort(!f && abortfail && mode == 'r', L("Error opening file for reading: %s"), file.c_str());
+        abort(!f && abortfail && mode == 'a', L("Error opening file for append: %s"), file.c_str());
     }
 
     return f;
@@ -1274,7 +1267,7 @@ vector<STRING> wildcard_expand(vector<STRING> files) {
             ret.push_back(files.at(i));
         } else {
             vector<STRING> f;
-            hFind = FindFirstFileW(files.at(i).c_str(), &FindFileData);
+            hFind = FindFirstFileW(lp(files.at(i)).c_str(), &FindFileData);
 
             abort(!continue_flag && hFind == INVALID_HANDLE_VALUE, L("Source file(s) '%s' not found"), files.at(i).c_str());
 
@@ -2256,7 +2249,7 @@ void restore_from_stdin(const STRING& extract_dir) {
             contents_t c;
             files++;
             read_content_item(ifile, c);
-            STRING buf2 = curdir + DELIM_CHAR + c.name;
+            STRING buf2 = remove_delimitor(curdir) + DELIM_CHAR + c.name;
             create_symlink(buf2, c);
         }
 
@@ -2316,7 +2309,7 @@ void compress_symlink(const STRING &link, const STRING &target, attr_t a) {
 
 #ifdef _WIN32
     WIN32_FIND_DATAW findData;
-    HANDLE hFind = FindFirstFileW(link.c_str(), &findData);
+    HANDLE hFind = FindFirstFileW(lp(link).c_str(), &findData);
     if (hFind != INVALID_HANDLE_VALUE) {
         ok = true;
         junction = (findData.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT);
@@ -2763,7 +2756,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
                 continue;
             } else {
                 // first time seeing this file
-                STRING a = abs_path(sub);
+                STRING a = CASESENSE(abs_path(sub));
                 hardlinks[key] = a;
                 hardtarget = a;
             }
@@ -2904,7 +2897,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
             BOOL bContinue = TRUE;
             WIN32_FIND_DATAW data;
             STRING s = remove_delimitor(sub) + L("\\*");
-            hFind = FindFirstFileW(s.c_str(), &data);
+            hFind = FindFirstFileW(lp(s).c_str(), &data);
             bContinue = hFind != INVALID_HANDLE_VALUE;
 
             if (hFind == INVALID_HANDLE_VALUE && GetLastError() != ERROR_FILE_NOT_FOUND) {
@@ -3039,7 +3032,7 @@ void main_compress() {
         compression::out_payload_queue_size.push_back(0);
     }
 
-    if (full != L("-stdout") && !force_flag && std::filesystem::exists(full)) {
+    if (full != L("-stdout") && !force_flag && std::filesystem::exists(lp(full))) {
         incremental = true;
     }
 

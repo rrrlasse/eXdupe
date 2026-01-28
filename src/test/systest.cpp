@@ -54,17 +54,17 @@ string nul = "2>/dev/null";
 #endif
 
 string root = filesystem::path(APP_PATH).parent_path().string();
-string work = root + "/tmp";
+string work = p(root + "/tmp");
 string bin = APP_PATH;
 
 // No need to edit
-string tmp = work + "/tmp";
-string in = tmp + "/in";
-string out = tmp + "/out";
-string full = tmp + "/full";
-string diff = tmp + "/diff";
-string testfiles = string(SRC_PATH) + "/../test/testfiles";
-string diff_tool = win ? root + "/test/diffexe/diff.exe" : "diff";
+string tmp = p(work + "/tmp");
+string in = p(tmp + "/in");
+string out = p(tmp + "/out");
+string full = p(tmp + "/full");
+string diff = p(tmp + "/diff");
+string testfiles = p(string(SRC_PATH) + "/../test/testfiles");
+string diff_tool = p(win ? root + "/test/diffexe/diff.exe" : "diff");
 
 int rnd(int max) {
     static std::random_device rd;
@@ -175,13 +175,8 @@ string p(string path) {
     return path;
 }
 
-// 2. Overload der tager imod ret-pointeren eksplicit
 template <typename... Args> std::string sys(int *ret, const Args &...args) { return sys_impl(ret, args...); }
-
-// 3. Overload der mangler ret-pointeren (kalder den ovenover med nullptr)
 template <typename... Args> std::string sys(const Args &...args) {
-    // Ved at bruge sys<Args...>(nullptr, args...) undgår vi tvivl,
-    // men det sikreste er at have forskellige navne eller tydelige typer.
     return sys_impl(nullptr, args...);
 }
 
@@ -367,7 +362,7 @@ TEST_CASE("no ~ in paths") {
 
 TEST_CASE("no source files") {
     clean();
-    ex("-m1", in, out + "/d");
+    ex("-m1", in, out + p("/d"));
     CHECK(!std::filesystem::exists(out + "d"));
     ex("-m1", in, "-stdout");
 }
@@ -377,31 +372,31 @@ TEST_CASE("traverse") {
     clean();
     md(in + "/d");
     cp(testfiles + "/a", in + "/d/a");
-    ex("-m1r", in + "/d", full);
-    ex("-R0f", full, out + "/d");
+    ex("-m1r", in + p("/d"), full);
+    ex("-R0f", full, out + p("/d"));
     cmp();
 
     // Wildcard must be seen as being passed explicitly (mostly for Windows that has no expansion)
     clean();
     md(in + "/d");
     cp(testfiles + "/a", in + "/d/a");
-    ex("-m1r", in + "/*", full);
-    ex("-R0f", full, out + "/d");
+    ex("-m1r", p(in + "/") + "*", full);
+    ex("-R0f", full, out + p("/d"));
     cmp();
 }
 
 TEST_CASE("lua is_arg") {
     clean();
     md(in + "/d");
-    cp(testfiles + "/a", in + "/d/a");
-    ex("-m1r", "-u\"return(is_arg or (not is_dir))\"", in + "/d", full);
-    ex("-R0f", full, out + "/d");
+    cp(testfiles + "/a", in + p("/d/a"));
+    ex("-m1r", "-u\"return(is_arg or (not is_dir))\"", in + p("/d"), full);
+    ex("-R0f", full, out + p("/d"));
     cmp();
 
     clean();
     pick("a");
     pick("b");
-    ex("-m1r", "-u\"return(is_arg)\"", in + "/a", full);
+    ex("-m1r", "-u\"return(is_arg)\"", in + p("/a"), full);
     ex("-R0f", full, out);
     rm(in + "/b");
     cmp();
@@ -857,8 +852,8 @@ TEST_CASE("test of tests") {
     pick("a");
     ex("-m1", in, full);
     ex("-R0", full, out);
-    CHECK(set_date(s2w(in + "/a"), 946684800'000));
-    time_ms_t modified = get_date(s2w(in + "/a")).written;
+    CHECK(set_date(s2w(p(in + "/a")), 946684800'000));
+    time_ms_t modified = get_date(s2w(p(in + "/a"))).written;
     CHECK(modified == 946684800'000);
     CHECK(!cmp(false));
 }
@@ -868,8 +863,8 @@ TEST_CASE("preserve dates") {
     clean();
     pick("a");
     md(in + "/d");
-    CHECK(set_date(s2w(in + "/a"), 946684800'000));
-    CHECK(set_date(s2w(in + "/d"), 946684800'000));
+    CHECK(set_date(s2w(p(in + "/a")), 946684800'000));
+    CHECK(set_date(s2w(p(in + "/d")), 946684800'000));
     ex("-m1", in, full);
     ex("-R0", full, out);
     cmp();
@@ -930,7 +925,7 @@ TEST_CASE("add to aborted") {
     clean();
     pick("a");
     ex("-m1", in, full);
-    ex("-m1", in, in + "/non-existant-to-trigger-abort", full);
+    ex("-m1", in, p(in + "/non-existant-to-trigger-abort"), full);
     ex("-m1", in, full);
     ex("-R1", full, out);
     cmp_diff();
@@ -1041,7 +1036,7 @@ TEST_CASE("acl_roundtrip_verify") {
         cmd += "$acl = Get-Acl -LiteralPath '" + path + "'; ";
         cmd += "$rule = New-Object System.Security.AccessControl.FileSystemAccessRule('" + principal + "', '" + rights + "', 'Allow'); ";
         cmd += "$acl.AddAccessRule($rule); ";
-        cmd += "Set-Acl -LiteralPath '" + path + "' $acl";
+        cmd += "Set-Acl -LiteralPath '" + p(path) + "' $acl";
         cmd += "\"";
         cmd += " 2>&1";
         int ret = 1;
@@ -1103,8 +1098,8 @@ TEST_CASE("acl_roundtrip_verify") {
     vector<string> items = {"/f1.txt", "/d1", "/d1/f2.txt", "/link_to_f1", "/link_to_d1"};
 
     for (auto &rel : items) {
-        string sitem = in + rel;
-        string ditem = out + rel;
+        string sitem = p(in + rel);
+        string ditem = p(out + rel);
 
         REQUIRE(std::filesystem::exists(p(ditem)));
 

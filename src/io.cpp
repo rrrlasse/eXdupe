@@ -55,6 +55,7 @@ int Cio::close(FILE *_File, bool sparse) {
 }
 
 FILE *Cio::open(STRING file, char mode) {
+    file = lp(file);
     if (mode == 'r') {
         STRING s = file;
         FILE *f = FOPEN(s.c_str(), L("rb"));
