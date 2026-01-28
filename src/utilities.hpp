@@ -40,7 +40,7 @@
 #include <array>
 #include <utility>
 #ifdef _WIN32
-#define CASESENSE(str) lcase(str)
+#define CASESENSE(str) ucase(str)
 #include <windows.h>
 #else
 #include <dirent.h>
@@ -74,7 +74,7 @@ void replace_stdstr(std::string &str, const std::string &oldStr, const std::stri
 void replace_str(STRING &str, const STRING &oldStr, const STRING &newStr);
 time_ms_t cur_date();
 bool is_symlink(const STRING& file);
-bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir);
+bool symlink_target(STRING symbolicLinkPath, STRING &targetPath, bool &is_dir);
 bool is_named_pipe(const STRING& file);
 bool is_hardlink(const STRING &file, int attrib);
 
@@ -88,7 +88,7 @@ STRING lcase(STRING str);
 STRING remove_leading_curdir(const STRING& path);
 STRING remove_delimitor(const STRING& path);
 STRING remove_leading_delimitor(STRING path);
-uint64_t filesize(const STRING& file, bool followlinks);
+uint64_t filesize(STRING file, bool followlinks);
 bool same_path(const STRING& p1, STRING p2);
 
 STRING s2w(const std::string &s);
@@ -106,7 +106,7 @@ int get_attributes(STRING path, bool follow, bool *is_sparse = nullptr);
 bool set_attributes(const STRING& path, int attributes);
 
 bool create_directory(const STRING& path);
-bool create_directories(const STRING& path, time_ms_t t);
+bool create_directories(STRING path, time_ms_t t);
 size_t longest_common_prefix(const std::vector<STRING>& strings, bool case_sensitive);
 
 template <class T, class U> uint64_t minimum(T a, U b) {
@@ -137,7 +137,7 @@ void *tmalloc(size_t size);
 void set_bold(bool bold);
 
 #ifdef _WIN32
-bool is_symlink_consistent(const std::wstring &symlinkPath);
+bool is_symlink_consistent(std::wstring symlinkPath);
 int create_junction(std::wstring source, std::wstring destination);
 #endif
 
@@ -179,3 +179,5 @@ template <class A, class B> class scope_actions {
     B b;
     bool invoke = true;
 };
+
+STRING lp(const STRING &source);

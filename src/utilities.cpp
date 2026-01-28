@@ -241,10 +241,11 @@ bool is_symlink(const STRING& file) { return ISLINK(get_attributes(file, false))
 
 bool is_named_pipe(const STRING& file) { return ISNAMEDPIPE(get_attributes(file, false)); }
 
-bool symlink_target(const CHR *symbolicLinkPath, STRING &targetPath, bool &is_dir) {
+bool symlink_target(STRING symbolicLinkPath, STRING &targetPath, bool &is_dir) {
 #ifdef _WIN32
+    symbolicLinkPath = lp(symbolicLinkPath);
     WIN32_FIND_DATA findFileData;
-    HANDLE hFind = FindFirstFile(symbolicLinkPath, &findFileData);
+    HANDLE hFind = FindFirstFile(symbolicLinkPath.c_str(), &findFileData);
     if (hFind != INVALID_HANDLE_VALUE) {
         FindClose(hFind);
     } else {
@@ -309,7 +310,7 @@ filetimes get_date(const STRING &file) {
     ULARGE_INTEGER changed;
     ULARGE_INTEGER created;
 
-    HANDLE hFile = CreateFile(file.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    HANDLE hFile = CreateFile(lp(file).c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, NULL);
     if (hFile != INVALID_HANDLE_VALUE) {
         FILE_BASIC_INFO fbi;
         if (GetFileInformationByHandleEx(hFile, FileBasicInfo, &fbi, sizeof(fbi))) {
@@ -351,13 +352,57 @@ filetimes get_date(const STRING &file) {
 #endif
 }
 
+bool hasInvalidSeparators(const std::wstring &path) {
+    // 1. Tjek for '/' (Forward slash)
+    if (path.find(L'/') != std::wstring::npos) {
+        return true;
+    }
+
+    // 2. Tjek for "\\" (Dobbelt backslash)
+    // Bemærk: Vi skal bruge "\\\\" i koden for at repræsentere to backslashes
+    if (path.find(L"\\\\") != std::wstring::npos) {
+        return true;
+    }
+
+    return false;
+}
+
+STRING lp(const STRING &source) {
+#ifdef _WIN32
+    return abs_path(source); 
+#else
+    return source;
+#endif
+}
+
 STRING abs_path(const STRING& source) {
+#ifdef _WIN32
+    if (source.empty())
+        return source;
+
+    fs::path p = fs::absolute(source).make_preferred();
+    STRING path = p.wstring();
+
+    if (path.starts_with(L"\\\\?\\")) {
+        path.erase(0, 4);
+    }
+
+    if (path.length() >= 2 && path[1] == L':') {
+        path[0] = towupper(path[0]);
+    }
+
+    if (path.length() >= 260)
+    {
+        if (path.starts_with(L"\\\\")) {
+            return L"\\\\?\\UNC\\" + path.substr(2);
+        }
+        return L"\\\\?\\" + path;
+    }
+
+    return path;
+#else
     CHR destination[5000];
     CHR *r;
-#ifdef _WIN32
-    r = _wfullpath(destination, source.c_str(), 5000);
-    return r == 0 ? L("") : destination;
-#else
     if (fs::is_symlink(source)) {
         fs::path p(source);
         auto parent = p.parent_path();
@@ -467,7 +512,9 @@ void checksum(const char *data, size_t len, checksum_t *t) {
 
 
 // No error handling other than returning 0, be aware of where you use this function
-uint64_t filesize(const STRING& file, bool followlinks = false) {
+uint64_t filesize(STRING file, bool followlinks = false) {
+    file = lp(file);
+
     // If the user has set followlinks then the directory-traversal, which happens *early*,
     // will resolve links and treat them as files from that point. So a requirement to have
     // knowlege about the flag should not propagate down to here
@@ -494,7 +541,7 @@ bool exists(const STRING& file) {
     return ret == 0 || (ret != 0 && errno != ENOENT);
 #else
     // FIXME test if works for network drives without subdir ('\\localhost\D')
-    return PathFileExists(file.c_str());
+    return PathFileExists(lp(file).c_str());
 #endif
 }
 
@@ -566,18 +613,11 @@ bool ISSOCK(int attributes) {
 
 int get_attributes(STRING path, bool follow, bool* is_sparse) {
 #ifdef _WIN32
+    path = lp(path);
+
     if (PathIsRootW(path.c_str())) {
         // GetFileAttributesW() would return +H +S attr which restore would then apply to dst dir
         return 0x10; // DIR
-    }
-
-    if (path.size() > 250) {
-        path = std::wstring(L"\\\\?\\") + path;
-    }
-
-    (void)follow;
-    if (path.length() == 2 && path.substr(1, 1) == L(":")) {
-        path = path + L("\\");
     }
 
     DWORD attributes = GetFileAttributesW(path.c_str());
@@ -629,7 +669,7 @@ bool set_attributes([[maybe_unused]] const STRING &path, [[maybe_unused]] int at
     }
 #ifdef _WIN32
     attributes = attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM);
-    BOOL b = SetFileAttributesW(path.c_str(), attributes);
+    BOOL b = SetFileAttributesW(lp(path).c_str(), attributes);
     return !b;
 #else
     if (chmod(path.c_str(), attributes) == 0) {
@@ -641,7 +681,7 @@ bool set_attributes([[maybe_unused]] const STRING &path, [[maybe_unused]] int at
 #endif
 }
 
-bool is_dir(const STRING& path) { return ISDIR(get_attributes(path, false)); }
+bool is_dir(const STRING& path) { return ISDIR(get_attributes(lp(path), false)); }
 
 void *tmalloc(size_t size) {
     void *p = malloc(size);
@@ -666,13 +706,14 @@ vector<STRING> split_string(STRING str, STRING delim) {
 
 bool create_directory(const STRING& path) {
 #ifdef _WIN32
-    return !CreateDirectoryW(path.c_str(), 0);
+    return !CreateDirectoryW(lp(path).c_str(), 0);
 #else
     return mkdir(path.c_str(), 0777);
 #endif
 }
 
-bool create_directories(const STRING& path, time_ms_t t) {
+bool create_directories(STRING path, time_ms_t t) {
+    path = lp(path);
     bool b = std::filesystem::create_directories(path);
     if(t != 0) {
         set_date(path, t);
@@ -836,7 +877,8 @@ string regx(std::string input, std::string pattern) {
 }
 
 #ifdef _WIN32
-bool is_symlink_consistent(const std::wstring &symlinkPath) {
+bool is_symlink_consistent(std::wstring symlinkPath) {
+    symlinkPath = lp(symlinkPath);
     // Step 1: Check if it's a reparse point (i.e., symlink or junction)
     DWORD linkAttr = GetFileAttributesW(symlinkPath.c_str());
     if (linkAttr == INVALID_FILE_ATTRIBUTES)
@@ -880,7 +922,8 @@ typedef struct _REPARSE_DATA_BUFFER {
 } REPARSE_DATA_BUFFER;
 
 int create_junction(std::wstring source, std::wstring destination) {
-    std::wstring sub_name = L"\\??\\" + destination;
+    source = lp(source);
+    std::wstring sub_name = lp(destination);
     std::wstring print_name = destination;
 
     size_t sub_len = sub_name.length() * sizeof(WCHAR);
@@ -932,7 +975,7 @@ bool is_hardlink(const STRING &file, int attrib) {
 #endif
     if (may_be_hardlink) {
         try {
-            count = std::filesystem::hard_link_count(file);
+            count = std::filesystem::hard_link_count(lp(file));
         } catch (...) {
             // broken link to file, etc
         }
