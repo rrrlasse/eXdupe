@@ -6,7 +6,7 @@ on:
       - '*'
 
 permissions:
-  contents: write   # required to create/update releases and tags
+  contents: write
 
 jobs:
   build:
@@ -26,18 +26,33 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Run Tests
+        shell: bash
+        env:
+          TERM: xterm
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            ./test.exe
+          else
+            ./build/test/test
+          fi
+
       - name: Prepare artifacts
         shell: bash
         run: |
           mkdir -p dist
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cp exdupe.exe dist/exdupe-windows.exe
+            cp exdupe.exe "dist/${{ github.ref_name }}-windows.exe"
           else
-            cp build/exdupe dist/exdupe_linux_amd64
+            cp build/exdupe "dist/${{ github.ref_name }}-linux"
+            chmod +x "dist/${{ github.ref_name }}-linux"
           fi
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+      - name: Update Nightly Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: binaries-${{ runner.os }}
-          path: dist/*
+          tag_name: nightly
+          files: dist/*
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
