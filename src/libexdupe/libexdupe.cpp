@@ -65,6 +65,45 @@ void threadtest_delay(void) {
 void threadtest_delay(void) {}
 #endif
 
+
+#if 0
+typedef SRWLOCK rwlock_type;
+static inline void pthread_rwlock_init_wrapper(rwlock_type *rwlock) { InitializeSRWLock(rwlock); }
+static inline void pthread_rwlock_rdlock_wrapper(rwlock_type *rwlock) { AcquireSRWLockShared(rwlock); }
+static inline void pthread_rwlock_wrlock_wrapper(rwlock_type *rwlock) { AcquireSRWLockExclusive(rwlock); }
+static inline void pthread_rwlock_unlock_rd_wrapper(rwlock_type *rwlock) { ReleaseSRWLockShared(rwlock); }
+static inline void pthread_rwlock_unlock_wr_wrapper(rwlock_type *rwlock) { ReleaseSRWLockExclusive(rwlock); }
+static inline void pthread_rwlock_destroy_wrapper(rwlock_type *rwlock) { (void)rwlock; }
+#else
+typedef pthread_spinlock_t rwlock_type;
+static inline void pthread_rwlock_init_wrapper(rwlock_type *rwlock) {
+    threadtest_delay();
+    pthread_spin_init(rwlock, PTHREAD_PROCESS_PRIVATE);
+    threadtest_delay();
+}
+static inline void pthread_rwlock_rdlock_wrapper(rwlock_type *rwlock) {
+    threadtest_delay();
+    pthread_spin_lock(rwlock);
+    threadtest_delay();
+}
+static inline void pthread_rwlock_wrlock_wrapper(rwlock_type *rwlock) {
+    threadtest_delay();
+    pthread_spin_lock(rwlock);
+    threadtest_delay();
+}
+static inline void pthread_rwlock_unlock_rd_wrapper(rwlock_type *rwlock) {
+    threadtest_delay();
+    pthread_spin_unlock(rwlock);
+    threadtest_delay();
+}
+static inline void pthread_rwlock_unlock_wr_wrapper(rwlock_type *rwlock) {
+    threadtest_delay();
+    pthread_spin_unlock(rwlock);
+    threadtest_delay();
+}
+static inline void pthread_rwlock_destroy_wrapper(rwlock_type *rwlock) { (void)rwlock; }
+#endif
+
 int pthread_mutex_lock_wrapper(pthread_mutex_t *m) {
     threadtest_delay();
     int r = pthread_mutex_lock(m);
@@ -112,7 +151,7 @@ enum lz_compressor { ZSTD, NULLZ };
 
 static uint32_t g_hash_salt = 0;
 static bool use_aesni = true;
-pthread_mutex_t table_mutex;
+rwlock_type table_mutex;
 pthread_cond_t jobdone_cond;
 pthread_mutex_t jobdone_mutex;
 
@@ -688,12 +727,12 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
         // CAUTION: Outside mutex, assume reading garbage and that data changes between reads
         if (w != 0 && (e = lookup(w, block == LARGE_BLOCK))) {
             hash_t e_cpy;
-            pthread_mutex_lock_wrapper(&table_mutex);
+            pthread_rwlock_rdlock_wrapper(&table_mutex);
             e = lookup(w, block == LARGE_BLOCK);
             if(e) {
                 e_cpy = *e;
             }
-            pthread_mutex_unlock_wrapper(&table_mutex);
+            pthread_rwlock_unlock_rd_wrapper(&table_mutex);
             if (e && w_pos - e_cpy.slide > src && w_pos - e_cpy.slide <= last_src) {
                 src = w_pos - e_cpy.slide;
             }
@@ -756,13 +795,13 @@ static bool hashat(const char *src, uint64_t pay, size_t len, bool large, char *
     const char *o;
     uint32_t w = window(src, len, &o);
     if(w != 0) {
-        pthread_mutex_lock_wrapper(&table_mutex);
+        pthread_rwlock_wrlock_wrapper(&table_mutex);
         hash_t e;            
         e.offset = pay;
         memcpy(e.sha, hash, HASH_SIZE);
         e.slide = static_cast<uint16_t>(o - src);
         add(e, w, large);
-        pthread_mutex_unlock_wrapper(&table_mutex);
+        pthread_rwlock_unlock_wr_wrapper(&table_mutex);
         return true;
     }
     else {
@@ -1116,7 +1155,7 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
     pthread_win32_process_attach_np();
 #endif
 
-    pthread_mutex_init(&table_mutex, NULL);
+    pthread_rwlock_init_wrapper(&table_mutex);
 
     pthread_mutex_init(&jobdone_mutex, NULL);
     pthread_cond_init(&jobdone_cond, NULL);
