@@ -237,7 +237,14 @@ bool get_property(const std::wstring &path, std::string &result, std::vector<int
     if (!follow_symlinks)
         flags |= FILE_FLAG_OPEN_REPARSE_POINT;
 
+    // The fine grained permission of the current user, and the permissions needed to read the
+    // various BACKUP streams, are not trivial to verify. So we simply try CreateFile with high
+    // security flags first, then lower, and then just attept to get the stream types and see
+    // if it worked out.
     HANDLE hFile = CreateFileW(lp(path).c_str(), GENERIC_READ | READ_CONTROL | ACCESS_SYSTEM_SECURITY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, flags, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        hFile = CreateFileW(lp(path).c_str(), GENERIC_READ | READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, flags, NULL);
+    }
 
     if (hFile == INVALID_HANDLE_VALUE)
         return false;
@@ -281,13 +288,9 @@ bool get_property(const std::wstring &path, std::string &result, std::vector<int
 }
 
 // Never follows symlinks
-bool set_property(const std::wstring &path, const std::string &data, std::vector<int> streams) {
-    // The fin grained permission of the current user, and the permissions needed to restore the
-    // various BACKUP streams, are not trivial to verify. So we simply try CreateFile with high
-    // security flags first, then lower, and then just attept to set the stream types and see
-    // if it worked out.
+bool set_property(const std::wstring &path, const std::string &data, std::vector<int> streams) {    
     HANDLE hFile = CreateFileW(lp(path).c_str(), GENERIC_WRITE | WRITE_OWNER | WRITE_DAC | ACCESS_SYSTEM_SECURITY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
-
+    // See comment on this check at get_property() above
     if (hFile == INVALID_HANDLE_VALUE) {
         hFile = CreateFileW(lp(path).c_str(), GENERIC_WRITE | WRITE_DAC, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
     }
