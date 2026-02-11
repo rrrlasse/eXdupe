@@ -30,8 +30,8 @@ Please try the upcoming [version 4.x](https://github.com/rrrlasse/eXdupe/release
 
 Last stable version that only supports **differential** backups with a different syntax:
 
-[exdupe.exe](https://github.com/rrrlasse/eXdupe/releases/download/v3.0.1/exdupe.exe)<br>
-[exdupe_3.0.1_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/releases/download/v3.0.1/exdupe_3.0.1_linux_amd64.tar.gz)
+[exdupe.exe](https://github.com/rrrlasse/eXdupe/releases/download/v3.0.2/exdupe.exe)<br>
+[exdupe_3.0.2_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/releases/download/v3.0.2/exdupe_3.0.2_linux_amd64.tar.gz)
 
 ## Build
 It has been tested on Windows, Linux and FreeBSD.
