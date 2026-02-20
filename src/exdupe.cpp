@@ -1070,7 +1070,6 @@ void list_contents() {
             return static_cast<uint64_t>(s == 0 ? 0 : s < 512 * 1024 ? 1 : std::round(s / 1024. / 1024.)); };
 
         statusbar.print(0, L("  Set              Date         Files          Size    Compressed  Command line sources"));
-        statusbar.print(0, L("---------------------------------------------------------------------------------------"));
         //                    99999  dddd-dd-dd dd:dd 9,999,999,999 99,999,999 MB       xxxxxxx  xxxxxxxxxxxxxxxxxxxxxxxxxxxx
         for (size_t set = 0; set < sets.size(); set++) {
             uint64_t c = sets.at(set) - prev_c;
@@ -1095,11 +1094,11 @@ void list_contents() {
             c = mbround(c);
             statusbar.print(0, L("%s  %s %s %s MB  %s MB  %s"), del(set, 5).c_str(), ds.c_str(), del(f, 13).c_str(), del(s, 10).c_str(), del(c, 9).c_str(), cmdline.c_str());
         }
-        statusbar.print(0, L("---------------------------------------------------------------------------------------"));
+//        statusbar.print(0, L("---------------------------------------------------------------------------------------"));
         size_t total_compressed = filesize(full.c_str(), false);
         total_compressed = mbround(total_compressed);
         total_uncompressed = mbround(total_uncompressed);
-        statusbar.print(0, L("  Total                 %s %s MB  %s MB"), del(total_files, 13).c_str(), del(total_uncompressed, 10).c_str(), del(total_compressed, 9).c_str());
+        //statusbar.print(0, L("  Total                 %s %s MB  %s MB"), del(total_files, 13).c_str(), del(total_uncompressed, 10).c_str(), del(total_compressed, 9).c_str());
         statusbar.print(0, L("\nUsing %sB memory during backups, suitable for backup sets of %sB each (set with\n-g flag on initial backup)."), s2w(suffix(mem)).c_str(), s2w(suffix(max_payload * mem)).c_str());
 #if 0
         statusbar.print(0, L("\nA few files:"));
