@@ -561,7 +561,7 @@ uint64_t read_header(FILE *file, uint64_t *lastgood) {
     DEDUPE_SMALL = io.read_ui<uint64_t>(file);
     DEDUPE_LARGE = io.read_ui<uint64_t>(file);
 
-    abort(major != VER_MAJOR, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}. Please use {}.x.x on it", (int)major, (int)minor, (int)revision, major));
+    abort(major != VER_MAJOR, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}. Please use {}.x.x on it", (int)major, (int)minor, (int)revision, (int)major));
     abort(dev != VER_DEV, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}.dev-{}. Please use the exact same version on it", (int)major, (int)minor, (int)revision, (int)dev));
 
     hash_seed = io.read_ui<uint32_t>(file);
@@ -1094,7 +1094,7 @@ void list_contents() {
             c = mbround(c);
             statusbar.print(0, L("%s  %s %s %s MB  %s MB  %s"), del(set, 5).c_str(), ds.c_str(), del(f, 13).c_str(), del(s, 10).c_str(), del(c, 9).c_str(), cmdline.c_str());
         }
-//        statusbar.print(0, L("---------------------------------------------------------------------------------------"));
+        //statusbar.print(0, L("---------------------------------------------------------------------------------------"));
         size_t total_compressed = filesize(full.c_str(), false);
         total_compressed = mbround(total_compressed);
         total_uncompressed = mbround(total_uncompressed);
