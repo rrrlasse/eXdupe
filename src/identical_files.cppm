@@ -58,5 +58,4 @@ public:
 private:
     std::unordered_map<uint64_t, contents_t> all_file_hashes;
     std::vector<char> buf;
-    int emulate_avx;
 };
