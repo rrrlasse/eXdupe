@@ -1064,7 +1064,7 @@ void list_contents() {
     if (set_flag == static_cast<uint32_t>(-1)) {
         uint64_t prev_c = 0;
         uint64_t total_uncompressed = 0;
-        uint64_t total_files = 0;
+        // uint64_t total_files = 0;
 
         auto mbround = [](uint64_t s) {
             return static_cast<uint64_t>(s == 0 ? 0 : s < 512 * 1024 ? 1 : std::round(s / 1024. / 1024.)); };
@@ -1089,7 +1089,7 @@ void list_contents() {
             auto ds = date2str(d);
             ds = ds.substr(0, ds.size() - 3);
             total_uncompressed += s;
-            total_files += f;
+            // total_files += f;
             s = mbround(s);
             c = mbround(c);
             statusbar.print(0, L("%s  %s %s %s MB  %s MB  %s"), del(set, 5).c_str(), ds.c_str(), del(f, 13).c_str(), del(s, 10).c_str(), del(c, 9).c_str(), cmdline.c_str());

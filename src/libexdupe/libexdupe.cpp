@@ -39,6 +39,14 @@
 
 #include "libexdupe.h"
 
+#if defined(_MSC_VER)
+#define FORCE_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define FORCE_INLINE inline __attribute__((always_inline))
+#else
+#define FORCE_INLINE inline
+#endif
+
 // #define EXDUPE_THREADTEST
 
 #ifdef EXDUPE_THREADTEST
@@ -120,26 +128,44 @@ int level;
 // growing COMPRESSED_HASHTABLE_OVERHEAD bytes in size.
 #define COMPRESSED_HASHTABLE_OVERHEAD 4096
 
-static void ll2str(uint64_t l, char* dst, int bytes) {
-    unsigned char* dst2 = (unsigned char*)dst;
-    while (bytes > 0) {
-        *dst2 = (l & 0xff);
-        dst2++;
-        l = l >> 8;
-        bytes--;
+static FORCE_INLINE void ll2str(uint64_t l, char *dst, int bytes) {
+    // Ved at bruge switch/if-else med faste størrelser,
+    // optimerer compileren memcpy væk til en enkelt 'mov'.
+    if (bytes == 8) {
+        memcpy(dst, &l, 8);
+        return;
+    } else if (bytes == 4) {
+        uint32_t v = (uint32_t)l;
+        memcpy(dst, &v, 4);
+        return;
+    } else if (bytes == 2) {
+        uint16_t v = (uint16_t)l;
+        memcpy(dst, &v, 2);
+        return;
+    } else if (bytes == 1) {
+        *dst = (char)(l & 0xff);
+        return;
     }
-    rassert(l == 0);
+    assert(false);
 }
 
-static uint64_t str2ll(const void* src, int bytes) {
-    unsigned char* src2 = (unsigned char*)src;
-    uint64_t l = 0;
-    while (bytes > 0) {
-        bytes--;
-        l = l << 8;
-        l = (l | *(src2 + bytes));
+FORCE_INLINE static uint64_t str2ll(const void *src, int bytes) {
+    if (bytes == 8) {
+        uint64_t v;
+        memcpy(&v, src, 8);
+        return v;
+    } else if (bytes == 4) {
+        uint32_t v;
+        memcpy(&v, src, 4);
+        return (uint64_t)v;
+    } else if (bytes == 2) {
+        uint16_t v;
+        memcpy(&v, src, 2);
+        return (uint64_t)v;
+    } else if (bytes == 1) {
+        return (uint64_t)(*(const uint8_t *)src);
     }
-    return l;
+    assert(false);
 }
 
 const uint64_t slots = 8;
@@ -531,10 +557,10 @@ int dup_decompress_hashtable(char* src) {
 
 static uint32_t quick(const char* src, size_t len) {
     uint64_t res = 0;
-    res += *(uint64_t*)&src[0];
-    res += *(uint64_t*)&src[len / 3 * 1 - 1];
-    res += *(uint64_t*)&src[len / 3 * 2 - 2];
-    res += *(uint64_t*)&src[len - 8 - 3];
+    res += str2ll(&src[0], 8);
+    res += str2ll(&src[len / 3 * 1 - 1], 8);
+    res += str2ll(&src[len / 3 * 2 - 2], 8);
+    res += str2ll(&src[len - 8 - 3], 8);
     res = res + (res >> 32);
     return static_cast<uint32_t>(res);
 }
@@ -564,11 +590,11 @@ bool avx2(const char *src, size_t i, size_t block, int16_t b, size_t* match) {
         auto b1 = _mm256_movemask_epi8(comparison1);
         auto b2 = _mm256_movemask_epi8(comparison2);
 #if defined _MSC_VER
-        unsigned int off1 = _tzcnt_u32(static_cast<unsigned int>(b1));
-        unsigned int off2 = 1 + _tzcnt_u32(static_cast<unsigned int>(b2));
+        unsigned int off1 = (b1 != 0) ? _tzcnt_u32((unsigned int)b1) : 32;
+        unsigned int off2 = 1 + ((b2 != 0) ? _tzcnt_u32((unsigned int)b2) : 32);
 #else
-        unsigned int off1 = __builtin_ctz(static_cast<unsigned int>(b1));
-        unsigned int off2 = 1 + __builtin_ctz(static_cast<unsigned int>(b2));
+        unsigned int off1 = (b1 != 0) ? (unsigned int)__builtin_ctz((unsigned int)b1) : 32;
+        unsigned int off2 = 1 + ((b2 != 0) ? (unsigned int)__builtin_ctz((unsigned int)b2) : 32);
 #endif
         unsigned int off = minimum(off1, off2);
         *match = i + off;
@@ -618,11 +644,11 @@ static uint32_t window(const char *src, size_t len, const char **pos) {
                 auto b1 = _mm_movemask_epi8(comparison1);
                 auto b2 = _mm_movemask_epi8(comparison2);
 #if defined _MSC_VER
-                unsigned int off1 = _tzcnt_u32(static_cast<unsigned int>(b1));
-                unsigned int off2 = 1 + _tzcnt_u32(static_cast<unsigned int>(b2));
+                unsigned int off1 = (b1 != 0) ? _tzcnt_u32((unsigned int)b1) : 32;
+                unsigned int off2 = 1 + ((b2 != 0) ? _tzcnt_u32((unsigned int)b2) : 32);
 #else
-                unsigned int off1 = __builtin_ctz(static_cast<unsigned int>(b1));
-                unsigned int off2 = 1 + __builtin_ctz(static_cast<unsigned int>(b2));
+                unsigned int off1 = (b1 != 0) ? (unsigned int)__builtin_ctz((unsigned int)b1) : 32;
+                unsigned int off2 = 1 + ((b2 != 0) ? (unsigned int)__builtin_ctz((unsigned int)b2) : 32);
 #endif
                 unsigned int off = minimum(off1, off2);
                 match = i + off;
@@ -635,8 +661,8 @@ static uint32_t window(const char *src, size_t len, const char **pos) {
 
     if (match == none) {
         for (; i < slide; i += 1) {
-            int16_t src1 = *(int16_t*)&src[i];
-            int16_t src2 = *(int16_t*)&src[i + block - 32 - 1];
+            int16_t src1 = (int16_t)str2ll(&src[i], 2);
+            int16_t src2 = (int16_t)str2ll(&src[i + block - 32 - 1], 2);
             int16_t sum = src1 + src2;
             sum = sum * sum;
             if (sum > b) {
@@ -847,7 +873,7 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
 
         if (src + LARGE_BLOCK <= end) {
             match = dub(src, pay, end - src, LARGE_BLOCK, &ref);
-            rassert(match + LARGE_BLOCK <= end);
+            rassert(!match || match + LARGE_BLOCK <= end);
         }
         upto = (match == 0 ? last : match - 1);
 
@@ -861,7 +887,7 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
             if (src + SMALL_BLOCK <= upto) {
                 uint64_t first_ref = pay + (src - src_orig);
                 match_s = dub(src, pay, upto - src, SMALL_BLOCK, &ref_s);
-                rassert(match_s + SMALL_BLOCK < end);
+                rassert(!match_s || match_s + SMALL_BLOCK < end);
 
                 if (match_s) {
                     n = 1;
@@ -869,7 +895,7 @@ static size_t process_chunk(const char* src, uint64_t pay, size_t length, char* 
                     while (true && match_s + (n + 1) * SMALL_BLOCK <= upto) {
                         uint64_t ref_s0 = 0;
                         auto m = dub(match_s + n * SMALL_BLOCK, pay, SMALL_BLOCK, SMALL_BLOCK, &ref_s0);
-                        rassert(m + SMALL_BLOCK < end);
+                        rassert(!m || m + SMALL_BLOCK < end);
 
                         if (ref_s0 + SMALL_BLOCK < first_ref && m == match_s + n * SMALL_BLOCK && ref_s0 == ref_s + n * SMALL_BLOCK) {
                             n++;
