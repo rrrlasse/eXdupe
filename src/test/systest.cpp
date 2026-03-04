@@ -320,7 +320,7 @@ TEST_CASE("compress from stdin and restore to stdout") {
     clean();
     pick("a");
     ex("-m1", "-stdin", "-stdout", "<", in + "/a", ">", full);
-    ex("-R0", full, "-stdout", "<", full, ">", out + "/a");
+    ex("-R1", full, "-stdout", "<", full, ">", out + "/a");
     cmp_diff(); // timestamp cannot match
 }
 
@@ -344,7 +344,7 @@ TEST_CASE("traverse") {
     md(in + "/d");
     cp(testfiles + "/a", in + "/d/a");
     ex("-m1r", in + "/d", full);
-    ex("-R0f", full, out + "/d");
+    ex("-R1f", full, out + "/d");
     cmp();
 
     // Wildcard must be seen as being passed explicitly (mostly for Windows that has no expansion)
@@ -352,7 +352,7 @@ TEST_CASE("traverse") {
     md(in + "/d");
     cp(testfiles + "/a", in + "/d/a");
     ex("-m1r", in + "/*", full);
-    ex("-R0f", full, out + "/d");
+    ex("-R1f", full, out + "/d");
     cmp();
 }
 
@@ -361,14 +361,14 @@ TEST_CASE("lua is_arg") {
     md(in + "/d");
     cp(testfiles + "/a", in + "/d/a");
     ex("-m1r", "-u\"return(is_arg or (not is_dir))\"", in + "/d", full);
-    ex("-R0f", full, out + "/d");
+    ex("-R1f", full, out + "/d");
     cmp();
 
     clean();
     pick("a");
     pick("b");
     ex("-m1r", "-u\"return(is_arg)\"", in + "/a", full);
-    ex("-R0f", full, out);
+    ex("-R1f", full, out);
     rm(in + "/b");
     cmp();
 }
@@ -379,7 +379,7 @@ TEST_CASE("overwrite during restore") {
     pick("a");
     cp(testfiles + "/b", out + "/a");
     ex("-m1", in, full);
-    ex("-R0f", full, out);
+    ex("-R1f", full, out);
     cmp();
 
     // Abort
@@ -389,7 +389,7 @@ TEST_CASE("overwrite during restore") {
     rm(in + "/a");
     cp(testfiles + "/b", in + "/a");
     cp(testfiles + "/b", out + "/a");
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp_diff();
 }
 
@@ -400,7 +400,7 @@ TEST_CASE("overwrite during backup") {
     ex("-m1", in, full);
     pick("b");
     ex("-m1f", in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp_diff();
 
     // Abort
@@ -410,7 +410,7 @@ TEST_CASE("overwrite during backup") {
     pick("b");
     ex("-m1", in, full);
     rm(in + "/b");
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp_diff();
 }
 
@@ -421,7 +421,7 @@ TEST_CASE("skip item prefixed with -- as relative path") {
         all_types();
         string path = p(in + "/" + skip);
         ex("-m1", "--" + path, in, full);
-        ex("-R0", full, out);
+        ex("-R1", full, out);
         rm(path);
     }
     cmp();
@@ -435,7 +435,7 @@ TEST_CASE("skip item prefixed with -- as absolute path") {
         string path = p(in + "/" + skip);
         path = std::filesystem::absolute(path).string();
         ex("-m1", "--" + path, in, full);
-        ex("-R0", full, out);
+        ex("-R1", full, out);
         rm(path);
     }
     cmp();
@@ -450,7 +450,7 @@ TEST_CASE("skip item prefixed with -- in different case") {
         string path = p(in + "/" + skip);
         path = std::filesystem::absolute(path).string();
         ex("-m1", "--" + path, in, full);
-        ex("-R0", full, out);
+        ex("-R1", full, out);
         rm(path);
     }
     cmp();
@@ -465,7 +465,7 @@ TEST_CASE("case rename") {
     rename(in, "a","A");
     ex(in, full);
     rm(out);
-    ex("-R1", full, out);
+    ex("-R2", full, out);
     cmp();
 }
 
@@ -473,12 +473,12 @@ TEST_CASE("simple backup, diff backup and restore") {
     clean();
     pick("a");
     ex("-m1", in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp();
 
     ex(in, full);
     rm(out);
-    ex("-R1", full, out);
+    ex("-R2", full, out);
     cmp();
 }
 
@@ -488,7 +488,7 @@ TEST_CASE("no -g or -m flag during incremental backup") {
     ex("-m1", in, full);
     ex(in, full);
     rm(out);
-    ex("-R1", full, out);
+    ex("-R2", full, out);
     cmp();
 }
 
@@ -503,7 +503,7 @@ TEST_CASE("diff size") {
     size_t f = siz(full);
     ex(in, full);
     CHECK(siz(full) - f < 500);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp();
 }
 
@@ -519,10 +519,10 @@ TEST_CASE("w flag") {
         ex("-w", in, full);
         auto s3 = siz(full);
         CHECK(s3 - s2 > (s2 - s1) + 50);
-        ex("-R1", full, out);
+        ex("-R2", full, out);
         cmp();
         rm(out);
-        ex("-R2", full, out);
+        ex("-R3", full, out);
         cmp();
     }
 #ifdef _WIN32
@@ -547,7 +547,7 @@ TEST_CASE("w flag") {
     modify(in + "/high_entropy_a");
     rm(out);
     ex("-w", in, full);
-    ex("-R3", full, out);
+    ex("-R4", full, out);
     cmp();
 }
 
@@ -556,11 +556,11 @@ TEST_CASE("destination directory doesn't exist") {
     pick("a");
     ex("-m1",in, full);
     rm(out);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp();
     ex(in, full);
     rm(out);
-    ex("-R1", full, out);
+    ex("-R2", full, out);
     cmp();
 }
 
@@ -577,7 +577,7 @@ TEST_CASE("unicode") {
     }
 
     ex("-m1",in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp();
 }
 
@@ -597,7 +597,7 @@ TEST_CASE("lua all or none") {
         md(in); // empty in dir
     }
 
-    ex("-R0", full, out); 
+    ex("-R1", full, out); 
     cmp_diff();
 }
 
@@ -620,7 +620,7 @@ TEST_CASE("lua types") {
 
     // todo, links
 
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp_diff();
 }
 
@@ -630,7 +630,7 @@ TEST_CASE("lua contains") {
     pick("b");
     ex("-m1", "-u\"return(is_dir or contains({'a'}, name))\"", in, full);
     rm(in + "/b");
-    ex("-R0", full, out); 
+    ex("-R1", full, out); 
     cmp();
 }
 
@@ -639,7 +639,7 @@ TEST_CASE("lua utf8") {
     pick("æøåäöüßéèáéíóúüñ");
     pick("운일암반계곡");
     ex("-m1", "-u\"return(name ~= 'a')\"", in, full);
-    ex("-R0", full, out); 
+    ex("-R1", full, out); 
     cmp();
 }
 
@@ -649,7 +649,7 @@ TEST_CASE("lua no case conversion") {
     pick("a");
     cp(in + "/a", in + "/AAA");
     ex("-m1v3", "-u\"return(name ~= 'aaa')\"", in, full);
-    ex("-R0", full, out); 
+    ex("-R1", full, out); 
     cmp();
 }
 
@@ -690,7 +690,7 @@ TEST_CASE("symlink to dir") {
     md(in + "/d");
     ld(in + "/link_to_d", in + "/d");
     ex("-m1",in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp();
 }
 
@@ -698,7 +698,7 @@ TEST_CASE("broken symlink to dir") {
     clean();
     ld(in + "/link_to_missing_dir", in + "/missing_dir");
     ex("-m1",in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp();
 }
 
@@ -707,7 +707,7 @@ TEST_CASE("symlink to file") {
     pick("a");
     lf(in + "/link_to_a", in + "/a");
     ex("-m1",in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp();
 }
 
@@ -715,7 +715,7 @@ TEST_CASE("broken symlink to file") {
     clean();
     lf(in + "/link_to_missing_file", in + "/missing_file");
     ex("-m1",in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp();
 }
 
@@ -726,7 +726,7 @@ TEST_CASE("follow symlinks") {
     lf(in + "/link_to_a", in + "/a");
     lf(in + "/link_to_d", in + "/d", true);
     ex("-m1h", in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     rm(in + "/link_to_a");
     rm(in + "/link_to_d");
     cp(in + "/a", in + "/link_to_a");
@@ -742,7 +742,7 @@ TEST_CASE("follow mismatching symlink to directory") {
     md(in + "/d");
     lf(in + "/link_to_d", in + "/d");
     ex("-m1hc", in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     rm(in + "/link_to_d");
     cmp_diff();
 }
@@ -754,7 +754,7 @@ TEST_CASE("follow mismatching symlink to file") {
     md(in + "/d");
     lf(in + "/link_to_a", in + "/a", true);
     ex("-m1hc", in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     rm(in + "/link_to_a");
     cmp_diff();
 }
@@ -764,7 +764,7 @@ TEST_CASE("timestamps") {
     clean();
     all_types();
     ex("-m1", in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp();
 }
 
@@ -772,14 +772,14 @@ TEST_CASE("restore from stdin by redirection") {
     clean();
     pick("a");
     ex("-m1", in, full);
-    ex("-R0", "-stdin", out, "<", full);
+    ex("-R1", "-stdin", out, "<", full);
     cmp();
 }
 
 TEST_CASE("restore from stdin by pipe") {
     clean();
     pick("a");
-    ex("-m1", in, "-stdout", "|", p(bin), "-R0 -stdin", out);
+    ex("-m1", in, "-stdout", "|", p(bin), "-R1 -stdin", out);
     cmp();
 }
 
@@ -787,7 +787,7 @@ TEST_CASE("compress from stdin by redirection") {
     clean();
     cp(testfiles + "/a", in + "/stdin");   
     ex("-m1", "-stdin", full, "<", p(in + "/stdin"));
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp_diff();
 }
 
@@ -795,7 +795,7 @@ TEST_CASE("compress from stdin by pipe") {
     clean();
     cp(testfiles + "/a", in + "/stdin");
     sys(win ? "type" : "cat", p(in + "/stdin"), "|", p(bin), "-m1", "-stdin", full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp_diff();
 }
 
@@ -805,7 +805,7 @@ TEST_CASE("test of tests") {
     clean();
     pick("a");
     ex("-m1", in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     CHECK(set_date(s2w(in + "/a"), 946684800'000));
     time_ms_t modified = get_date(s2w(in + "/a")).second;
     CHECK(modified == 946684800'000);
@@ -820,7 +820,7 @@ TEST_CASE("preserve dates") {
     CHECK(set_date(s2w(in + "/a"), 946684800'000));
     CHECK(set_date(s2w(in + "/d"), 946684800'000));
     ex("-m1", in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     cmp();
 }
 
@@ -835,13 +835,13 @@ TEST_CASE("absolute paths") {
     auto f = w2utf8(abs_path(s2w(in)));
 
     SECTION("full path") {
-        ex("-R0", full, out, f);
+        ex("-R1", full, out, f);
         cmp();
     }
     SECTION("sub directory") {
         clean_in_out();
         pick("b");
-        ex("-R0", full, out, f + p("/d"));
+        ex("-R1", full, out, f + p("/d"));
         cmp_diff();
     }
 }
@@ -863,14 +863,14 @@ TEST_CASE("absolute paths with -h flag") {
         cp(testfiles + "/b", in + "/d/b");
         cp(testfiles + "/a", in + "/link_to_a");
         cp(testfiles + "/b", in + "/link_to_b");
-        ex("-R0", full, out, f);
+        ex("-R1", full, out, f);
         cmp_diff();
     }
 
     SECTION("sub directory") {
         clean_in_out();
         pick("b");
-        ex("-R0", full, out, f + p("/d"));
+        ex("-R1", full, out, f + p("/d"));
         cmp_diff();
     }
 }
@@ -881,7 +881,7 @@ TEST_CASE("add to aborted") {
     ex("-m1", in, full);
     ex("-m1", in, in + "/non-existant-to-trigger-abort", full);
     ex("-m1", in, full);
-    ex("-R1", full, out);
+    ex("-R2", full, out);
     cmp_diff();
 }
 
@@ -893,9 +893,9 @@ TEST_CASE("lua unix filenames") {
     // at Lua-runtime because f() is not a defined function
     clean();
     cp(testfiles + "/a", in + R"===(/'\"\;f\(\)\;x=\"')===");
-    // cerr << sys("ls -R0", in);
+    // cerr << sys("ls -R1", in);
     ex("-m1", "-u\"return(is_file or is_dir)\"", in, full);
-    ex("-R0", full, out); 
+    ex("-R1", full, out); 
     cmp();
 
     // Try all bytes that are valid in a UNIX filename
@@ -910,9 +910,9 @@ TEST_CASE("lua unix filenames") {
         outputFile.close();
 
     }
-  //  cerr << sys("ls -R0", in);
+  //  cerr << sys("ls -R1", in);
     ex("-m1", "-u\"return(name == 'tmp' or name == 'full' or name == 'out' or name == 'in' or len(name) == 1)\"", in, full);
-    ex("-R0", full, out); 
+    ex("-R1", full, out); 
     cmp();
 }
 
@@ -921,7 +921,7 @@ TEST_CASE("skip domain socket") {
     pick("a");
     sys("timeout 0.1 nc -lU " + in + "/domain_socket");
     ex("-m1",in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     rm(in + "/domain_socket");
     cmp();
 }
@@ -933,7 +933,7 @@ TEST_CASE("include link to domain socket") {
     sys("timeout 0.1 nc -lU " + in + "/domain_socket");
     lf(in + "/link_to_domain_socket", in + "/domain_socket");
     ex("-m1",in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     rm(in + "/domain_socket");
     cmp();
 }
@@ -944,7 +944,7 @@ TEST_CASE("skip link to domain socket") {
     sys("timeout 0.1 nc -lU " + in + "/domain_socket");
     lf(in + "/link_to_domain_socket", in + "/domain_socket");
     ex("-m1 -h",in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     rm(in + "/domain_socket");
     rm(in + "/link_to_domain_socket");
     cmp();

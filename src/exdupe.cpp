@@ -1092,7 +1092,8 @@ void list_contents() {
             // total_files += f;
             s = mbround(s);
             c = mbround(c);
-            statusbar.print(0, L("%s  %s %s %s MB  %s MB  %s"), del(set, 5).c_str(), ds.c_str(), del(f, 13).c_str(), del(s, 10).c_str(), del(c, 9).c_str(), cmdline.c_str());
+            // Display sets to the user as 1-based (more natural). Internally they are 0-based.
+            statusbar.print(0, L("%s  %s %s %s MB  %s MB  %s"), del(static_cast<int64_t>(set) + 1, 5).c_str(), ds.c_str(), del(f, 13).c_str(), del(s, 10).c_str(), del(c, 9).c_str(), cmdline.c_str());
         }
         //statusbar.print(0, L("---------------------------------------------------------------------------------------"));
         size_t total_compressed = filesize(full.c_str(), false);
@@ -1315,10 +1316,18 @@ void parse_flags(void) {
             }
 
             if (set_int_flag(set_flag, "R")) {
+                if (set_flag == static_cast<uint32_t>(-1) || set_flag == 0) {
+                    abort(true, L("-R flag must be a positive integer starting at 1"));
+                }
+                set_flag = set_flag - 1;
                 restore_flag = true;
             }
 
             if (set_int_flag(set_flag, "L", false)) {
+                if (set_flag != static_cast<uint32_t>(-1)) {
+                    abort(set_flag == 0, L("-L flag must be a positive integer starting at 1"));
+                    set_flag = set_flag - 1;
+                }
                 list_flag = true;
             }
 
@@ -1470,9 +1479,9 @@ Example of backup, incremental backups and restore:
   exdupe -R1 backup.exd restore_dir
 
 More examples:
-  exdupe -t12 -g8 dir1 dir2 backup.exd
-  exdupe -R0 backup.exd restore_dir dir2%/file.txt
-  exdupe file.txt -stdout | exdupe -R0 -stdin restore_dir)";
+  exdupe -t12 -x3 dir1 dir2 backup.exd
+  exdupe -R1 backup.exd restore_dir dir2%/file.txt
+  exdupe file.txt -stdout | exdupe -R1 -stdin restore_dir)";
 
     std::string short_help = R"(Create first backup:
   exdupe [flags] <sources | -stdin> <backup file | -stdout>
