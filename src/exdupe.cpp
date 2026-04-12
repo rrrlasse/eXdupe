@@ -314,7 +314,6 @@ void abort(bool b, retvals ret, const std::wstring &s) {
         aborted = static_cast<int>(ret);
         statusbar.use_cerr();
         statusbar.print(0, L("%s"), s.c_str());
-        CERR << std::endl << s << std::endl;
         cleanup_and_exit(ret); // todo, kill threads first
     }
 }
@@ -1839,7 +1838,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
                     set_meta(dstdir + DELIM_STR + c.name, c);
                 }
                 
-                abort(c.hash != t.result(), retvals::err_other, format(L("File checksum error {}"), c.name));
+                abort(c.hash != t.result(), retvals::err_other, format(L("File checksum error {}"), outfile));
             }
         }
     }
