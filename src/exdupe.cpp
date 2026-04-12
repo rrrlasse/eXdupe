@@ -2583,11 +2583,6 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
     }
 }
 
-void compress(const STRING &base_dir, vector<STRING> items) {
-    compress_recursive(base_dir, items, true);
-    compression::compress_file_finalize();
-}
-
 void compress_args(vector<STRING> args) {
     uint32_t i = 0;
     for (i = 0; i < args.size(); i++) {
@@ -2609,8 +2604,7 @@ void compress_args(vector<STRING> args) {
     for (i = 0; i < args.size(); i++) {
         args.at(i) = args.at(i).substr(base_dir.length());
     }
-
-    compress(base_dir, args);
+    compress_recursive(base_dir, args, true);
 }
 
 void print_statistics(uint64_t start_time, uint64_t end_time, uint64_t end_time_without_overhead, uint64_t references_size, uint64_t hashtable_size, uint64_t added) {
@@ -2762,16 +2756,19 @@ void main_compress() {
         } else if (inputfiles.size() > 0 && inputfiles.at(0) == L("-stdin")) {
             name = L("stdin");
             compression::compress_file(L("-stdin"), name, 0);
-            compression::compress_file_finalize();
         }
+        compression::compress_file_finalize();
     } catch (const retvals&) {
+        compression::compress_file_finalize();
         // Thrown by abort() which has already printed the error message to the user and set aborted
     }
     catch (const std::exception &e) {
+        compression::compress_file_finalize();
         // Some errors, like from std::filesystem, are not handled, so we catch them here.
         CERR << std::endl << L("Error: ") << e.what() << std::endl;
         aborted = static_cast<int>(retvals::err_other);
     } catch (...) {
+        compression::compress_file_finalize();
         throw;
     }
 
