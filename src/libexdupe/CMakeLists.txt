@@ -25,7 +25,7 @@ if (MSVC)
 	add_subdirectory(pthread)
 else()
 	target_compile_options(libexdupe PRIVATE -mno-avx2)
-	set(flags_to_apply "-maes" "-msse2" "-pedantic" "-Wextra" "-Wall" "-Wno-gnu-zero-variadic-macro-arguments")
+	set(flags_to_apply "-maes" "-msse2" "-pedantic" "-Wextra" "-Wall")
 endif(MSVC)
 
 apply_compile_options_to_files("libexdupe.cpp" "${flags_to_apply}")

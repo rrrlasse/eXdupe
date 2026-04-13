@@ -166,6 +166,7 @@ FORCE_INLINE static uint64_t str2ll(const void *src, int bytes) {
         return (uint64_t)(*(const uint8_t *)src);
     }
     assert(false);
+    return 0;
 }
 
 const uint64_t slots = 8;
