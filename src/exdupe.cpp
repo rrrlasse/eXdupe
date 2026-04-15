@@ -1034,7 +1034,11 @@ void list_contents() {
 
     FILE *ffile = try_open(full.c_str(), 'r', true);
     uint64_t mem = read_header(ffile, 0);
-    read_headers(ffile);
+    bool was_killed = !read_headers(ffile);
+    bool was_aborted = false;
+    if (headers.at(headers.size() - 2).first != backup_set_header) {
+        was_aborted = true;
+    }
 
     auto print_item = [](contents_t& c) {
         if (c.symlink) {
@@ -1100,6 +1104,7 @@ void list_contents() {
         total_uncompressed = mbround(total_uncompressed);
         //statusbar.print(0, L("  Total                 %s %s MB  %s MB"), del(total_files, 13).c_str(), del(total_uncompressed, 10).c_str(), del(total_compressed, 9).c_str());
         statusbar.print(0, L("\nDeduplication memory: %sB"), s2w(suffix(mem)).c_str());
+        statusbar.print(0, L("Last run was: %s"), was_killed ? L("OK aborted [killed]") : (was_aborted ? L("OK [aborted] killed") : L("[OK] aborted killed")));
 #if 0
         statusbar.print(0, L("\nA few files:"));
         read_content_map(ffile);
