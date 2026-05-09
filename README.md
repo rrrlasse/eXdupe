@@ -1,4 +1,4 @@
-eXdupe is an ultra fast file archiver that supports incremental backups and sliding-window deduplication.
+eXdupe is a file archiver that runs beyond **5 gigabyte/s**, and that's with just 4 threads. It also supports incremental backups and sliding-window deduplication.
 
 It's easy to use. Example of backup:
 
@@ -26,14 +26,17 @@ Incremental backup after some random work inside the virtual machine:
 | **Size** | 0.77 GB  | 2.42 GB | 1.78 GB | 3.10 GB   | 1.62 GB   |
 
 ## Download
-Please try the upcoming version 4 that supports **incremental** backups:
+[exdupe.exe](https://github.com/rrrlasse/eXdupe/releases/download/v4.0.0/exdupe.exe)<br>
+[exdupe_4.0.0_linux_amd64](https://github.com/rrrlasse/eXdupe/releases/download/v4.0.0/exdupe_4.0.0_linux_amd64)
 
-[eXdupe 4.0.0-dev12](https://github.com/rrrlasse/eXdupe/actions/runs/21258027429)
-
-Last stable version that only supports **differential** backups:
-
-[exdupe.exe](https://github.com/rrrlasse/eXdupe/releases/download/v3.0.1/exdupe.exe)<br>
-[exdupe_3.0.1_linux_amd64.tar.gz](https://github.com/rrrlasse/eXdupe/releases/download/v3.0.1/exdupe_3.0.1_linux_amd64.tar.gz)
+Also try an early prototype of **[version 5](https://github.com/rrrlasse/eXdupe/releases/tag/nightly)** with following news:
+* AES-256 encryption
+* Hardlinks
+* Sparse files
+* ACL/ADS
+* Junctions
+* Extended attributes
+* Switched to [memlz](https://github.com/rrrlasse/memlz) and [intrinhash](https://github.com/rrrlasse/intrinhash)
 
 ## Build
 It has been tested on Windows, Linux and FreeBSD.
