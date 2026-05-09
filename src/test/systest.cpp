@@ -504,7 +504,7 @@ TEST_CASE("compression levels") {
     md(in);
     std::ofstream(in + "/t") << "The quick brown fox jumps over the lazy dog";
     ex("-m1", x, in, full);
-    ex("-R0", full, out);
+    ex("-R1", full, out);
     if (x != "-x5") {
         cmp();
     } else {
@@ -1061,10 +1061,10 @@ TEST_CASE("acl_roundtrip_verify") {
 
     if (pipe) {
         ex("-m1C", in, "-stdout", ">", full);
-        ex("-R0C", "-stdin", out, "<", full);
+        ex("-R1C", "-stdin", out, "<", full);
     } else {
         ex("-m1C", in, full);
-        ex("-R0C", full, out);
+        ex("-R1C", full, out);
     }
 
     // Wait for FS operations to settle
@@ -1142,7 +1142,7 @@ TEST_CASE("acl_roundtrip_verify") {
 
 #ifndef _WIN32
 
-#if 0
+#if 1
 TEST_CASE("xattr_roundtrip") {
     clean();
     md(in);
@@ -1203,7 +1203,7 @@ TEST_CASE("xattr_roundtrip") {
 
     // no attributes
     ex("-m1X", in, full);
-    ex("-R0Xc", full, out); // -c flag because xattrs on symlinks are platform dependent
+    ex("-R1Xc", full, out); // -c flag because xattrs on symlinks are platform dependent
 
     string s_f1_a = get_xattr_hex(in + "/f1.txt", "user.f1", true);
     string d_f1_a = get_xattr_hex(out + "/f1.txt", "user.f1", true);
@@ -1253,10 +1253,10 @@ TEST_CASE("alternate data stream") {
 
     if (pipe) {
         ex(string("-m1") + c_flag, in, "-stdout", ">", full);
-        ex(string("-R0") + c_flag, "-stdin", out, "<", full);
+        ex(string("-R1") + c_flag, "-stdin", out, "<", full);
     } else {
         ex(string("-m1") + c_flag, in, full);
-        ex(string("-R0") + c_flag, full, out);
+        ex(string("-R1") + c_flag, full, out);
     }
 
     std::ifstream verify(ads, std::ios::binary);
@@ -1281,7 +1281,7 @@ TEST_CASE("windows_file_attributes") {
     sys("attrib", "+R", "+H", "+S", "+A", qfile);
     sys("compact", "/c", qfile);
     ex(string("-m1") + c_flag, in, full);
-    ex(string("-R0") + c_flag, full, out);
+    ex(string("-R1") + c_flag, full, out);
 
     // allow FS operations to settle
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -1413,7 +1413,7 @@ TEST_CASE("sparse") {
         close();
 
         ex("-m1", in, full);
-        ex("-R0", full, out);
+        ex("-R1", full, out);
         cmp();
 
         int slack = int(v.size() * 64 * 1024);
