@@ -20,8 +20,6 @@
 #include "unicode.h"
 #include "utilities.hpp"
 
-#include "libexdupe/gxhash/gxhash.h"
-
 #ifdef _WIN32
 #include "Shlwapi.h"
 #include <aclapi.h>
@@ -484,10 +482,13 @@ void itoa(int n, char s[]) {
 
 
 std::array<char, 16> checksum_t::result() {
-    gxhash_finish(&state);
-    hash = state.finalized;
+    if (finalized) {
+        return hash;
+    }
+    finalized = true;
+    intrinhash_finalize(&state, &hash, 16);
     std::array<char, 16> ret;
-    memcpy(&ret, &hash, ret.size());
+    memcpy(&ret, &hash, 16);
     return ret;
 }
 
@@ -500,12 +501,14 @@ uint64_t checksum_t::result64() {
     return r;
 };
 
-void checksum_init(checksum_t *t, uint32_t hash_seed, bool use_aesni) {
-    gxhash_init(&t->state, hash_seed, use_aesni);
+void checksum_init(checksum_t *t, uint32_t hash_seed) {
+    intrinhash_init(&t->state, hash_seed, intrinhash_auto());
+    t->finalized = false;
 }
 
+
 void checksum(const char *data, size_t len, checksum_t *t) {
-    gxhash_stream((uint8_t *)data, len, &t->state);
+    intrinhash_update(&t->state, data, len);
     return;
 }
 
@@ -514,7 +517,6 @@ void checksum(const char *data, size_t len, checksum_t *t) {
 // No error handling other than returning 0, be aware of where you use this function
 uint64_t filesize(STRING file, bool followlinks = false) {
     file = lp(file);
-
     // If the user has set followlinks then the directory-traversal, which happens *early*,
     // will resolve links and treat them as files from that point. So a requirement to have
     // knowlege about the flag should not propagate down to here

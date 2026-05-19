@@ -12,7 +12,7 @@ project (libexdupe)
 
 set(CMAKE_CXX_STANDARD 20)
 
-ADD_LIBRARY(libexdupe STATIC libexdupe.cpp gxhash/gxhash.c)
+ADD_LIBRARY(libexdupe STATIC libexdupe.cpp)
 
 set(BUILD_SHARED_LIBS OFF)
 option(XXHASH_BUILD_XXHSUM "" OFF)

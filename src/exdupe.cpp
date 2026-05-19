@@ -99,7 +99,6 @@ const bool WIN = false;
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include "libexdupe/zstd/lib/zstd.h"
-#include "libexdupe/gxhash/gxhash.h"
 
 #include "xattr_acl.h"
 
@@ -934,9 +933,9 @@ bool save_directory(STRING base_dir, STRING path, bool write, attr_t a) {
 }
 
 
-uint64_t checksum64(const void *src, size_t len, uint32_t hash_seed, int use_aesni) {
+uint64_t checksum64(const void *src, size_t len, uint32_t hash_seed) {
     char h[sizeof(uint64_t)];
-    gxhash((const uint8_t *)src, len, h, sizeof(uint64_t), hash_seed, use_aesni);
+    intrinhash(src, len, hash_seed, h, sizeof(int64_t), intrinhash_auto());
     return *(uint64_t*)h;
 }
 
@@ -946,7 +945,7 @@ size_t write_hashtable(FILE *file) {
     io.write(hashtable_header.c_str(), hashtable_header.size(), file);
     io.write_ui<uint64_t>(t, file);
     io.write(memory_begin, t, file);
-    auto crc = checksum64(memory_begin, t, hash_seed, use_aesni);
+    auto crc = checksum64(memory_begin, t, hash_seed);
     io.write_ui<uint64_t>(crc, file);
     t += 8;
     io.write_ui<uint64_t>(t + 8, file);
@@ -958,7 +957,7 @@ uint64_t read_hashtable(FILE *file) {
     uint64_t s = io.read_ui<uint64_t>(file);
     io.read(memory_end - s, s, file);
     uint64_t crc = io.read_ui<uint64_t>(file);
-    uint64_t crc2 = checksum64(memory_end - s, s, hash_seed, use_aesni);
+    uint64_t crc2 = checksum64(memory_end - s, s, hash_seed);
     abort(crc != crc2, L("'%s' is corrupted or not an archive (hashtable checksum)"), full.c_str());
     io.seek(file, orig, SEEK_SET);
     int i = dup_decompress_hashtable(memory_end - s);
@@ -1958,7 +1957,7 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
 
     auto restore_file = [&](contents_t c, STRING outfile) {
         checksum_t t;
-        checksum_init(&t, hash_seed, use_aesni);
+        checksum_init(&t, hash_seed);
         update_statusbar_restore(outfile);
         ofile = pipe_out ? stdout : create_file(outfile, c.sparse);
         resolved = 0;
@@ -2132,7 +2131,7 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
         if (ofile == 0) {
             ofile = create_file(c.at(0).extra, c.at(0).sparse);
             destfile = c.at(0).extra;
-            checksum_init(&decompress_checksum, hash_seed, use_aesni);
+            checksum_init(&decompress_checksum, hash_seed);
             {
                 file_offset_t t;
                 t.filename = c.at(0).extra;
@@ -2443,8 +2442,6 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
 
     filetimes file_time = input_file == L("-stdin") ? filetimes(cur_date(), cur_date(), cur_date()) : get_date(input_file);
 
-    checksum_t file_checksum;
-    checksum_init(&file_checksum, hash_seed, use_aesni);
     uint64_t file_size = 0;
     contents_t file_meta;
     uint64_t file_read = 0;   
@@ -2535,7 +2532,7 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
 #if 1 // Detect files with identical payload, both within current backup set, and between full and diff sets
     if(file_size >= IDENTICAL_FILE_SIZE && input_file != L("-stdin")) {
         auto original = identical;
-        auto cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, const STRING& file) { identical += n; update_statusbar_backup(file); }, input_file, hash_seed, use_aesni);
+        auto cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, const STRING& file) { identical += n; update_statusbar_backup(file); }, input_file, hash_seed);
 
         if(cont.has_value()) {
             file_meta.payload = cont.value().payload;
@@ -2567,7 +2564,7 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
     }
 #endif
 
-    checksum_init(&file_meta_ct, hash_seed, use_aesni);
+    checksum_init(&file_meta_ct, hash_seed);
 
     if(!incremental) {
         io.write("F", 1, ofile);

@@ -30,7 +30,8 @@
 #include <iostream>
 #include <vector>
 
-#include "gxhash/gxhash.h"
+#define INTRINHASH_HEADER_ONLY
+#include "intrinhash/intrinhash.h"
 #include "../gsl/gsl"
 
 #define ZSTD_STATIC_LINKING_ONLY
@@ -158,7 +159,6 @@ namespace {
 enum lz_compressor { ZSTD, NULLZ };
 
 static uint32_t g_hash_salt = 0;
-static bool use_aesni = true;
 rwlock_type table_mutex;
 pthread_cond_t jobdone_cond;
 pthread_mutex_t jobdone_mutex;
@@ -488,11 +488,6 @@ int64_t zstd_decompress(char *inbuf, size_t insize, char *outbuf, size_t outsize
     return ZSTD_decompressDCtx(zstd_params->dctx, outbuf, outsize, inbuf + 1, insize - 1);    
 }
 
-static void hash(const void *src, size_t len, uint32_t hash_seed, char *dst, size_t result_len, bool use_aesni) {
-    gxhash((uint8_t *)src, len, dst, result_len, hash_seed, use_aesni);
-    return; 
-}
-
 void print_table() {
 #if 1
     std::wcerr << L"\nsmall:\n";
@@ -777,11 +772,12 @@ const static char *dub(const char *src, uint64_t pay, size_t len, size_t block, 
                     rassert(sizeof(tmp) >= LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE);
                     uint32_t k;
                     for (k = 0; k < LARGE_BLOCK / SMALL_BLOCK; k++) {
-                        hash(src + k * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + k * HASH_SIZE, HASH_SIZE, use_aesni);
+
+                        intrinhash(src + k * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + k * HASH_SIZE, HASH_SIZE, intrinhash_auto());
                     }
-                    hash(tmp, LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, g_hash_salt, s, HASH_SIZE, use_aesni);
+                    intrinhash(tmp, LARGE_BLOCK / SMALL_BLOCK * HASH_SIZE, g_hash_salt, s, HASH_SIZE, intrinhash_auto());
                 } else {
-                    hash(src, block, g_hash_salt, s, HASH_SIZE, use_aesni);
+                    intrinhash(src, block, g_hash_salt, s, HASH_SIZE, intrinhash_auto());
                 }
 
                 if (e_cpy.offset + block < pay + (src - orig_src) && dd_equal(s, e_cpy.sha, HASH_SIZE)) {
@@ -905,7 +901,7 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length) {
     uint32_t j = 0;
 
     for (j = 0; j < small_blocks; j++) {
-        hash(src + j * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + smalls * HASH_SIZE, HASH_SIZE, use_aesni);
+        intrinhash(src + j * SMALL_BLOCK, SMALL_BLOCK, g_hash_salt, tmp + smalls * HASH_SIZE, HASH_SIZE, intrinhash_auto());
         bool success_small = hashat(src + j * SMALL_BLOCK, pay + j * SMALL_BLOCK, SMALL_BLOCK, false, tmp + smalls * HASH_SIZE);
         if(!success_small) {
             anomalies_small += SMALL_BLOCK;
@@ -914,7 +910,7 @@ static void hash_chunk(const char *src, uint64_t pay, size_t length) {
         smalls++;
         if (smalls == LARGE_BLOCK / SMALL_BLOCK) {
             char tmp2[HASH_SIZE];
-            hash(tmp, smalls * HASH_SIZE, g_hash_salt, tmp2, HASH_SIZE, use_aesni);
+            intrinhash(tmp, smalls * HASH_SIZE, g_hash_salt, tmp2, HASH_SIZE, intrinhash_auto());
             bool success_large = hashat(src + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, pay + (j + 1) * SMALL_BLOCK - LARGE_BLOCK, LARGE_BLOCK, true, tmp2);
             if(!success_large) {
                 anomalies_large += SMALL_BLOCK;
@@ -1233,7 +1229,6 @@ int dup_init(size_t large_block, size_t small_block, uint64_t mem, int thread_co
 #endif
 
     use_avx = dup_is_avx2_supported();
-    use_aesni = dup_is_aesni_supported();
     return 0;
 }
 

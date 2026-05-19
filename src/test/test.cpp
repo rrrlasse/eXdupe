@@ -53,13 +53,12 @@ std::wstring term(const std::wstring& source) {
 
 
 TEST_CASE("hash basic") {
-    bool use_aesni = false;
     {
         // Differing
         checksum_t t1;
         checksum_t t2;
-        checksum_init(&t1, 0, use_aesni);
-        checksum_init(&t2, 0, use_aesni);
+        checksum_init(&t1, 0);
+        checksum_init(&t2, 0);
 
         checksum((char *)"AAAAAAAAA", 9, &t1);
         auto result1 = t1.result64();
@@ -73,10 +72,10 @@ TEST_CASE("hash basic") {
     {
         // Associative
         checksum_t t1;
-        checksum_init(&t1, 0, use_aesni);
+        checksum_init(&t1, 0);
 
         checksum_t t2;
-        checksum_init(&t2, 0, use_aesni);
+        checksum_init(&t2, 0);
 
         string one;
         for (int i = 0; i < 32 * 1; i++) {
@@ -98,8 +97,8 @@ TEST_CASE("hash basic") {
     {
         checksum_t t1;
         checksum_t t2;
-        checksum_init(&t1, 1, use_aesni);
-        checksum_init(&t2, 2, use_aesni);
+        checksum_init(&t1, 1);
+        checksum_init(&t2, 2);
 
         checksum((char *)"AAAAAAAAA", 9, &t1);
         auto result1 = t1.result64();
@@ -113,11 +112,10 @@ TEST_CASE("hash basic") {
 }
 
 TEST_CASE("hash streaming remainder bug") {
-    bool use_aesni = false;
     checksum_t t1;
     checksum_t t2;
-    checksum_init(&t1, 0, use_aesni);
-    checksum_init(&t2, 0, use_aesni);
+    checksum_init(&t1, 0);
+    checksum_init(&t2, 0);
 
     std::string s1("a", 16 * 8);
     std::string s2("b", 16 * 8);
@@ -133,26 +131,6 @@ TEST_CASE("hash streaming remainder bug") {
     REQUIRE(result1 != result2);
 }
 
-
-TEST_CASE("hash aes-ni emulation") {
-
-    std::string buf(8*1024, ' ');
-    
-    for (size_t i = 0; i < buf.size(); i++) {
-        checksum_t t1;
-        checksum_t t2;
-        checksum_init(&t1, 0, true);
-        checksum_init(&t2, 0, false);
-
-        checksum((char *)buf.c_str(), i, &t1);
-        auto result1 = t1.result64();
-
-        checksum((char *)buf.c_str(), i, &t2);
-        auto result2 = t2.result64();
-
-        REQUIRE(result1 == result2);
-    }
-}
 
 TEST_CASE("format_size") {
     REQUIRE(suffix(0) == "0 ");
