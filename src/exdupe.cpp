@@ -1343,7 +1343,7 @@ void parse_flags(void) {
 #ifdef _WIN32
             STRING mount = flags.substr(2);
             abort(mount == L(""), L("Missing drive in -s flag"));
-            shadows.push_back(mount);
+            shadows.push_back(mount + L(":"));
 #else
             abort(true, L("-s flag not supported on *nix"));
 #endif
@@ -1564,32 +1564,32 @@ Show build info: -B
 paths to restore, written as printed by the -L flag.
 
 Flags:
-    -f Overwrite existing files
-    -c Continue if a file cannot be read during backup or if ACLs or extended
-       attributes cannot be set during restore (default is to abort)
-    -w Read contents of files during incremental backup to determine if they
-       have changed (default is to look at timestamps only).
-   -t# Use # threads (default = 8)
-   -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per )" + std::to_string(max_payload) + R"( GB 
-       of data in one backup set for best result. Use -m# to specify MB
-       instead. Incremental backups will use the same memory as the first
-       backup
-   -x# Use compression level # after deduplication (0, 1, 2 = default, 3, 4).
-       Level 0 means no compression and lets you apply your own
-    -- Prefix items in the <sources> list with "--" to exclude them
-    -p Include named pipes
-    -h Follow symlinks (default is to store symlink only)
-    -a Store absolute and complete paths (default is to identify and remove
-       any common parent path of the items passed on the command line).
-    -X Get or set xattr in user namespace (Linux only)
-    -A Get or set all xattr in all namespaces (Linux only)
-    -C Get or set ACLs (Windows only)
--s"x:" Use Volume Shadow Copy Service for local drive x: (Windows only)
- -u"s" Filter away files or directories with a Lua script. See more with -u?
-  -v#  Verbosity # (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
-   -k  Show deduplication statistics at the end
- -e"x" Don't apply compression or deduplication to files with the file extension
-       x. See more with -e?
+   -f Overwrite existing files
+   -c Continue if a file cannot be read during backup or if ACLs or extended
+      attributes cannot be set during restore (default is to abort)
+   -w Read contents of files during incremental backup to determine if they
+      have changed (default is to look at timestamps only).
+  -t# Use # threads (default = 8)
+  -g# Use # GB memory for deduplication (default = 2). Set to 1 GB per )" + std::to_string(max_payload) + R"( GB 
+      of data in one backup set for best result. Use -m# to specify MB
+      instead. Incremental backups will use the same memory as the first
+      backup
+  -x# Use compression level # after deduplication (0, 1, 2 = default, 3, 4).
+      Level 0 means no compression and lets you apply your own
+   -- Prefix items in the <sources> list with "--" to exclude them
+   -p Include named pipes
+   -h Follow symlinks (default is to store symlink only)
+   -a Store absolute and complete paths (default is to identify and remove
+      any common parent path of the items passed on the command line).
+   -X Get or set xattr in user namespace (Linux only)
+   -A Get or set all xattr in all namespaces (Linux only)
+   -C Get or set ACLs (Windows only)
+-s"L" Use Volume Shadow Copy Service for local drive letter L (Windows only)
+-u"s" Filter away files or directories with a Lua script. See more with -u?
+ -v#  Verbosity # (0 = quiet, 1 = status bar, 2 = skipped files, 3 = all)
+  -k  Show deduplication statistics at the end
+-e"x" Don't apply compression or deduplication to files with the file extension
+      x. See more with -e?
 
 Example of backup, incremental backups and restore:
   exdupe my_dir backup.exd
@@ -1599,8 +1599,8 @@ Example of backup, incremental backups and restore:
 
 More examples:
   exdupe -t12 -g8 dir1 dir2 backup.exd
-  exdupe -R0 backup.exd restore_dir dir2%/file.txt
-  exdupe file.txt -stdout | exdupe -R0 -stdin restore_dir)";
+  exdupe -R1 backup.exd restore_dir dir2%/file.txt
+  exdupe file.txt -stdout | exdupe -R1 -stdin restore_dir)";
 
     std::string short_help = R"(Create first backup:
   exdupe [flags] <sources | -stdin> <backup file | -stdout>
