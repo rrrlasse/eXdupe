@@ -165,6 +165,17 @@ uint64_t rnd64() {
     return distr(eng);
 }
 
+std::string rndstr(size_t count) {
+    std::string ret;
+    std::random_device rd;
+    std::mt19937_64 gen(rd());
+    ret.resize(count);
+    for (auto &c : ret) {
+        c = static_cast<char>(gen() & 0xFF);
+    }
+    return ret;
+}
+
 void replace_str(STRING &str, const STRING &oldStr, const STRING &newStr) {
     size_t pos = 0;
     while ((pos = str.find(oldStr, pos)) != STRING::npos) {

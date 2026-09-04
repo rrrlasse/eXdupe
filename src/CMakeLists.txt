@@ -50,10 +50,12 @@ add_executable(exdupe ${SOURCES})
 
 add_subdirectory(libexdupe)
 add_subdirectory(lua)
+add_subdirectory(tinyaes)
 add_subdirectory(test)
 
 target_link_libraries(exdupe PRIVATE libexdupe)
 target_link_libraries(exdupe PRIVATE lua_static)
+target_link_libraries(exdupe PRIVATE tinyaes)
 
 target_compile_definitions(test PRIVATE
     APP_PATH=\"$<TARGET_FILE:exdupe>\"

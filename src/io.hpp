@@ -20,6 +20,10 @@
 
 #include "utilities.hpp"
 #include "unicode.h"
+#include <optional>
+#include <string>
+#include <tuple>
+#include <array>
 
 // NOT thread safe
 class Cio {
@@ -29,6 +33,9 @@ class Cio {
     FILE *open(STRING file, char mode);
     uint64_t tell(FILE *_File);
     int seek(FILE *_File, int64_t _Offset, int Origin);
+    // Encryption configuration stored as plain strings
+    void set_encryption(const std::string &passphrase, const std::string &iv, const std::string &passphrase_salt);
+    void disable_encryption();
     size_t write(const void *Str, size_t Count, FILE *_File, bool sparse = false);
     size_t read(void *DstBuf, size_t Count, FILE *_File, bool read_exact = true);
     size_t read_vector(std::vector<char>& dst, size_t count, size_t offset, FILE* f, bool read_exact);
@@ -36,11 +43,18 @@ class Cio {
     void write_utf8_string(STRING str, FILE *_File);
     std::string read_bin_string(size_t Count, FILE *_File);
     void truncate(FILE *file);
+    // legacy: removed opt_enc; use set_global_encryption / disable_encryption
 
     static bool stdin_tty();
     
-    uint64_t read_count;
-    uint64_t write_count;
+    uint64_t read_count = 0;
+    uint64_t write_count = 0;
+    std::vector<uint8_t> m_scratch_buffer;
+    const size_t ENC_IV_LEN = 12; // use 12-byte nonces (nonce + 4-byte counter)
+    std::string m_passphrase;
+    std::string m_iv;
+    std::string m_passphrase_salt;
+    std::optional<std::array<uint8_t,32>> m_derived_key;
 
     template <std::unsigned_integral T> size_t write_ui(T value, FILE* _File) {
         uint64_t v = value;

@@ -359,6 +359,15 @@ TEST_CASE("compress from stdin and restore to stdout") {
     cmp_diff(); // timestamp cannot match
 }
 
+TEST_CASE("compress from stdin and restore to stdout with encryption") {
+    clean();
+    pick("a");
+    ex("-m1", "-y\"password\"", "-stdin", "-stdout", "<", in + "/a", ">", full);
+    ex("-y\"password\"", "-R1", full, "-stdout", "<", full, ">", out + "/a");
+    cmp_diff(); // timestamp cannot match
+}
+
+
 TEST_CASE("no ~ in paths") {
     // abs_path() and possibly other functions cannot handle the ~ character
     for (auto &p : vector<string>{root, work, bin, tmp, in, out, full, diff, testfiles}) {
@@ -531,6 +540,19 @@ TEST_CASE("simple backup, diff backup and restore") {
     ex(in, full);
     rm(out);
     ex("-R2", full, out);
+    cmp();
+}
+
+TEST_CASE("simple backup, diff backup and restore with encryption") {
+    clean();
+    pick("a");
+    ex("-m1", "-y\"password\"", in, full);
+    ex("-y\"password\"", "-R1", full, out);
+    cmp();
+
+    ex("-y\"password\"", in, full);
+    rm(out);
+    ex("-y\"password\"", "-R2", full, out);
     cmp();
 }
 

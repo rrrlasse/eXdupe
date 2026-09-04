@@ -71,6 +71,7 @@ struct filetimes {
 std::tm local_time_tm(const time_ms_t &t);
 std::string suffix(uint64_t size, bool column = false);
 uint64_t rnd64();
+std::string rndstr(size_t count);
 bool is_valid_utf8(const std::string& input) ;
 void replace_stdstr(std::string &str, const std::string &oldStr, const std::string &newStr);
 void replace_str(STRING &str, const STRING &oldStr, const STRING &newStr);

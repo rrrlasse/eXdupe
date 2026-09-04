@@ -83,6 +83,7 @@ const bool WIN = false;
 #include "io.hpp"
 #include "libexdupe/libexdupe.h"
 #include "luawrapper.h"
+#include "tinyaes/ctr.h"
 #include "timestamp.h"
 #include "ui.hpp"
 #include "unicode.h"
@@ -215,7 +216,9 @@ std::string xattr_pattern; // *nix only
 FILE *ofile = 0;
 FILE *ifile = 0;
 
-Cio io = Cio();
+Cio reader;
+Cio writer;
+Cio fileio;
 Statusbar statusbar;
 
 uint64_t bits;
@@ -288,6 +291,9 @@ const string all_contents_header = "CONTENTS";
 const string hashtable_header = "HASHTBLE";
 const string chunks_header = "CHUNKSCH";
 const string payload_header = "PAYLOADP";
+std::string archive_iv;
+std::string passphrase_salt;
+std::optional<std::string> encryption_passphrase;
 
 std::mutex abort_mutex;
 std::atomic<int> aborted = 0;
@@ -303,7 +309,11 @@ void abort(bool b, retvals ret, const std::wstring &s) {
         cleanup_and_exit(ret); // todo, kill threads first
     }
 }
+
 #endif
+
+// IV is stored as first 16 bytes of the file when encryption is enabled.
+
 
 void abort(bool b, retvals ret, const std::string &s) {
     std::lock_guard<std::mutex> lg(abort_mutex);
@@ -373,15 +383,15 @@ uint64_t backup_set_size() {
 
 // todo, move
 void read_hash(FILE* f, contents_t& c) {
-    io.read(c.hash.data(), sizeof(c.hash), f);
-    c.first = io.read_ui<decltype(c.first)>(f);
-    c.last = io.read_ui<decltype(c.last)>(f);
+    reader.read(c.hash.data(), sizeof(c.hash), f);
+    c.first = reader.read_ui<decltype(c.first)>(f);
+    c.last = reader.read_ui<decltype(c.last)>(f);
 }
 
-void write_hash(FILE* f, const contents_t& c) {
-    io.write(&c.hash, c.hash.size(), f);
-    io.write_ui<decltype(c.first)>(c.first, f);
-    io.write_ui<decltype(c.last)>(c.last, f);
+void write_hash(FILE* f, contents_t& c) {
+    writer.write(&c.hash, c.hash.size(), f);
+    writer.write_ui<decltype(c.first)>(c.first, f);
+    writer.write_ui<decltype(c.last)>(c.last, f);
 }
 
 
@@ -404,18 +414,18 @@ void move_cursor_up() {
 
 void update_statusbar_backupv3(STRING file, bool message = false) {
     if (verbose_level == 3) {
-        statusbar.update(BACKUP, backup_set_size(), io.write_count, file, false, message);
+        statusbar.update(BACKUP, backup_set_size(), writer.write_count, file, false, message);
     }
 }
 
 void update_statusbar_backup(const STRING& file, bool message = false) {
     if (verbose_level < 3) {
-        statusbar.update(BACKUP, backup_set_size(), io.write_count, file, false, message);
+        statusbar.update(BACKUP, backup_set_size(), writer.write_count, file, false, message);
     }
 }
 
 void update_statusbar_restore(STRING file) {
-    statusbar.update(RESTORE, 0, io.write_count, file);
+    statusbar.update(RESTORE, 0, writer.write_count, file);
 }
 
 STRING date2str(time_ms_t date) {
@@ -459,7 +469,7 @@ STRING validchars(STRING path) {
 
 
 void read_content_item(FILE *file, contents_t &c) {
-    uint8_t type = io.read_ui<uint8_t>(file);
+    uint8_t type = reader.read_ui<uint8_t>(file);
 
     c.directory = ((type >> 0) & 1) == 1;
     c.symlink = ((type >> 1) & 1) == 1;
@@ -467,25 +477,25 @@ void read_content_item(FILE *file, contents_t &c) {
     c.sparse = ((type >> 3) & 1) == 1;
     c.is_hardlink = ((type >> 4) & 1) == 1;
     c.junction = ((type >> 5) & 1) == 1;
-    c.file_id = io.read_compact<uint64_t>(file);
-    c.abs_path = slashify(io.read_utf8_string(file), c.windows);
-    c.payload = io.read_compact<uint64_t>(file);
-    c.name = slashify(io.read_utf8_string(file), c.windows);
-    c.link = slashify(io.read_utf8_string(file), c.windows);
-    c.size = io.read_compact<uint64_t>(file);
-    c.file_c_time = io.read_compact<uint64_t>(file);
-    c.file_modified = io.read_compact<uint64_t>(file);
-    c.file_change_time = io.read_compact<uint64_t>(file);
-    c.attributes = io.read_ui<uint32_t>(file);
-    c.duplicate = io.read_compact<uint64_t>(file);
+    c.file_id = reader.read_compact<uint64_t>(file);
+    c.abs_path = slashify(reader.read_utf8_string(file), c.windows);
+    c.payload = reader.read_compact<uint64_t>(file);
+    c.name = slashify(reader.read_utf8_string(file), c.windows);
+    c.link = slashify(reader.read_utf8_string(file), c.windows);
+    c.size = reader.read_compact<uint64_t>(file);
+    c.file_c_time = reader.read_compact<uint64_t>(file);
+    c.file_modified = reader.read_compact<uint64_t>(file);
+    c.file_change_time = reader.read_compact<uint64_t>(file);
+    c.attributes = reader.read_ui<uint32_t>(file);
+    c.duplicate = reader.read_compact<uint64_t>(file);
 
-    c.volume = io.read_compact<uint64_t>(file);
-    c.inode = io.read_compact<uint64_t>(file);
+    c.volume = reader.read_compact<uint64_t>(file);
+    c.inode = reader.read_compact<uint64_t>(file);
 
     read_hash(file, c);
 
-    size_t xattr_acl_size = io.read_compact<uint64_t>(file);
-    c.xattr_acl = io.read_bin_string(xattr_acl_size, file);
+    size_t xattr_acl_size = reader.read_compact<uint64_t>(file);
+    c.xattr_acl = reader.read_bin_string(xattr_acl_size, file);
 
 #ifdef _WIN32
     if (!c.windows) {
@@ -501,8 +511,8 @@ vector<contents_t> read_contents(FILE *f) {
     contents_t c;
     for (auto &h : headers) {
         if (h.first == all_contents_header) {
-            io.seek(f, h.second, SEEK_SET);
-            uint64_t n = io.read_ui<uint64_t>(f);
+            reader.seek(f, h.second, SEEK_SET);
+            uint64_t n = reader.read_ui<uint64_t>(f);
             for (uint64_t i = 0; i < n; i++) {
                 read_content_item(f, c);
                 ret.push_back(c);
@@ -516,33 +526,33 @@ vector<contents_t> read_contents(FILE *f) {
 }
 
 
-void write_contents_item(FILE *file, const contents_t &c) {
-    uint64_t written = io.write_count;
+void write_contents_item(FILE *file, contents_t &c) {
+    uint64_t written = writer.write_count;
 
     uint8_t type = ((c.directory ? 1 : 0) << 0) | ((c.symlink ? 1 : 0) << 1) | ((c.windows ? 1 : 0) << 2) | ((c.sparse ? 1 : 0) << 3) | ((c.is_hardlink ? 1 : 0) << 4) | ((c.junction ? 1 : 0) << 5);
 
-    io.write_ui<uint8_t>(type, file);
-    io.write_compact<uint64_t>(c.file_id, file);
-    io.write_utf8_string(c.abs_path, file);
-    io.write_compact<uint64_t>(c.payload, file);
-    io.write_utf8_string(c.name, file);
-    io.write_utf8_string(c.link, file);
-    io.write_compact<uint64_t>(c.size, file);
-    io.write_compact<uint64_t>(c.file_c_time, file);
-    io.write_compact<uint64_t>(c.file_modified, file);
-    io.write_compact<uint64_t>(c.file_change_time, file);
-    io.write_ui<uint32_t>(c.attributes, file);
-    io.write_compact<uint64_t>(c.duplicate, file);
+    writer.write_ui<uint8_t>(type, file);
+    writer.write_compact<uint64_t>(c.file_id, file);
+    writer.write_utf8_string(c.abs_path, file);
+    writer.write_compact<uint64_t>(c.payload, file);
+    writer.write_utf8_string(c.name, file);
+    writer.write_utf8_string(c.link, file);
+    writer.write_compact<uint64_t>(c.size, file);
+    writer.write_compact<uint64_t>(c.file_c_time, file);
+    writer.write_compact<uint64_t>(c.file_modified, file);
+    writer.write_compact<uint64_t>(c.file_change_time, file);
+    writer.write_ui<uint32_t>(c.attributes, file);
+    writer.write_compact<uint64_t>(c.duplicate, file);
 
-    io.write_compact<uint64_t>(c.volume, file);
-    io.write_compact<uint64_t>(c.inode, file);
+    writer.write_compact<uint64_t>(c.volume, file);
+    writer.write_compact<uint64_t>(c.inode, file);
 
     write_hash(file, c);
     
-    io.write_compact(c.xattr_acl.size(), file);
-    io.write(c.xattr_acl.data(), c.xattr_acl.size(), file);
+    writer.write_compact(c.xattr_acl.size(), file);
+    writer.write(c.xattr_acl.data(), c.xattr_acl.size(), file);
 
-    contents_size += io.write_count - written;
+    contents_size += writer.write_count - written;
 }
 
 void read_content_map(FILE* file) {
@@ -587,43 +597,66 @@ uint64_t belongs_to(uint64_t offset) {
 }
 
 
-uint64_t read_header(FILE *file, uint64_t *lastgood) {
-    string header = io.read_bin_string(8, file);
-    abort(!header.starts_with("EXDUPE"), L("File is not an eXdupe archive, or archive is corrupted"));
-    char major = io.read_ui<uint8_t>(file);
-    char minor = io.read_ui<uint8_t>(file);
-    char revision = io.read_ui<uint8_t>(file);
-    char dev = io.read_ui<uint8_t>(file);
+uint64_t read_file_header(FILE *file, uint64_t *lastgood) {
+    reader.seek(file, 0, SEEK_SET);
 
-    DEDUPE_SMALL = io.read_ui<uint64_t>(file);
-    DEDUPE_LARGE = io.read_ui<uint64_t>(file);
+    
+    // IV is stored immediately before lastgood: read 12-byte nonce here
+    // Temporarily disable reader encryption while reading raw IV and salt
+    reader.disable_encryption();
+    archive_iv = reader.read_bin_string(12, file);
+    passphrase_salt = reader.read_bin_string(16, file);
+
+
+    // Read header normally from file start
+    if (encryption_passphrase.has_value()) {
+        reader.set_encryption(*encryption_passphrase, archive_iv, passphrase_salt);
+        if (incremental) {
+            writer.set_encryption(*encryption_passphrase, archive_iv, passphrase_salt);
+        }
+    }
+
+    string header = reader.read_bin_string(8, file);
+
+    abort(!header.starts_with("EXDUPE") && !encryption_passphrase.has_value(), L("Encrypted or corrupted archive. Try passing encryption key with -y flag"));
+    abort(!header.starts_with("EXDUPE") && encryption_passphrase.has_value(), L("Bad encryption key or corrupted archive"));
+
+    char major = reader.read_ui<uint8_t>(file);
+    char minor = reader.read_ui<uint8_t>(file);
+    char revision = reader.read_ui<uint8_t>(file);
+    char dev = reader.read_ui<uint8_t>(file);
+
+    DEDUPE_SMALL = reader.read_ui<uint64_t>(file);
+    DEDUPE_LARGE = reader.read_ui<uint64_t>(file);
 
     abort(major != VER_MAJOR, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}. Please use {}.x.x on it", (int)major, (int)minor, (int)revision, (int)major));
     abort(dev != VER_DEV, retvals::err_other, format("This file was created with eXdupe version {}.{}.{}.dev-{}. Please use the exact same version on it", (int)major, (int)minor, (int)revision, (int)dev));
 
-    hash_seed = io.read_ui<uint32_t>(file);
+    hash_seed = reader.read_ui<uint32_t>(file);
 
-    uint64_t mem = io.read_ui<uint64_t>(file);
-    uint64_t last = io.read_ui<uint64_t>(file);
+    uint64_t mem = reader.read_ui<uint64_t>(file);
+
+
+    uint64_t last = reader.read_ui<uint64_t>(file);
     if (lastgood) {
         *lastgood = last;
     }
-    uint64_t zero = io.read_ui<uint64_t>(file);
+    uint64_t zero = reader.read_ui<uint64_t>(file);
     rassert(zero == 0);
     return mem;
 }
 
 uint64_t seek_to_header(FILE *file, const string &header) {
     //  archive   HEADER  data  sizeofdata  HEADER  data  sizeofdata
-    uint64_t orig = io.tell(file);
+    uint64_t orig = reader.tell(file);
 
     for (auto &h : headers) {
         if (h.first == header) {
-            io.seek(file, h.second, SEEK_SET);
+            reader.seek(file, h.second, SEEK_SET);
             return orig;
         }
     }
-    abort(true, L("File is not an eXdupe archive, or archive is corrupted"));
+    abort(true, L("Arcive is corrupted"));
     return orig;
 }
 
@@ -631,15 +664,15 @@ uint64_t read_chunks(FILE *file) {
     uint64_t added_payload = 0;
     for (auto &h : headers) {
         if (h.first == chunks_header) {
-            io.seek(file, h.second, SEEK_SET);
-            uint64_t n = io.read_ui<uint64_t>(file);
+            reader.seek(file, h.second, SEEK_SET);
+            uint64_t n = reader.read_ui<uint64_t>(file);
 
             for (uint64_t i = 0; i < n; i++) {
                 chunk_t ref;
-                ref.archive_offset = io.read_ui<uint64_t>(file);
-                ref.payload = io.read_ui<uint64_t>(file);
-                ref.payload_length = io.read_ui<uint32_t>(file);
-                ref.compressed_length = io.read_ui<uint32_t>(file);
+                ref.archive_offset = reader.read_ui<uint64_t>(file);
+                ref.payload = reader.read_ui<uint64_t>(file);
+                ref.payload_length = reader.read_ui<uint32_t>(file);
+                ref.compressed_length = reader.read_ui<uint32_t>(file);
                 added_payload += ref.payload_length;
                 chunks.push_back(ref);
             }
@@ -649,19 +682,19 @@ uint64_t read_chunks(FILE *file) {
 }
 
 size_t write_chunks_added(FILE* file) {
-    io.write(chunks_header.c_str(), chunks_header.size(), file);
-    uint64_t w = io.write_count;
-    io.write_ui<uint64_t>(chunks_added.size(), file);
+    writer.write(chunks_header.c_str(), chunks_header.size(), file);
+    uint64_t w = writer.write_count;
+    writer.write_ui<uint64_t>(chunks_added.size(), file);
 
     for (size_t i = 0; i < chunks_added.size(); i++) {
-        io.write_ui<uint64_t>(chunks_added.at(i).archive_offset, file);
-        io.write_ui<uint64_t>(chunks_added.at(i).payload, file);
-        io.write_ui<uint32_t>(static_cast<uint32_t>(chunks_added.at(i).payload_length), file);
-        io.write_ui<uint32_t>(static_cast<uint32_t>(chunks_added.at(i).compressed_length), file);
+        writer.write_ui<uint64_t>(chunks_added.at(i).archive_offset, file);
+        writer.write_ui<uint64_t>(chunks_added.at(i).payload, file);
+        writer.write_ui<uint32_t>(static_cast<uint32_t>(chunks_added.at(i).payload_length), file);
+        writer.write_ui<uint32_t>(static_cast<uint32_t>(chunks_added.at(i).compressed_length), file);
     }
-    io.write_ui<uint32_t>(0, file);
-    io.write_ui<uint64_t>(io.write_count - w, file);
-    return io.write_count - w;
+    writer.write_ui<uint32_t>(0, file);
+    writer.write_ui<uint64_t>(writer.write_count - w, file);
+    return writer.write_count - w;
 }
 
 
@@ -719,9 +752,9 @@ vector<packet_t> parse_packets(const char *src, size_t len, size_t basepy) {
 }
 
 vector<packet_t> get_packets(FILE* f, uint64_t base_payload, std::vector<char>& dst) {
-    io.read_vector(dst, DUP_CHUNK_HEADER_LEN, 0, f, true);
+    reader.read_vector(dst, DUP_CHUNK_HEADER_LEN, 0, f, true);
     size_t r = dup_chunk_size_compressed(dst.data());
-    io.read_vector(dst, r - DUP_CHUNK_HEADER_LEN, DUP_CHUNK_HEADER_LEN, f, true);
+    reader.read_vector(dst, r - DUP_CHUNK_HEADER_LEN, DUP_CHUNK_HEADER_LEN, f, true);
     size_t d = dup_chunk_size_decompressed(dst.data());
     ensure_size(dst, d);
     size_t s = dup_decompress_chunk(dst.data(), dst.data());
@@ -815,7 +848,7 @@ void resolve(uint64_t payload, size_t size, char *dst, FILE *ifile) {
         if (auto it = chunk_cache.find_and_lock(rr); it) {
             packets = parse_packets(it->data(), it->size(), chunk.payload);
         } else {
-            io.seek(ifile, chunk.archive_offset, SEEK_SET);
+            reader.seek(ifile, chunk.archive_offset, SEEK_SET);
             auto f = chunk_cache.get_free_and_lock(rr);
             packets = get_packets(ifile, chunk.payload, *f);
         }
@@ -920,7 +953,7 @@ bool save_directory(STRING base_dir, STRING path, bool write, attr_t a) {
         backup_set.push_back(c.file_id);
 
         if (write && !incremental) {
-            io.write("I", 1, ofile);
+            writer.write("I", 1, ofile);
             write_contents_item(ofile, c);
         }
 
@@ -942,24 +975,24 @@ uint64_t checksum64(const void *src, size_t len, uint32_t hash_seed) {
 size_t write_hashtable(FILE *file) {
 
     size_t t = dup_compress_hashtable(memory_begin);
-    io.write(hashtable_header.c_str(), hashtable_header.size(), file);
-    io.write_ui<uint64_t>(t, file);
-    io.write(memory_begin, t, file);
+    writer.write(hashtable_header.c_str(), hashtable_header.size(), file);
+    writer.write_ui<uint64_t>(t, file);
+    writer.write(memory_begin, t, file);
     auto crc = checksum64(memory_begin, t, hash_seed);
-    io.write_ui<uint64_t>(crc, file);
+    writer.write_ui<uint64_t>(crc, file);
     t += 8;
-    io.write_ui<uint64_t>(t + 8, file);
+    writer.write_ui<uint64_t>(t + 8, file);
     return t;
 }
 
 uint64_t read_hashtable(FILE *file) {
     uint64_t orig = seek_to_header(file, hashtable_header);
-    uint64_t s = io.read_ui<uint64_t>(file);
-    io.read(memory_end - s, s, file);
-    uint64_t crc = io.read_ui<uint64_t>(file);
+    uint64_t s = reader.read_ui<uint64_t>(file);
+    reader.read(memory_end - s, s, file);
+    uint64_t crc = reader.read_ui<uint64_t>(file);
     uint64_t crc2 = checksum64(memory_end - s, s, hash_seed);
     abort(crc != crc2, L("'%s' is corrupted or not an archive (hashtable checksum)"), full.c_str());
-    io.seek(file, orig, SEEK_SET);
+    reader.seek(file, orig, SEEK_SET);
     int i = dup_decompress_hashtable(memory_end - s);
     abort(i != 0, L("'%s' is corrupted or not an archive (hashtable structure)"), full.c_str());
     return 0;
@@ -968,81 +1001,81 @@ uint64_t read_hashtable(FILE *file) {
 
 
 size_t write_contents_added(FILE *file) {
-    io.write(all_contents_header.c_str(), all_contents_header.size(), file);
-    uint64_t w = io.write_count;
-    io.write_ui<uint64_t>(contents_added.size(), file);
+    writer.write(all_contents_header.c_str(), all_contents_header.size(), file);
+    uint64_t w = writer.write_count;
+    writer.write_ui<uint64_t>(contents_added.size(), file);
     for (size_t i = 0; i < contents_added.size(); i++) {
         write_contents_item(file, contents_added.at(i));
     }
-    io.write_ui<uint32_t>(0, file);
-    io.write_ui<uint64_t>(io.write_count - w, file);
-    return io.write_count - w;
+    writer.write_ui<uint32_t>(0U, file);
+    writer.write_ui<uint64_t>(writer.write_count - w, file);
+    return writer.write_count - w;
 }
 
 
 
 void read_backup_set(FILE *f, uint64_t filepos, time_ms_t &date, uint64_t &size, uint64_t &files, vector<uint64_t>* ret, vector<STRING>* cmd) {
     uint64_t id;
-    uint64_t orig = io.seek(f, filepos, SEEK_SET);
-    uint64_t n = io.read_ui<uint64_t>(f);
+    uint64_t orig = reader.seek(f, filepos, SEEK_SET);
+    uint64_t n = reader.read_ui<uint64_t>(f);
     if (ret) {
         for (uint64_t i = 0; i < n; i++) {
-            id = io.read_ui<uint64_t>(f);
+            id = reader.read_ui<uint64_t>(f);
             ret->push_back(id);
         }
     } 
     else {
-        io.seek(f, n * sizeof(uint64_t), SEEK_CUR);
+        reader.seek(f, n * sizeof(uint64_t), SEEK_CUR);
     }
-    date = io.read_ui<uint64_t>(f);
-    size = io.read_ui<uint64_t>(f);
-    files = io.read_ui<uint64_t>(f);
+    date = reader.read_ui<uint64_t>(f);
+    size = reader.read_ui<uint64_t>(f);
+    files = reader.read_ui<uint64_t>(f);
 
     if (cmd) {
-        uint64_t cmdn = io.read_ui<uint64_t>(f);
+        uint64_t cmdn = reader.read_ui<uint64_t>(f);
         for (uint64_t i = 0; i < cmdn; i++) {
-            cmd->push_back(io.read_utf8_string(f));
+            cmd->push_back(reader.read_utf8_string(f));
         }
     }
 
-    io.seek(f, orig, SEEK_SET);
+    reader.seek(f, orig, SEEK_SET);
 }
 
 size_t write_backup_set(FILE *file, time_ms_t date, uint64_t size, uint64_t files, const std::vector<STRING>& cmd) {
-    io.write(backup_set_header.c_str(), backup_set_header.size(), file);
-    uint64_t w = io.write_count;
-    io.write_ui<uint64_t>(backup_set.size(), file);
+    writer.write(backup_set_header.c_str(), backup_set_header.size(), file);
+    uint64_t w = writer.write_count;
+    writer.write_ui<uint64_t>(backup_set.size(), file);
     for (size_t i = 0; i < backup_set.size(); i++) {
-        io.write_ui<uint64_t>(backup_set.at(i), file);
+        writer.write_ui<uint64_t>(backup_set.at(i), file);
     }
 
-    io.write_ui<uint64_t>(date, file);
-    io.write_ui<uint64_t>(size, file);
-    io.write_ui<uint64_t>(files, file);
+    writer.write_ui<uint64_t>(date, file);
+    writer.write_ui<uint64_t>(size, file);
+    writer.write_ui<uint64_t>(files, file);
 
-    io.write_ui<uint64_t>(cmd.size(), file);
+    writer.write_ui<uint64_t>(cmd.size(), file);
     for (auto& c : cmd) {
-        io.write_utf8_string(c, file);
+        writer.write_utf8_string(c, file);
     }
-    
-    io.write_ui<uint64_t>(io.write_count - w, file);
-    return io.write_count - w;
+
+    writer.write_ui<uint64_t>(writer.write_count - w, file);
+    return writer.write_count - w;
 }
 
 
 bool read_headers(FILE* file) {
     bool file_ok = true;
     uint64_t lastgood = 0;
-    io.seek(file, 0, SEEK_SET);
-    read_header(file, &lastgood);
-    io.seek(file, -static_cast<int64_t>(file_footer.size()), SEEK_END); // file was written to stdout that cannot seek to update header
+    reader.seek(file, 0, SEEK_SET);
+    read_file_header(file, &lastgood);
+    reader.seek(file, -static_cast<int64_t>(file_footer.size()), SEEK_END); // file was written to stdout that cannot seek to update header
 
-    string e = io.read_bin_string(3, file);
+    string e = reader.read_bin_string(3, file);
     if (e != file_footer) {
         file_ok = false;
-        io.seek(file, lastgood, SEEK_SET);
+        reader.seek(file, lastgood, SEEK_SET);
     } else {
-        io.seek(file, -static_cast<int64_t>(file_footer.size()), SEEK_END); // file was written to stdout that cannot seek to update header    
+        reader.seek(file, -static_cast<int64_t>(file_footer.size()), SEEK_END); // file was written to stdout that cannot seek to update header    
     }
 
     uint64_t s;
@@ -1050,22 +1083,22 @@ bool read_headers(FILE* file) {
 
     for (;;) {
         auto msg = L("Archive is corrupted");
-        abort(io.seek(file, -8, SEEK_CUR) != 0, msg);
-        s = io.read_ui<uint64_t>(file);
+        abort(reader.seek(file, -8, SEEK_CUR) != 0, msg);
+        s = reader.read_ui<uint64_t>(file);
         // file-header ends with a 0
         if (s == 0) {
             return file_ok;
         }
-        abort(io.seek(file, -8 - s - 8, SEEK_CUR) != 0, msg);
+        abort(reader.seek(file, -8 - s - 8, SEEK_CUR) != 0, msg);
 
-        h = io.read_bin_string(8, file);
+        h = reader.read_bin_string(8, file);
 
-        auto p = make_pair(h, io.tell(file));
+        auto p = make_pair(h, reader.tell(file));
         headers.insert(headers.begin(), p);
         if (h == backup_set_header) {
-            sets.insert(sets.begin(), io.tell(file));
+            sets.insert(sets.begin(), reader.tell(file));
         }
-        abort(io.seek(file, -8, SEEK_CUR) != 0, msg);
+        abort(reader.seek(file, -8, SEEK_CUR) != 0, msg);
     }
     return file_ok;
 }
@@ -1089,7 +1122,8 @@ FILE *try_open(STRING file, char mode, bool abortfail) {
     } else if (file == L("-stdout")) {
         f = stdout;
     } else {
-        f = io.open(file.c_str(), mode);
+        if (mode == 'r') f = reader.open(file.c_str(), mode);
+        else f = writer.open(file.c_str(), mode);
         abort(!f && abortfail && mode == 'w', L("Error creating file: %s"), file.c_str());
         abort(!f && abortfail && mode == 'r', L("Error opening file for reading: %s"), file.c_str());
         abort(!f && abortfail && mode == 'a', L("Error opening file for append: %s"), file.c_str());
@@ -1099,26 +1133,34 @@ FILE *try_open(STRING file, char mode, bool abortfail) {
 }
 
 
-void write_header(FILE *file, uint64_t mem, uint32_t hash_seed, uint64_t lastgood) {
+void write_file_header(FILE *file, uint64_t mem, uint32_t hash_seed, uint64_t lastgood) {
+    writer.seek(file, 0, SEEK_SET);
 
-    io.write("EXDUPE D", 8, file);
+    {
+        writer.disable_encryption(); // Disable encryption when writing IV and passphrase salt
+        writer.write(archive_iv.data(), 12, file);
+        writer.write(passphrase_salt.data(), 16, file);
 
-    io.write_ui<uint8_t>(VER_MAJOR, file);
-    io.write_ui<uint8_t>(VER_MINOR, file);
-    io.write_ui<uint8_t>(VER_REVISION, file);
-    io.write_ui<uint8_t>(VER_DEV, file);
+        if (encryption_passphrase.has_value()) {
+            writer.set_encryption(*encryption_passphrase, archive_iv, passphrase_salt);
+        }
+    }
 
-    io.write_ui<uint64_t>(DEDUPE_SMALL, file);
-    io.write_ui<uint64_t>(DEDUPE_LARGE, file);
-    io.write_ui<uint32_t>(hash_seed, file);
+    writer.write("EXDUPE D", 8, file);
 
-    io.write_ui<uint64_t>(mem, file);
-    io.write_ui<uint64_t>(lastgood, file);
+    writer.write_ui<uint8_t>(VER_MAJOR, file);
+    writer.write_ui<uint8_t>(VER_MINOR, file);
+    writer.write_ui<uint8_t>(VER_REVISION, file);
+    writer.write_ui<uint8_t>(VER_DEV, file);
 
-    io.write_ui<uint64_t>(0, file);
+    writer.write_ui<uint64_t>(DEDUPE_SMALL, file);
+    writer.write_ui<uint64_t>(DEDUPE_LARGE, file);
+    writer.write_ui<uint32_t>(hash_seed, file);
+
+    writer.write_ui<uint64_t>(mem, file);
+    writer.write_ui<uint64_t>(lastgood, file);
+    writer.write_ui<uint64_t>(0, file);
 }
-
-
 
 contents_t get_contents_from_id2(vector<contents_t>& cont, uint64_t id) {
     for (auto &c : cont) {
@@ -1136,7 +1178,7 @@ void list_contents() {
     uint64_t f = 0;
 
     FILE *ffile = try_open(full.c_str(), 'r', true);
-    uint64_t mem = read_header(ffile, 0);
+    uint64_t mem = read_file_header(ffile, 0);
     read_headers(ffile);
 
     auto print_item = [](contents_t& c) {
@@ -1335,6 +1377,12 @@ void parse_flags(void) {
             lua = flags.substr(2);
             abort(lua == L(""), L("Missing command in -u flag"));
         } 
+        else if (flags.length() > 2 && flags.substr(0, 2) == L("-y")) {
+            // encryption passphrase
+            STRING y = flags.substr(2);
+            abort(y == L(""), L("Missing passphrase in -y flag"));
+            encryption_passphrase = w2s(y);
+        }
         else if (flags.length() > 2 && flags.substr(0, 2) == L("-e")) {
                 STRING e = flags.substr(2);
                 abort(e == L(""), L("Missing extensions in -e flag"));
@@ -1348,7 +1396,7 @@ void parse_flags(void) {
             abort(true, L("-s flag not supported on *nix"));
 #endif
         } else {
-            size_t e = flags.find_first_not_of(L("-XACwfhuPRrxqcpiLzksatgmv0123456789B"));
+            size_t e = flags.find_first_not_of(L("-XACwfhuPRrxqcpiLzksatgmv0123456789By"));
             if (e != string::npos) {
                 abort(true, L("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
@@ -1505,7 +1553,7 @@ void parse_files(void) {
         abort(full == L("-stdout") || directory == L("-stdin") || argc < 3 + flags_exist, L("Syntax error in source or destination. "));
     } else if (list_flag) {
         abort(argv.size() < 3, L("Specify a backup file. "));
-        abort(argv.size() > 3, L("Too many arguments. "));
+        abort(argv.size() > 4, L("Too many arguments. "));
         full = argv.at(1 + flags_exist);
     }
 
@@ -1590,6 +1638,7 @@ Flags:
   -k  Show deduplication statistics at the end
 -e"x" Don't apply compression or deduplication to files with the file extension
       x. See more with -e?
+-y"x" Encrypt and decrypt the archive with with passphrase x. AES-256 is used.
 
 Example of backup, incremental backups and restore:
   exdupe my_dir backup.exd
@@ -1965,13 +2014,13 @@ void restore_from_file(FILE *ffull, uint64_t backup_set_number) {
             size_t process = minimum(c.size - resolved, RESTORE_CHUNKSIZE);
             resolve(c.payload + resolved, process, restore_buffer.data(), ffull);
             checksum(restore_buffer.data(), process, &t);
-            io.write(restore_buffer.data(), process, ofile, c.sparse);
+            fileio.write(restore_buffer.data(), process, ofile, c.sparse);
             update_statusbar_restore(outfile);
             resolved += process;
         }
         if (!pipe_out) {
-            io.close(ofile, c.sparse);
-//            set_meta(remove_delimitor(dstdir) + DELIM_STR + c.name, c);
+            fileio.close(ofile, c.sparse);
+            //            set_meta(remove_delimitor(dstdir) + DELIM_STR + c.name, c);
             set_meta(outfile, c);
         }
         abort(c.hash != t.result(), retvals::err_other, format(L("File checksum error {}"), c.name));
@@ -2100,23 +2149,23 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
             while (resolved < len) {
                 if (payload + resolved >= payload_orig) {
                     size_t fo = belongs_to(payload + resolved);
-                    int j = io.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
+                    int j = fileio.seek(ofile, payload + resolved - payload_orig, SEEK_SET);
                     massert(j == 0, "Internal error or destination drive is not seekable", infiles.at(fo).filename, payload, payload_orig);
-                    len2 = io.read_vector(out, len - resolved, resolved, ofile, false);
+                    len2 = fileio.read_vector(out, len - resolved, resolved, ofile, false);
                     massert(!(len2 != len - resolved), "Internal error: Reference points past current output file", infiles.at(fo).filename, len, len2);
                     resolved += len2;
-                    io.seek(ofile, 0, SEEK_END);
+                    fileio.seek(ofile, 0, SEEK_END);
                 } else {
                     FILE *ifile2;
                     size_t fo = belongs_to(payload + resolved);
                     {
                         ifile2 = try_open(infiles.at(fo).filename, 'r', true);
                         infiles.at(fo).handle = ifile2;
-                        int j = io.seek(ifile2, payload + resolved - infiles.at(fo).offset, SEEK_SET);
+                        int j = fileio.seek(ifile2, payload + resolved - infiles.at(fo).offset, SEEK_SET);
                         massert(j == 0, "Internal error or destination drive is not seekable", infiles.at(fo).filename, payload, infiles.at(fo).offset);
                     }
                     // FIXME only request to read exact amount, so that we can call with read_exact = true
-                    len2 = io.read_vector(out, len - resolved, resolved, ifile2, false);
+                    len2 = fileio.read_vector(out, len - resolved, resolved, ifile2, false);
                     resolved += len2;
                     fclose(ifile2);
                 }
@@ -2151,14 +2200,14 @@ void data_chunk_from_stdin(vector<contents_t> &c) {
             update_statusbar_restore(destfile);
         }
 
-        io.write(&chunkdata[src_consumed], has, ofile, c.at(0).sparse);
+        fileio.write(&chunkdata[src_consumed], has, ofile, c.at(0).sparse);
 
         checksum(&chunkdata[src_consumed], has, &decompress_checksum);
         payload_written += has;
         src_consumed += has;
 
         if (curfile_written == c.at(0).size) {
-            io.close(ofile, c.at(0).sparse);
+            fileio.close(ofile, c.at(0).sparse);
             set_meta(c.at(0).extra, c.at(0));
             ofile = 0;
             curfile_written = 0;
@@ -2193,7 +2242,7 @@ void restore_from_stdin(const STRING& extract_dir) {
     for (;;) {
         char w;
 
-        r = io.read(&w, 1, ifile);
+        r = reader.read(&w, 1, ifile);
         abort(r == 0, L("Unexpected end of archive (block tag)"));
 
         if (w == 'I') {
@@ -2236,7 +2285,7 @@ void restore_from_stdin(const STRING& extract_dir) {
                 // May not have a corresponding data chunk ('A' block) to trigger decompress_files()
                 FILE* h = create_file(buf2, c.sparse);
                 files++;
-                io.close(h, c.sparse);
+                fileio.close(h, c.sparse);
                 set_meta(buf2, c);
             }
             else {
@@ -2250,7 +2299,7 @@ void restore_from_stdin(const STRING& extract_dir) {
         }
         else if (w == 'C') { // crc
             auto &arr = file_queue.at(file_queue.size() - 1).hash;
-            io.read(arr.data(), sizeof(arr), ifile);
+            reader.read(arr.data(), sizeof(arr), ifile);
         }
         else if (w == 'L') { // symlink
             contents_t c;
@@ -2290,13 +2339,13 @@ void restore_from_stdin(const STRING& extract_dir) {
 
         auto ofile = create_file(dst, i.sparse);
         auto ifile = try_open(src, 'r', true);
-        for (size_t r; (r = io.read(buf.data(), DISK_READ_CHUNK, ifile, false));) {
-            io.write(buf.data(), r, ofile, i.sparse);
+        for (size_t r; (r = fileio.read(buf.data(), DISK_READ_CHUNK, ifile, false));) {
+            fileio.write(buf.data(), r, ofile, i.sparse);
             // fixme dates?
             update_statusbar_restore(dst);
         }
-        io.close(ifile);
-        io.close(ofile, i.sparse);
+        fileio.close(ifile);
+        fileio.close(ofile, i.sparse);
         set_meta(dst, i);
     }
 
@@ -2335,7 +2384,7 @@ void compress_symlink(const STRING &link, const STRING &target, attr_t a) {
     }
 
     update_statusbar_backup(link + L(" -> ") + STRING(tmp));
-    io.write("L", 1, ofile);
+    writer.write("L", 1, ofile);
 
     files++;
 
@@ -2395,8 +2444,8 @@ void empty_q(bool flush, bool entropy) {
 
     auto write_result = [&]() {
         if (cc > 0) {
-            io.write("A", 1, ofile);
-            auto p = io.tell(ofile);
+            writer.write("A", 1, ofile);
+            auto p = writer.tell(ofile);
             chunk_t c;
             c.payload_length = pay;
             c.compressed_length = cc;
@@ -2405,7 +2454,7 @@ void empty_q(bool flush, bool entropy) {
             pay_count += pay;
             chunks.push_back(c);
             chunks_added.push_back(c);
-            io.write(out_result, cc, ofile); 
+            writer.write(out_result, cc, ofile); 
         }
         payload_compressed += pay;
     };
@@ -2489,16 +2538,16 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
         update_statusbar_backup(input_file);
         // Initial read is slow, so we read DISK_READ_CHUNK concurrently (outside compress_file_mutex)
         size_t prefetch = DISK_READ_CHUNK;
-        size_t r = io.read(dummy.data(), prefetch, handle, false);
-        io.seek(handle, 0, SEEK_END);
-        file_size = io.tell(handle);
+        size_t r = fileio.read(dummy.data(), prefetch, handle, false);
+        fileio.seek(handle, 0, SEEK_END);
+        file_size = fileio.tell(handle);
         // fread() can fail on Windows even if the file is opened successfully for reading
         if(r < minimum(file_size, prefetch)) {
             fclose(handle);
             error_reading();
             return;
         }
-        io.seek(handle, 0, SEEK_SET);
+        fileio.seek(handle, 0, SEEK_SET);
     } else {
         file_size = std::numeric_limits<uint64_t>::max();
     }
@@ -2532,7 +2581,7 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
 #if 1 // Detect files with identical payload, both within current backup set, and between full and diff sets
     if(file_size >= IDENTICAL_FILE_SIZE && input_file != L("-stdin")) {
         auto original = identical;
-        auto cont = identical_files.identical_to(handle, file_meta, io, [](uint64_t n, const STRING& file) { identical += n; update_statusbar_backup(file); }, input_file, hash_seed);
+        auto cont = identical_files.identical_to(handle, file_meta, fileio, [](uint64_t n, const STRING& file) { identical += n; update_statusbar_backup(file); }, input_file, hash_seed);
 
         if(cont.has_value()) {
             file_meta.payload = cont.value().payload;
@@ -2545,7 +2594,7 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
 
             if (!incremental) {
                 // todo clear abs_path?
-                io.write("U", 1, ofile);
+                writer.write("U", 1, ofile);
                 write_contents_item(ofile, file_meta);
             }
 
@@ -2555,7 +2604,7 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
             contents_added.push_back(file_meta);
             backup_set.push_back(file_meta.file_id);
 
-            io.close(handle);
+            fileio.close(handle);
             return;            
         }
         else {
@@ -2567,7 +2616,7 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
     checksum_init(&file_meta_ct, hash_seed);
 
     if(!incremental) {
-        io.write("F", 1, ofile);
+        writer.write("F", 1, ofile);
         contents_t tmp = file_meta;
         tmp.abs_path.clear(); // todo why is this cleared?
         write_contents_item(ofile, tmp);
@@ -2575,7 +2624,7 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
 
     file_queue.push_back(file_meta);
     bool entropy = false;
-    io.seek(handle, 0, SEEK_SET);
+    fileio.seek(handle, 0, SEEK_SET);
     
     // todo, simplify - this flag may not be needed
     bool overflows = file_size > DISK_READ_CHUNK - payload_queue_size[current_queue];
@@ -2594,8 +2643,8 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
         update_statusbar_backup(input_file);
 
         size_t read = minimum(file_size - file_read, DISK_READ_CHUNK);
-        size_t r = io.read_vector(payload_queue[current_queue], read, payload_queue_size[current_queue], handle, false);
-        abort(io.stdin_tty() && r != read, (L("Unexpected midway read error, cannot continue: ") + input_file).c_str());
+        size_t r = fileio.read_vector(payload_queue[current_queue], read, payload_queue_size[current_queue], handle, false);
+        abort(fileio.stdin_tty() && r != read, (L("Unexpected midway read error, cannot continue: ") + input_file).c_str());
         checksum(payload_queue[current_queue].data() + payload_queue_size[current_queue], r, &file_meta_ct);
 
         payload_queue_size[current_queue] += r;
@@ -2605,9 +2654,9 @@ void compress_file(const STRING& input_file, const STRING& filename, attr_t attr
         if ((overflows && input_file == L("-stdin") && r == 0) || (file_read == file_size && file_size > 0)) {
             // No CRC block for 0-sized files
             if (file_read > 0) {
-                io.write("C", 1, ofile);
+                writer.write("C", 1, ofile);
                 file_meta.hash = file_meta_ct.result();
-                io.write(file_meta_ct.result().data(), sizeof(file_meta.hash), ofile);
+                writer.write(file_meta_ct.result().data(), sizeof(file_meta.hash), ofile);
             }
             if ((overflows && input_file == L("-stdin") && r == 0)) {
                 break;
@@ -2751,7 +2800,7 @@ void compress_recursive(const STRING &base_dir, vector<STRING> items2, bool top_
                 c.file_modified = file_time.written;
                 size_t siz = filesize(sub, false);
                 c.size = siz;
-                io.write("U", 1, ofile);
+                writer.write("U", 1, ofile);
                 write_contents_item(ofile, c);
                 contents.push_back(c);
                 contents_added.push_back(c);
@@ -3048,7 +3097,7 @@ void main_compress() {
         if (verbose_level > 0) {
             statusbar.update(BACKUP, 0, 0, (STRING() + L("Reading metadata...\r")).c_str(), true, true);
         }
-        uint64_t memory_usage_from_file = read_header(ifile, &lastgood); // also inits hash_seed and sets
+        uint64_t memory_usage_from_file = read_file_header(ifile, &lastgood); // also inits hash_seed and sets
         abort((gigabyte_flag || megabyte_flag) && memory_usage != memory_usage_from_file, retvals::err_other, "Skip the -m or -g flag or use the same value as during the initial backup");
         memory_usage = memory_usage_from_file;
 
@@ -3074,42 +3123,44 @@ void main_compress() {
         }
 
         if (!was_killed) {
-            io.seek(ifile, 0, SEEK_END);
-            original_file_size = io.tell(ifile);
+            reader.seek(ifile, 0, SEEK_END);
+            original_file_size = reader.tell(ifile);
             read_hashtable(ifile);
             seek_to_header(ifile, hashtable_header);
-            io.seek(ifile, -8, SEEK_CUR);
-            io.truncate(ifile);
+            reader.seek(ifile, -8, SEEK_CUR);
+            reader.truncate(ifile);
         } else {
             // eXdupe was killed during last incremental backup
-            io.seek(ifile, lastgood, SEEK_SET);
-            io.truncate(ifile);
-            original_file_size = io.tell(ifile);
+            reader.seek(ifile, lastgood, SEEK_SET);
+            reader.truncate(ifile);
+            original_file_size = reader.tell(ifile);
         }
 
     } else {
         output_file = full;
         ofile = create_file(output_file);
         hash_seed = static_cast<uint32_t>(rnd64());
+        archive_iv = rndstr(12);
+        passphrase_salt = rndstr(16);
         hashtable = tmalloc(memory_usage);
         abort(!hashtable, retvals::err_memory, "Out of memory. Reduce -m, -g or -t flag");
         int r = dup_init(DEDUPE_LARGE, DEDUPE_SMALL, memory_usage, threads, hashtable, compression_level, hash_seed, 0);
         abort(r == 1, retvals::err_memory, "Out of memory. Reduce -m, -g or -t flag");
         abort(r == 2, retvals::err_memory, "Error creating threads. Reduce -m, -g or -t flag");
-        write_header(ofile, memory_usage, hash_seed, 0);
+        write_file_header(ofile, memory_usage, hash_seed, 0);
     }
 
     auto commit = [&]() {
         if (output_file != L("-stdout")) {
-            lastgood = io.tell(ofile);
-            io.seek(ofile, 0, SEEK_SET);
-            write_header(ofile, memory_usage, hash_seed, lastgood);
-            io.seek(ofile, lastgood, SEEK_SET);
+            lastgood = reader.tell(ofile);
+            writer.seek(ofile, 0, SEEK_SET);
+            write_file_header(ofile, memory_usage, hash_seed, lastgood);
+            writer.seek(ofile, lastgood, SEEK_SET);
         }
     };
 
-    io.write(payload_header.data(), payload_header.size(), ofile);
-    uint64_t w = io.write_count;
+    writer.write(payload_header.data(), payload_header.size(), ofile);
+    uint64_t w = writer.write_count;
 
     start_time_without_overhead = GetTickCount64();
 
@@ -3136,10 +3187,10 @@ void main_compress() {
     // from deduplication. If killed or crashed, the archive is left with no hashtable at all; it will
     // then be rebuilt gradually during the next backups.
 
-    io.write("X", 1, ofile);
+    writer.write("X", 1, ofile);
 
     // PAYLOADD header end length
-    io.write_ui<uint64_t>(io.write_count - w, ofile);
+    writer.write_ui<uint64_t>(writer.write_count - w, ofile);
 
     uint64_t end_time_without_overhead = GetTickCount64();
     size_t references_size = write_chunks_added(ofile);
@@ -3150,7 +3201,7 @@ void main_compress() {
     if (verbose_level > 0) {
         //statusbar.clear_line();
         STRING msg = aborted ? L("Aborting, please wait...\r") : L("Writing metadata...\r");
-        statusbar.update(BACKUP, backup_set_size(), io.write_count, msg.c_str(), true, true);
+        statusbar.update(BACKUP, backup_set_size(), writer.write_count, msg.c_str(), true, true);
     }
 
     if (!aborted) {
@@ -3163,7 +3214,7 @@ void main_compress() {
 
     size_t hashtable_size = write_hashtable(ofile);
 
-    io.write(file_footer.data(), file_footer.size(), ofile);
+    writer.write(file_footer.data(), file_footer.size(), ofile);
 
     if (verbose_level > 0 && verbose_level < 3) {
         statusbar.clear_line();
@@ -3171,12 +3222,12 @@ void main_compress() {
 
     uint64_t added = 0;
     if (ofile != stdout) {
-        io.seek(ofile, 0, SEEK_END);
-        added = io.tell(ofile) - original_file_size;
-        io.close(ofile);
+        reader.seek(ofile, 0, SEEK_END);
+        added = reader.tell(ofile) - original_file_size;
+        writer.close(ofile);
 
     } else {
-        added = io.write_count;
+        added = writer.write_count;
     }
 
     if (statistics_flag) {
@@ -3194,33 +3245,33 @@ void main_restore() {
         // =================================================================================================
         if (incremental) {
             FILE *ffull = try_open(full, 'r', true);
-            read_header(ffull, nullptr); // inits sets
+            read_file_header(ffull, nullptr); // inits sets
             init_content_maps(ffull);
         } else {
             ifile = try_open(full, 'r', true);
-            read_header(ifile, nullptr); // initializes sets
+            read_file_header(ifile, nullptr); // initializes sets
             read_headers(ifile);
             restore::restore_from_file(ifile, set_flag == static_cast<uint32_t>(-1) ? 0 : set_flag);
         }
-        wrote_message(io.write_count + hardlinked, files);
+        wrote_message(writer.write_count + hardlinked, files);
     } else if ((full == L("-stdin")) && restorelist.size() == 0) {
         // fixme, only archives containing 1 set can be restored this way; add detection+error handling
         // Restore from stdin. Only entire archive can be restored this way
         STRING s = remove_delimitor(directory);
         ifile = try_open(full, 'r', true);
-        read_header(ifile, nullptr);
+        read_file_header(ifile, nullptr);
 
         // seek_to_header(ifile, "PAYLOADD");
         char tmp2[8];
-        io.read(tmp2, 8, ifile, true);
+        reader.read(tmp2, 8, ifile, true);
 
         restore::restore_from_stdin(s);
         rassert(!incremental);
-        wrote_message(io.write_count + hardlinked, files);
+        wrote_message(writer.write_count + hardlinked, files);
 
         // read remainder of file like content section, etc, to avoid error from OS
         vector<std::byte> tmp(32 * 1024, {});
-        while (ifile == stdin && io.read(tmp.data(), 32 * 1024, stdin, false)) {
+        while (ifile == stdin && reader.read(tmp.data(), 32 * 1024, stdin, false)) {
         }
     }
 }
@@ -3233,6 +3284,37 @@ int main(int argc2, char *argv2[])
 {
     int retval = 0;
     use_aesni = dup_is_aesni_supported();
+
+    // Quick micro-benchmark for tinyaes CTR implementation.
+    // Activate by setting environment variable TINYAES_BENCH (any value).
+ if(false){
+        const size_t buf_size = 16;        //1 * M; // 16 MiB per iteration
+        const int iterations = 10000;
+        std::vector<uint8_t> in(buf_size), out(buf_size);
+        std::vector<uint8_t> key(32), iv(16);
+        std::mt19937_64 rng(123456);
+        for (size_t i = 0; i < buf_size; ++i) in[i] = static_cast<uint8_t>(rng() & 0xFF);
+        for (size_t i = 0; i < key.size(); ++i) key[i] = static_cast<uint8_t>(rng() & 0xFF);
+        for (size_t i = 0; i < iv.size(); ++i) iv[i] = static_cast<uint8_t>(rng() & 0xFF);
+
+        auto t0 = std::chrono::high_resolution_clock::now();
+        int rc = 0;
+        for (int it = 0; it < iterations; ++it) {
+            rc = tinyaes_ctr_crypt(key.data(), key.size(), iv.data(), in.data(), in.size(), out.data(), out.size());
+            if (rc != TINYAES_OK) break;
+        }
+        auto t1 = std::chrono::high_resolution_clock::now();
+        if (rc != TINYAES_OK) {
+            std::wcerr << "tinyaes_ctr_crypt failed: " << rc << std::endl;
+            return static_cast<int>(retvals::err_other);
+        }
+        double secs = std::chrono::duration<double>(t1 - t0).count();
+        double total_mb = (double)buf_size * iterations / (1024.0 * 1024.0);
+        double mbps = total_mb / secs;
+        std::wcerr << "tinyaes CTR benchmark: " << total_mb << " MiB in " << secs << " s => " << mbps << " MiB/s\n";
+        getchar();
+        return 0;
+    }
 
 #ifdef _WIN32
     // Warning: Apparently you can only call _setmode once for a given stream, else it will assert

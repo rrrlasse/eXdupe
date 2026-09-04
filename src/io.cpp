@@ -15,6 +15,11 @@
 #include "unicode.h"
 #include "utilities.hpp"
 #include "abort.h"
+#include "aes.hpp"
+#include <optional>
+#include <unordered_map>
+#include <array>
+#include <string>
 
 #ifdef _WIN32
 #include <io.h>
@@ -32,6 +37,22 @@
 #endif
 
 using std::wstring;
+
+void Cio::set_encryption(const std::string &passphrase, const std::string &iv, const std::string &passphrase_salt) {    
+    m_passphrase = passphrase;
+    m_iv = iv;
+    m_passphrase_salt = passphrase_salt;
+    m_derived_key = dup_crypto::derive_key_from_passphrase(m_passphrase, m_passphrase_salt);
+    m_passphrase_salt.clear();
+    m_passphrase.clear();
+}
+
+void Cio::disable_encryption() {
+    m_passphrase.clear();
+    m_iv.clear();
+    m_passphrase_salt.clear();
+    m_derived_key.reset();
+}
 
 Cio::Cio() {
     write_count = 0;
@@ -70,17 +91,47 @@ FILE *Cio::open(STRING file, char mode) {
 
 }
 
-uint64_t Cio::tell(FILE *_File) { return _ftelli64(_File); }
+uint64_t Cio::tell(FILE *_File) {
+    if (_File == stdout) {
+        return write_count;
+    } else if (_File == stdin) {
+        return read_count;
+    }
+    return _ftelli64(_File); 
+
+}
 
 int Cio::seek(FILE *_File, int64_t _Offset, int Origin) { return _fseeki64(_File, _Offset, Origin); }
 
 size_t Cio::write(const void *Str, size_t Count, FILE *_File, bool sparse) {
-    size_t c = 0;
+    const void *writebuf;
+    std::unique_ptr<uint8_t[]> rawbuf;
 
+    if (!m_derived_key.has_value()) {
+        writebuf = Str;
+    }
+    else {
+        auto &key = m_derived_key.value();
+        long long filepos = tell(_File);
+        uint64_t data_offset = static_cast<uint64_t>(filepos);
+
+        if (Count > 0) {
+            if (m_scratch_buffer.size() < Count)
+                m_scratch_buffer.resize(Count);
+            std::memcpy(m_scratch_buffer.data(), Str, Count);
+        }
+
+        // Use centralized AES CTR helper to handle IV and unaligned offsets
+        dup_crypto::aes256_ctr_xor_with_iv(m_scratch_buffer.data(), Count, key.data(), reinterpret_cast<const uint8_t*>(m_iv.data()), static_cast<uint64_t>(data_offset));
+
+        writebuf = m_scratch_buffer.data();
+    }
+
+    size_t c = 0;
     if (!sparse) {
         while (c < Count) {
             size_t w = Count - c;
-            size_t r = fwrite((char *)Str + c, 1, w, _File);
+            size_t r = fwrite((char *)writebuf + c, 1, w, _File);
             write_count += r;
             abort(r != w, retvals::err_write, "Disk full or write denied while writing destination file");
             c += r;
@@ -90,7 +141,7 @@ size_t Cio::write(const void *Str, size_t Count, FILE *_File, bool sparse) {
 
     while (c < Count) {
         size_t run_start = c;
-        const char *ptr = static_cast<const char *>(Str);
+        const char *ptr = static_cast<const char *>(writebuf);
         while (c < Count && ptr[c] == 0) {
             c++;
         }
@@ -114,21 +165,36 @@ size_t Cio::write(const void *Str, size_t Count, FILE *_File, bool sparse) {
         }
     }
     return Count;
+    
+
 }
 
 size_t Cio::read(void* DstBuf, size_t Count, FILE* _File, bool read_exact) {
-    size_t c = 0;
+    size_t actually_read = 0;
+
     for(;;) {
-        size_t r = Count - c;
-        size_t w = fread((char*)DstBuf + c, 1, r, _File);
+        size_t r = Count - actually_read;
+        size_t w = fread((char*)DstBuf + actually_read, 1, r, _File);
         read_count += w;
         abort(read_exact && stdin_tty() && w != r, L("Unexpected end of source file"));
-        c += w;
-        if(c == Count || w != r) {
+        actually_read += w;
+        if(actually_read == Count || w != r) {
             break;
         }
     }
-    return c;
+    if (!m_derived_key.has_value()) {
+        return actually_read;
+    }
+
+    long long data_offset = tell(_File) - actually_read;
+    abort(m_iv.size() != ENC_IV_LEN, retvals::err_other, L("Invalid IV size for decryption"));
+
+    const uint8_t *iv12 = reinterpret_cast<const uint8_t*>(m_iv.data());
+    if (actually_read > 0) {
+        dup_crypto::aes256_ctr_xor_with_iv(static_cast<uint8_t*>(DstBuf), actually_read, m_derived_key->data(), iv12, static_cast<uint64_t>(data_offset));
+    }
+
+    return actually_read;
 }
 
 size_t Cio::read_vector(std::vector<char>& dst, size_t count, size_t offset, FILE* f, bool read_exact) {
@@ -142,7 +208,7 @@ size_t Cio::read_vector(std::vector<char>& dst, size_t count, size_t offset, FIL
 std::string Cio::read_bin_string(size_t Count, FILE *_File) {
     std::string str(Count, 'c');
     if(Count > 0) {
-        size_t r = Cio::read(&str[0], Count, _File);
+        size_t r = Cio::read(&str[0], Count, _File, true);
         abort(stdin_tty() && r != Count, L("Unexpected end of source file"));
     }
     return str;
@@ -163,16 +229,17 @@ STRING Cio::read_utf8_string(FILE *_File) {
 }
 
 void Cio::write_utf8_string(STRING str, FILE *_File) {
+    // Note: overload with optional key exists in header; this implementation keeps legacy behavior
 #ifdef _WIN32
     int req = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, nullptr, 0, nullptr, nullptr);
     std::vector<char> v(req, L'c');
     WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, &v[0], static_cast<int>(req), 0, 0);
     req--; // WideCharToMultiByte() adds trailing zero
     write_compact<uint64_t>(req, _File);
-    write(&v[0], req, _File);
+    write(&v[0], req, _File, false);
 #else
     write_compact<uint64_t>(str.size(), _File);
-    write(str.c_str(), str.size(), _File);
+    write(str.c_str(), str.size(), _File, false);
 #endif
     }
 

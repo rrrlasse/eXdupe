@@ -6,3 +6,6 @@ if (MSVC)
 else()
 	target_compile_options(test PRIVATE -mvaes -maes -msse2)	
 endif(MSVC)
+
+# Link tinyaes so tests can resolve tinyaes C API used by aes.hpp
+target_link_libraries(test PRIVATE tinyaes)
