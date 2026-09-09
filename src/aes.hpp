@@ -229,11 +229,10 @@ inline std::array<uint8_t, 32> pbkdf2_sha256(const void *password, size_t passwo
 }
 
 inline void aes256_ctr_xor(uint8_t *data, size_t len, const uint8_t key[32], uint8_t ctr[16]) {
-    if (len == 0)
+    if (len == 0) {
         return;
-    std::vector<uint8_t> out(len);
-    tinyaes_ctr_crypt(key, 32, ctr, data, len, out.data(), out.size());
-    std::memcpy(data, out.data(), len);
+    }
+    tinyaes_ctr_crypt(key, 32, ctr, data, len, data, len);
 }
 
 inline void aes256_encrypt_block(const uint8_t in[16], uint8_t out[16], const uint8_t key[32]) {
