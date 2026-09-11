@@ -2454,7 +2454,7 @@ void empty_q(bool flush, bool entropy) {
             pay_count += pay;
             chunks.push_back(c);
             chunks_added.push_back(c);
-            writer.write(out_result, cc, ofile); 
+            writer.nonconst_write(out_result, cc, ofile); // NOTE: Overwrites source with in-place encryption if enabled
         }
         payload_compressed += pay;
     };

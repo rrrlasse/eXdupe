@@ -103,35 +103,23 @@ uint64_t Cio::tell(FILE *_File) {
 
 int Cio::seek(FILE *_File, int64_t _Offset, int Origin) { return _fseeki64(_File, _Offset, Origin); }
 
-size_t Cio::write(const void *Str, size_t Count, FILE *_File, bool sparse) {
-    const void *writebuf;
-    std::unique_ptr<uint8_t[]> rawbuf;
-
-    if (!m_derived_key.has_value()) {
-        writebuf = Str;
-    }
-    else {
+size_t Cio::nonconst_write(void *Str, size_t Count, FILE *_File, bool sparse) {
+    if (m_derived_key.has_value()) {
         auto &key = m_derived_key.value();
         long long filepos = tell(_File);
         uint64_t data_offset = static_cast<uint64_t>(filepos);
-
-        if (Count > 0) {
-            if (m_scratch_buffer.size() < Count)
-                m_scratch_buffer.resize(Count);
-            std::memcpy(m_scratch_buffer.data(), Str, Count);
-        }
-
-        // Use centralized AES CTR helper to handle IV and unaligned offsets
-        dup_crypto::aes256_ctr_xor_with_iv(m_scratch_buffer.data(), Count, key.data(), reinterpret_cast<const uint8_t*>(m_iv.data()), static_cast<uint64_t>(data_offset));
-
-        writebuf = m_scratch_buffer.data();
+        dup_crypto::aes256_ctr_xor_with_iv((uint8_t *)Str, Count, key.data(), reinterpret_cast<const uint8_t *>(m_iv.data()), static_cast<uint64_t>(data_offset));
     }
 
+    return raw_write(Str, Count, _File, sparse);
+}
+
+size_t Cio::raw_write(const void *Str, size_t Count, FILE *_File, bool sparse) {
     size_t c = 0;
     if (!sparse) {
         while (c < Count) {
             size_t w = Count - c;
-            size_t r = fwrite((char *)writebuf + c, 1, w, _File);
+            size_t r = fwrite((char *)Str + c, 1, w, _File);
             write_count += r;
             abort(r != w, retvals::err_write, "Disk full or write denied while writing destination file");
             c += r;
@@ -141,7 +129,7 @@ size_t Cio::write(const void *Str, size_t Count, FILE *_File, bool sparse) {
 
     while (c < Count) {
         size_t run_start = c;
-        const char *ptr = static_cast<const char *>(writebuf);
+        const char *ptr = static_cast<const char *>(Str);
         while (c < Count && ptr[c] == 0) {
             c++;
         }
@@ -165,8 +153,30 @@ size_t Cio::write(const void *Str, size_t Count, FILE *_File, bool sparse) {
         }
     }
     return Count;
-    
+}
 
+
+size_t Cio::write(const void *Str, size_t Count, FILE *_File, bool sparse) {
+    const void *writebuf;
+    std::unique_ptr<uint8_t[]> rawbuf;
+
+    if (!m_derived_key.has_value()) {
+        writebuf = Str;
+    }
+    else {
+        auto &key = m_derived_key.value();
+        long long filepos = tell(_File);
+        uint64_t data_offset = static_cast<uint64_t>(filepos);
+
+        m_scratch_buffer.resize(Count);
+        std::memcpy(m_scratch_buffer.data(), Str, Count);
+        
+        dup_crypto::aes256_ctr_xor_with_iv(m_scratch_buffer.data(), Count, key.data(), reinterpret_cast<const uint8_t*>(m_iv.data()), static_cast<uint64_t>(data_offset));
+
+        writebuf = m_scratch_buffer.data();
+    }
+
+    return raw_write(writebuf, Count, _File, sparse);
 }
 
 size_t Cio::read(void* DstBuf, size_t Count, FILE* _File, bool read_exact) {

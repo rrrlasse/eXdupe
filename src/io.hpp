@@ -37,16 +37,19 @@ class Cio {
     void set_encryption(const std::string &passphrase, const std::string &iv, const std::string &passphrase_salt);
     void disable_encryption();
     size_t write(const void *Str, size_t Count, FILE *_File, bool sparse = false);
+    size_t nonconst_write(void *Str, size_t Count, FILE *_File, bool sparse = false);
     size_t read(void *DstBuf, size_t Count, FILE *_File, bool read_exact = true);
     size_t read_vector(std::vector<char>& dst, size_t count, size_t offset, FILE* f, bool read_exact);
     STRING read_utf8_string(FILE *_File);
     void write_utf8_string(STRING str, FILE *_File);
     std::string read_bin_string(size_t Count, FILE *_File);
     void truncate(FILE *file);
-    // legacy: removed opt_enc; use set_global_encryption / disable_encryption
-
     static bool stdin_tty();
-    
+
+private:
+    size_t raw_write(const void *Str, size_t Count, FILE *_File, bool sparse);
+
+public:
     uint64_t read_count = 0;
     uint64_t write_count = 0;
     std::vector<uint8_t> m_scratch_buffer;
