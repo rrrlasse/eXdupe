@@ -29,7 +29,14 @@ Incremental backup after some random work inside the virtual machine:
 [exdupe.exe](https://github.com/rrrlasse/eXdupe/releases/download/v4.0.0/exdupe.exe)<br>
 [exdupe_4.0.0_linux_amd64](https://github.com/rrrlasse/eXdupe/releases/download/v4.0.0/exdupe_4.0.0_linux_amd64)
 
-Try the early prototype of [version 5](https://github.com/rrrlasse/eXdupe/releases/tag/nightly) with support for AES-256 encryption, hardlinks, sparse files, ACL, ADS, junctions and xattr. It also uses the new much faster [memlz](https://github.com/rrrlasse/memlz) and [intrinhash](https://github.com/rrrlasse/intrinhash) libraries for compression and hashing.
+Also try an early prototype of [version 5](https://github.com/rrrlasse/eXdupe/releases/tag/nightly) with following news:
+* AES-256 encryption
+* Hardlinks
+* Sparse files
+* ACL/ADS
+* Junctions
+* Extended attributes
+* Switched to [memlz](https://github.com/rrrlasse/memlz) and [intrinhash](https://github.com/rrrlasse/intrinhash)
 
 ## Build
 It has been tested on Windows, Linux and FreeBSD.
