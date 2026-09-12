@@ -29,7 +29,7 @@ Incremental backup after some random work inside the virtual machine:
 [exdupe.exe](https://github.com/rrrlasse/eXdupe/releases/download/v4.0.0/exdupe.exe)<br>
 [exdupe_4.0.0_linux_amd64](https://github.com/rrrlasse/eXdupe/releases/download/v4.0.0/exdupe_4.0.0_linux_amd64)
 
-Also try an early prototype of [version 5](https://github.com/rrrlasse/eXdupe/releases/tag/nightly) with following news:
+Also try an early prototype of **[version 5](https://github.com/rrrlasse/eXdupe/releases/tag/nightly)** with following news:
 * AES-256 encryption
 * Hardlinks
 * Sparse files
