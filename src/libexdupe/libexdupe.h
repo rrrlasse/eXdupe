@@ -44,7 +44,7 @@ int dup_decompress(const char *src, char *dst, size_t *length, uint64_t *payload
 size_t dup_decompress_chunk(char *src, char *dst);
 int dup_packet_info(const char *src, size_t *length, uint64_t *payload, const char **literal);
 
-size_t dup_compressed_ubound(size_t input);
+size_t dup_lz_compressed_ubound(size_t input);
 size_t dup_size_compressed(const char *src);
 size_t dup_size_decompressed(const char *src);
 size_t dup_chunk_size_compressed(char *src);

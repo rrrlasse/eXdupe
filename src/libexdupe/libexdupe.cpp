@@ -1087,34 +1087,36 @@ static void *compress_thread(void *arg) {
 
         me->busy = true;
         pthread_mutex_unlock_wrapper(&me->jobmutex);
-        chunk_t *c = (chunk_t *)me->destination;
+        chunk_t *destination_header = (chunk_t *)me->destination;
         memlz_state ch;
-        // level = 0: no compression
-        // level = 1: memlz (streaming)
-        // level > 1: zstd (block)
 
         // level 0: no LZ compression
         // level 1: memlz - process_chunk performs it (streaming mode)
         // level 2..4: zstd - performed here (block mode because zstd streaming mode seems to have a performance flaw)
 
+        // TODO: The logic below has become messy. Should be simple to refactor
+
         if(!me->entropy) {
+            bool do_zstd = level > 1 && is_compressible(destination_header->payload, me->size_destination);
+
             hash_chunk(me->source, me->payload, me->size_source);
             if (level == 1) {
                 memlz_reset(&ch);            
             }
-            me->size_destination = process_chunk(me->source, me->payload, me->size_source, c->payload, level == 1 ? &ch : 0);
+
+            me->size_destination = process_chunk(me->source, me->payload, me->size_source, do_zstd ? me->tmp_buffer : destination_header->payload, level == 1 ? &ch : 0);
+            stored_as_literals += me->size_source;
+
             if (level == 1) {
-                ll2str(ch.total_input, c->decompressed_size, 4);
+                ll2str(ch.total_input, destination_header->decompressed_size, 4);
                 me->size_destination = ch.total_output;
                 me->destination[0] = DUP_STREAM_COMPRESSED_CHUNK;
             }
-            stored_as_literals += me->size_source;
-            bool do_zstd = level > 1 && is_compressible(c->payload, me->size_destination);
+
             if (do_zstd) {
-                auto siz = zstd_compress(c->payload, me->size_destination, me->tmp_buffer, level, me->zstd);                
+                auto siz = zstd_compress(me->tmp_buffer, me->size_destination, destination_header->payload, level, me->zstd);                
                 literals_compressed_size += siz;
-                ll2str(me->size_destination, c->decompressed_size, 4);
-                memcpy(c->payload, me->tmp_buffer, siz);
+                ll2str(me->size_destination, destination_header->decompressed_size, 4);
                 me->size_destination = siz;
                 me->destination[0] = DUP_BLOCK_COMPRESSED_CHUNK;
             } else {
@@ -1125,14 +1127,14 @@ static void *compress_thread(void *arg) {
             }
         }
         else {
-            me->size_destination = write_literals(me->source, me->size_source, c->payload, 0);
+            me->size_destination = write_literals(me->source, me->size_source, destination_header->payload, 0);
             me->destination[0] = DUP_UNCOMPRESSED_CHUNK;
         }
         me->size_destination += sizeof(chunk_t);
 
-        rassert(me->size_destination <= dup_compressed_ubound(me->size_source));
+        rassert(me->size_destination <= dup_lz_compressed_ubound(me->size_source));
 
-        ll2str(me->size_destination, c->compressed_size, 4);
+        ll2str(me->size_destination, destination_header->compressed_size, 4);
         pthread_mutex_lock_wrapper(&me->jobmutex);
         me->busy = false;
         pthread_mutex_unlock_wrapper(&me->jobmutex);
@@ -1246,7 +1248,7 @@ void dup_deinit(void) {
     }
 }
 
-size_t dup_compressed_ubound(size_t input) {
+size_t dup_lz_compressed_ubound(size_t input) {
     size_t zstd = ZSTD_compressBound(input);
     size_t exdupe = size_t(1.1 * zstd + 1024);
     return exdupe;
@@ -1451,10 +1453,10 @@ size_t dup_compress(const void *src, char *dst, size_t size, uint64_t *payload_r
         jobs[f].entropy = entropy;
         jobs[f].source = (char*)src;
         jobs[f].destination = (char*)dst;
-        size_t ub = dup_compressed_ubound(size);
+
+        size_t ub = dup_lz_compressed_ubound(size);
         if (jobs[f].tmp_buffer_size < ub) {
-            free(jobs[f].tmp_buffer);
-            jobs[f].tmp_buffer = (char*)malloc(ub);
+            jobs[f].tmp_buffer = (char*)realloc(jobs[f].tmp_buffer, ub);
             if (!jobs[f].tmp_buffer) {
                 return dup_err_malloc;
             }

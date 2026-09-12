@@ -3082,7 +3082,7 @@ void main_compress() {
         size_t drc = DISK_READ_CHUNK;
         compression::payload_queue.push_back(std::vector<char>(drc));
         compression::payload_queue_size.push_back(0);
-        compression::out_payload_queue.push_back(std::vector<char>(dup_compressed_ubound(drc)));
+        compression::out_payload_queue.push_back(std::vector<char>(dup_lz_compressed_ubound(drc)));
         compression::out_payload_queue_size.push_back(0);
     }
 
