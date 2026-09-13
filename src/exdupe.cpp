@@ -3253,7 +3253,7 @@ void main_restore() {
             read_headers(ifile);
             restore::restore_from_file(ifile, set_flag == static_cast<uint32_t>(-1) ? 0 : set_flag);
         }
-        wrote_message(writer.write_count + hardlinked, files);
+        wrote_message(fileio.write_count + hardlinked, files);
     } else if ((full == L("-stdin")) && restorelist.size() == 0) {
         // fixme, only archives containing 1 set can be restored this way; add detection+error handling
         // Restore from stdin. Only entire archive can be restored this way
@@ -3267,7 +3267,7 @@ void main_restore() {
 
         restore::restore_from_stdin(s);
         rassert(!incremental);
-        wrote_message(writer.write_count + hardlinked, files);
+        wrote_message(fileio.write_count + hardlinked, files);
 
         // read remainder of file like content section, etc, to avoid error from OS
         vector<std::byte> tmp(32 * 1024, {});
