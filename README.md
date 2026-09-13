@@ -49,5 +49,5 @@ make
 ## About
 It uses a new sliding-window deduplication algorithm to find identical data blocks as small as 4 KB at byte grannularity positions across terabytes. Traditional compression is optionally applied afterwards.
 
-It reaches **4.7 gigabyte/second** (command line flags -g1t3x0) with just 3 threads if not disk bound.
+It reaches **5 gigabyte/second** (command line flags -g1t4x1) with just 4 threads if not disk bound.
 <img src="https://exdupe.net/exdupe3.png" width="90%">
