@@ -1088,7 +1088,7 @@ static void *compress_thread(void *arg) {
         me->busy = true;
         pthread_mutex_unlock_wrapper(&me->jobmutex);
         chunk_t *destination_header = (chunk_t *)me->destination;
-        memlz_state ch;
+        memlz_state memlz;
 
         // level 0: no LZ compression
         // level 1: memlz - process_chunk performs it (streaming mode)
@@ -1097,19 +1097,21 @@ static void *compress_thread(void *arg) {
         // TODO: The logic below has become messy. Should be simple to refactor
 
         if(!me->entropy) {
-            bool do_zstd = level > 1 && is_compressible(destination_header->payload, me->size_destination);
+            bool compressible = is_compressible(me->source, me->size_source);
+            bool do_zstd = level > 1 && compressible;
+            bool do_memlz = level == 1 && compressible;
 
             hash_chunk(me->source, me->payload, me->size_source);
-            if (level == 1) {
-                memlz_reset(&ch);            
+            if (do_memlz) {
+                memlz_reset(&memlz);
             }
 
-            me->size_destination = process_chunk(me->source, me->payload, me->size_source, do_zstd ? me->tmp_buffer : destination_header->payload, level == 1 ? &ch : 0);
+            me->size_destination = process_chunk(me->source, me->payload, me->size_source, do_zstd ? me->tmp_buffer : destination_header->payload, do_memlz ? &memlz : 0);
             stored_as_literals += me->size_source;
 
-            if (level == 1) {
-                ll2str(ch.total_input, destination_header->decompressed_size, 4);
-                me->size_destination = ch.total_output;
+            if (do_memlz) {
+                ll2str(memlz.total_input, destination_header->decompressed_size, 4);
+                me->size_destination = memlz.total_output;
                 me->destination[0] = DUP_STREAM_COMPRESSED_CHUNK;
             }
 
@@ -1120,7 +1122,7 @@ static void *compress_thread(void *arg) {
                 me->size_destination = siz;
                 me->destination[0] = DUP_BLOCK_COMPRESSED_CHUNK;
             } else {
-                me->destination[0] = level == 1 ? DUP_STREAM_COMPRESSED_CHUNK : DUP_UNCOMPRESSED_CHUNK;
+                me->destination[0] = do_memlz ? DUP_STREAM_COMPRESSED_CHUNK : DUP_UNCOMPRESSED_CHUNK;
                 if (level == 0) {
                     literals_compressed_size += me->size_destination;
                 }
