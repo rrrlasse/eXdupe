@@ -127,17 +127,21 @@ size_t DEDUPE_LARGE = 128 * K;
 
 // Data is read from disk and deduplicated in DISK_READ_CHUNK bytes at a time
 // during backup.
-const size_t DISK_READ_CHUNK = 1 * M;
+uint32_t DISK_READ_CHUNK = 1 * M;
 
 // Restore takes part by resolving a tree structure of backwards references in
 // past data. Resolve RESTORE_CHUNKSIZE bytes of payload at a time. Be very careful
-// if increasing this value because you can expand a huge tree using much memory
+// if increasing this value because you can expand a huge tree using much memory.
+//
+// OVerwritten if -x flag is set by the user on the command line
 const size_t RESTORE_CHUNKSIZE = 1 * M;
 
 // Keep the last RESTORE_BUFFER bytes of decompressed chunks in memory to save LZ
 // decompression and disk I/O
 const size_t RESTORE_BUFFER = 2 * G;
 
+// Minimum file size needed for identical_files to trigger a test (space saved by
+// identifying identical files might not pay off if the file is too small).
 const size_t IDENTICAL_FILE_SIZE = 1;
 
 #define compile_assert(x) extern int __dummy[(int)x];
@@ -173,6 +177,7 @@ bool no_timestamp_flag = false;
 bool lua_help_flag = false;
 bool e_help_flag = false;
 bool usage_flag = false;
+uint32_t disk_chunk_override = 0; // Hidden, internal
 
 uint32_t verbose_level = 1;
 uint32_t megabyte_flag = 0;
@@ -1396,7 +1401,7 @@ void parse_flags(void) {
             abort(true, L("-s flag not supported on *nix"));
 #endif
         } else {
-            size_t e = flags.find_first_not_of(L("-XACwfhuPRrxqcpiLzksatgmv0123456789By"));
+            size_t e = flags.find_first_not_of(L("-XACwfhuDPRrxqcpiLzksatgmv0123456789By"));
             if (e != string::npos) {
                 abort(true, L("Unknown flag -%s"), flags.substr(e, 1).c_str());
             }
@@ -1404,7 +1409,7 @@ void parse_flags(void) {
             string flagsS = w2s(flags);
 
             // abort if numeric digits are used with a wrong flag
-            if (regx(flagsS, "[^mgwtvsiLxR0123456789][0-9]+") != "") {
+            if (regx(flagsS, "[^mgDwtvsiLxR0123456789][0-9]+") != "") {
                 abort(true, L("Numeric values must be preceded by R, m, g, t, v, or x"));
             }
 
@@ -1467,7 +1472,13 @@ void parse_flags(void) {
             }
 
             if (set_int_flag(compression_level, "x")) {
-                abort(compression_level > 4, L("-x flag value must be 0...4"));
+                abort(compression_level > 5, L("-x flag value must be 0...4"));
+                DISK_READ_CHUNK = compression_level <= 3 ? 1 * M : 8 * M;
+            }
+
+            // Hidden, for experimental testing only
+            if (set_int_flag(disk_chunk_override, "D")) {
+                abort(disk_chunk_override < 1 || disk_chunk_override > 1024, L("-D flag value must be 1...1024"));
             }
 
             if (set_int_flag(set_flag, "R")) {
@@ -1488,6 +1499,11 @@ void parse_flags(void) {
 
         }
     } // end of while
+
+    // Hidden override
+    if (disk_chunk_override > 0) {
+        DISK_READ_CHUNK = disk_chunk_override * M;
+    }
 
     if (i == 1 || (!restore_flag && !list_flag)) {
         flags = L("");
@@ -2435,7 +2451,7 @@ std::mutex compress_file_mutex;
 
 checksum_t file_meta_ct;
 
-vector<char> dummy(DISK_READ_CHUNK);
+vector<char> dummy;
 
 void empty_q(bool flush, bool entropy) {
     uint64_t pay;
@@ -3076,6 +3092,8 @@ void remove_shadows(void) { }
 void main_compress() {
     uint64_t lastgood = 0;
     scope_actions([]() { create_shadows(); }, []() { remove_shadows(); });
+    compression::dummy.resize(DISK_READ_CHUNK);
+    
     file_types.add(entropy_ext);
 
     for (uint32_t i = 0; i < threads + 1; i++) {
