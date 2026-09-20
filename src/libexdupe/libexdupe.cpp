@@ -36,6 +36,8 @@
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include "zstd/lib/zstd.h"
+
+#define MEMLZ_IMPLEMENTATION
 #include "memlz/memlz.h"
 #include "../error_handling.h"
 
@@ -851,7 +853,7 @@ static size_t write_match(size_t length, uint64_t payload, char *dst, memlz_stat
     ll2str(payload, buf + 9, 8); 
 
     if (state) {
-        size_t c = memlz_compress(dst, buf, sizeof(buf), state);
+        size_t c = memlz_stream_compress(dst, buf, sizeof(buf), state);
         return c;
     }
     else {
@@ -881,8 +883,8 @@ static size_t write_literals(const char *src, size_t length, char *dst, memlz_st
     ll2str(0, buf + 9, 8);
 
     if (state) {
-        size_t t = memlz_compress(dst, buf, sizeof(buf), state);
-        t += memlz_compress(dst + t, src, length, state);
+        size_t t = memlz_stream_compress(dst, buf, sizeof(buf), state);
+        t += memlz_stream_compress(dst + t, src, length, state);
         literals_compressed_size += t;
         return t;    
     } else {
@@ -1309,7 +1311,7 @@ size_t dup_decompress_chunk(char *src, char *dst) {
         auto buf = std::make_unique<char[]>(decompressed_size); // fixme, err handling
 
         while (missing > 0) {
-            size_t d = memlz_decompress(buf.get() + decompressed, src + inpos, &c);
+            size_t d = memlz_stream_decompress(buf.get() + decompressed, src + inpos, &c);
             decompressed += d;
             size_t c = memlz_compressed_len(src + inpos);
             inpos += c;
